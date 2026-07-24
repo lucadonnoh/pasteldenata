@@ -356,6 +356,192 @@
   display: none;
 }
 
+.discoveryStage {
+  position: relative;
+  z-index: 2;
+  margin-top: 29px;
+}
+
+.discoveryProgress {
+  display: grid;
+  height: 36px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 0 5px;
+  grid-template-columns: auto minmax(80px, 1fr) auto;
+}
+
+.discoveryProgress > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(36, 39, 45, 0.58);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.discoveryProgress > div {
+  display: flex;
+  gap: 5px;
+}
+
+.discoveryProgress i {
+  height: 3px;
+  flex: 1;
+  border-radius: 999px;
+  background: rgba(37, 41, 47, 0.1);
+  transition: background 300ms ease;
+}
+
+.discoveryProgress i.discoveryStepDone {
+  background: rgba(101, 157, 65, 0.55);
+}
+
+.discoveryProgress > b {
+  color: rgba(36, 39, 45, 0.42);
+  font-size: 7px;
+  font-weight: 650;
+}
+
+.discoveryGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.discoveryCard {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 16px 37px rgba(46, 55, 67, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  opacity: 0.58;
+  transform: translateY(8px);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  transition:
+    opacity 420ms ease,
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 420ms ease,
+    background 420ms ease;
+}
+
+.discoveryCard.activityFound {
+  border-color: rgba(113, 172, 76, 0.3);
+  background: rgba(248, 255, 244, 0.38);
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.discoveryCard > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.discoveryCard > header > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.31);
+  color: rgba(36, 40, 46, 0.65);
+}
+
+.discoveryCard > header > b {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(36, 40, 46, 0.38);
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.discoveryCard.activityFound > header > b {
+  color: #568738;
+}
+
+.discoveryCard > header > b > i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #9176df;
+  box-shadow: 0 0 7px rgba(118, 87, 214, 0.55);
+  animation: livePulse 900ms ease-in-out infinite;
+}
+
+.discoveryWallet {
+  margin-top: 21px;
+}
+
+.discoveryWallet span,
+.discoveryWallet code {
+  display: block;
+}
+
+.discoveryWallet span {
+  margin-bottom: 5px;
+  color: rgba(36, 40, 46, 0.32);
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.discoveryWallet code {
+  color: rgba(36, 40, 46, 0.48);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 7px;
+}
+
+.discoveryCard h3 {
+  margin: 17px 0 6px;
+  font-size: 21px;
+  font-weight: 570;
+  letter-spacing: -0.045em;
+  text-transform: capitalize;
+}
+
+.discoveryCard > p {
+  min-height: 34px;
+  margin: 0;
+  color: rgba(36, 40, 46, 0.43);
+  font-size: 7px;
+  line-height: 1.5;
+}
+
+.discoveryCard > footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 15px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.discoveryCard > footer > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(36, 40, 46, 0.39);
+  font-size: 6px;
+}
+
+.discoveryCard > footer > strong {
+  font-size: 8px;
+  font-weight: 620;
+}
+
 .auctionStage {
   position: relative;
   z-index: 2;
@@ -396,6 +582,26 @@
 
 .auctionTopline b svg {
   animation: livePulse 850ms ease-in-out infinite;
+}
+
+.auctionRule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.18);
+  color: rgba(36, 39, 45, 0.43);
+  font-size: 7px;
+}
+
+.auctionRule b {
+  color: rgba(36, 39, 45, 0.58);
+  font-weight: 650;
+  text-align: right;
 }
 
 .auctionGrid {
@@ -506,6 +712,61 @@
   font-size: 6px;
 }
 
+.currentBest {
+  display: flex;
+  min-height: 88px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.19);
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    rgba(44, 47, 53, 0.94),
+    rgba(15, 17, 20, 0.91)
+  );
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.17),
+    0 9px 22px rgba(27, 31, 37, 0.15);
+  color: white;
+  animation: leaderChanges 430ms both cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.currentBest span,
+.currentBest strong,
+.currentBest small {
+  display: block;
+}
+
+.currentBest span {
+  color: rgba(255, 255, 255, 0.47);
+  font-size: 5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.currentBest strong {
+  max-width: 120px;
+  margin: 7px 0 4px;
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.currentBest small {
+  color: rgba(255, 255, 255, 0.43);
+  font-size: 6px;
+}
+
+.currentBest > b {
+  font-size: 23px;
+  font-weight: 590;
+  letter-spacing: -0.055em;
+}
+
 .bidStack {
   display: grid;
   gap: 6px;
@@ -584,6 +845,31 @@
   border-color: rgba(100, 161, 64, 0.3);
   background: rgba(142, 213, 98, 0.09);
   box-shadow: inset 0 0 18px rgba(135, 207, 91, 0.05);
+}
+
+.sealedStatus {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 9px;
+  border: 1px dashed rgba(52, 57, 65, 0.13);
+  border-radius: 9px;
+  color: rgba(36, 39, 45, 0.4);
+  font-size: 6px;
+}
+
+.sealedStatus i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f0a044;
+  box-shadow: 0 0 7px rgba(234, 139, 42, 0.45);
+}
+
+.sealedStatus svg {
+  color: #568738;
 }
 
 .auctionLeader {
@@ -897,6 +1183,17 @@
   }
 }
 
+@keyframes leaderChanges {
+  from {
+    opacity: 0.45;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @media (max-width: 700px) {
   .experience {
     padding: 18px;
@@ -977,6 +1274,36 @@
     font-size: 8px;
   }
 
+  .discoveryProgress {
+    grid-template-columns: auto 1fr;
+  }
+
+  .discoveryProgress > b {
+    display: none;
+  }
+
+  .discoveryGrid {
+    display: flex;
+    margin: 0 -18px;
+    padding: 0 18px 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  .discoveryCard {
+    flex: 0 0 82%;
+    scroll-snap-align: center;
+  }
+
+  .auctionRule {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .auctionRule b {
+    text-align: left;
+  }
+
   .auctionGrid {
     display: flex;
     margin: 0 -18px;
@@ -1017,8 +1344,10 @@
   .orbitCard,
   .core::after,
   .phasePill i,
+  .discoveryCard > header > b > i,
   .auctionStage,
   .bidRow,
+  .currentBest,
   .resultCard {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;

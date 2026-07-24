@@ -9,17 +9,12 @@ import {
   Palette,
   Radio,
   RotateCcw,
-  Sparkles,
+  ScanSearch,
   UtensilsCrossed,
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
-import {
-  type CSSProperties,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { Category, DemoResult } from "@/src/domain";
 import { formatUsd } from "@/src/money";
@@ -31,7 +26,7 @@ import {
 import styles from "./agent-search-experience.module.css";
 
 const DISCOVERY_DURATION_MS = 2900;
-const AUCTION_DURATION_MS = 4200;
+const AUCTION_DURATION_MS = 3200;
 
 const categoryIcons: Record<Category, LucideIcon> = {
   flowers: Flower2,
@@ -114,7 +109,7 @@ function AgentSearchRun({
       title: "Finding the right activities.",
       description:
         "Each agent sees one activity, one budget and nothing else.",
-      status: "Dreaming",
+      status: "Discovering",
     },
     bidding: {
       eyebrow: "ACTIVITIES LOCKED · AUCTIONS OPEN",
@@ -154,7 +149,10 @@ function AgentSearchRun({
       </header>
 
       {phase === "searching" ? (
-        <DreamOrbit searches={searches} resolvedCount={resolvedCount} />
+        <ActivityDiscovery
+          searches={searches}
+          resolvedCount={resolvedCount}
+        />
       ) : phase === "bidding" ? (
         <BidAuctionStage searches={searches} bidTick={bidTick} />
       ) : (
@@ -182,7 +180,7 @@ function AgentSearchRun({
   );
 }
 
-function DreamOrbit({
+function ActivityDiscovery({
   searches,
   resolvedCount,
 }: {
@@ -190,84 +188,82 @@ function DreamOrbit({
   resolvedCount: number;
 }) {
   return (
-    <>
-      <div className={styles.orbitScene} aria-label="Agent market search">
-        <div className={styles.dreamWash} />
-        <div className={styles.orbitLine} />
-        <div className={styles.core}>
-          <Sparkles size={18} />
-          <strong>{searches.length}</strong>
-          <span>scoped agents</span>
+    <div className={styles.discoveryStage}>
+      <div className={styles.discoveryProgress}>
+        <span>
+          <ScanSearch size={12} />
+          DISCOVERING ACTIVITIES
+        </span>
+        <div>
+          {searches.map((search, index) => (
+            <i
+              className={
+                index < resolvedCount ? styles.discoveryStepDone : ""
+              }
+              key={search.id}
+            />
+          ))}
         </div>
+        <b>
+          {resolvedCount}/{searches.length} FOUND
+        </b>
+      </div>
 
+      <div className={styles.discoveryGrid}>
         {searches.map((search, index) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
           const isResolved = index < resolvedCount;
-          const delay = -((index * 9) / searches.length);
-          const orbitStyle = {
-            "--agent-delay": `${delay}s`,
-          } as CSSProperties;
 
           return (
-            <div
-              className={styles.orbitSlot}
-              style={orbitStyle}
+            <article
+              className={`${styles.discoveryCard} ${
+                isResolved ? styles.activityFound : ""
+              }`}
               key={search.id}
             >
-              <div className={styles.orbitTraveller}>
-                <article
-                  className={`${styles.orbitCard} ${
-                    isResolved ? styles.found : ""
-                  }`}
-                >
-                  <header>
-                    <span>
-                      <CategoryIcon size={14} />
-                    </span>
-                    <b>
-                      {isResolved ? (
-                        <>
-                          <Check size={10} />
-                          Match
-                        </>
-                      ) : (
-                        "Discovering"
-                      )}
-                    </b>
-                  </header>
-                  <h3>{search.allocation.category}</h3>
-                  <code>{shortWallet(search.wallet)}</code>
-                  <footer>
-                    <WalletCards size={11} />
-                    {search.auction.bids.length} sellers · cap{" "}
-                    {formatUsd(search.allocation.maxBudgetCents)}
-                  </footer>
-                </article>
+              <header>
+                <span>
+                  <CategoryIcon size={17} />
+                </span>
+                <b>
+                  {isResolved ? (
+                    <>
+                      <Check size={10} />
+                      Activity found
+                    </>
+                  ) : (
+                    <>
+                      <i />
+                      Searching
+                    </>
+                  )}
+                </b>
+              </header>
+
+              <div className={styles.discoveryWallet}>
+                <span>AGENT WALLET 0{index + 1}</span>
+                <code>{shortWallet(search.wallet)}</code>
               </div>
-            </div>
+
+              <h3>{search.allocation.category}</h3>
+              <p>
+                {search.allocation.requirements.slice(0, 3).join(" · ")}
+              </p>
+
+              <footer>
+                <span>
+                  <WalletCards size={11} />
+                  {search.auction.bids.length} eligible sellers
+                </span>
+                <strong>
+                  cap {formatUsd(search.allocation.maxBudgetCents)}
+                </strong>
+              </footer>
+            </article>
           );
         })}
       </div>
-
-      <div className={styles.agentLedger}>
-        {searches.map((search, index) => (
-          <div key={search.id}>
-            <span className={index < resolvedCount ? styles.ledgerFound : ""}>
-              {index < resolvedCount ? <Check size={9} /> : index + 1}
-            </span>
-            <div>
-              <strong>{search.allocation.category} agent</strong>
-              <code>{shortWallet(search.wallet)}</code>
-            </div>
-            <b>
-              {index < resolvedCount
-                ? `${search.auction.bids.length} sellers ready`
-                : "scanning"}
-            </b>
-          </div>
-        ))}
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -288,13 +284,17 @@ function BidAuctionStage({
       <div className={styles.auctionTopline}>
         <span>
           <Gavel size={13} />
-          LIVE BID ESCALATION
+          LIVE SELLER AUCTION
         </span>
         <b>
           <Radio size={11} />
-          ROUND {currentRound.toString().padStart(2, "0")} /{" "}
+          REVEAL ROUND {currentRound.toString().padStart(2, "0")} /{" "}
           {largestAuction.toString().padStart(2, "0")}
         </b>
+      </div>
+      <div className={styles.auctionRule}>
+        <span>Every round reveals one new seller bid per activity.</span>
+        <b>Best value = quality + requirement fit + price</b>
       </div>
 
       <div className={styles.auctionGrid}>
@@ -331,6 +331,12 @@ function BidAuctionStage({
             },
             rankedBids[0] ?? search.auction.winner,
           );
+          const leaderScore =
+            search.auction.evaluations.find(
+              (evaluation) => evaluation.sellerId === leader.sellerId,
+            )?.score ?? 0;
+          const sealedBidCount =
+            search.auction.bids.length - visibleBidCount;
 
           return (
             <article
@@ -360,39 +366,57 @@ function BidAuctionStage({
                 </p>
               </div>
 
+              <div
+                className={styles.currentBest}
+                key={`${search.id}-${leader.sellerId}`}
+              >
+                <div>
+                  <span>CURRENT BEST VALUE</span>
+                  <strong>{leader.sellerName}</strong>
+                  <small>score {leaderScore.toFixed(1)}</small>
+                </div>
+                <b>{formatUsd(leader.amountCents)}</b>
+              </div>
+
               <div className={styles.bidStack}>
-                {search.auction.bids.map((bid, bidIndex) => {
-                  const isVisible = bidIndex < visibleBidCount;
+                {visibleBids.map((bid, bidIndex) => {
                   const isLeading =
-                    isVisible && bid.sellerId === leader.sellerId;
+                    bid.sellerId === leader.sellerId;
 
                   return (
                     <div
-                      className={`${styles.bidRow} ${
-                        isVisible ? styles.bidVisible : ""
-                      } ${isLeading ? styles.bidLeading : ""}`}
+                      className={`${styles.bidRow} ${styles.bidVisible} ${
+                        isLeading ? styles.bidLeading : ""
+                      }`}
                       key={bid.sellerId}
                     >
                       <span>{(bidIndex + 1).toString().padStart(2, "0")}</span>
                       <div>
-                        <strong>{isVisible ? bid.sellerName : "Waiting"}</strong>
+                        <strong>{bid.sellerName}</strong>
                         <small>
-                          {isVisible
-                            ? `${bid.quality}/100 quality`
-                            : "Seller bid sealed"}
+                          {bid.quality}/100 quality
                         </small>
                       </div>
-                      <b>{isVisible ? formatUsd(bid.amountCents) : "—"}</b>
-                      {isLeading && <i>LEADING</i>}
+                      <b>{formatUsd(bid.amountCents)}</b>
+                      {isLeading && <i>BEST VALUE</i>}
                     </div>
                   );
                 })}
               </div>
 
-              <footer className={styles.auctionLeader}>
-                <span>Current leader</span>
-                <strong>{leader.sellerName}</strong>
-                <b>{formatUsd(leader.amountCents)}</b>
+              <footer className={styles.sealedStatus}>
+                {sealedBidCount > 0 ? (
+                  <>
+                    <i />
+                    {sealedBidCount} sealed{" "}
+                    {sealedBidCount === 1 ? "bid" : "bids"} waiting
+                  </>
+                ) : (
+                  <>
+                    <Check size={10} />
+                    All seller bids revealed
+                  </>
+                )}
               </footer>
             </article>
           );
