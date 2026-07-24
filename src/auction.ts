@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MOCK_SELLERS } from "./catalog.js";
+import { MOCK_SELLERS } from "./catalog";
 import type {
   AuctionResult,
   Bid,
@@ -9,7 +9,7 @@ import type {
   Seller,
   SellerAuctionView,
   SpendMandate,
-} from "./domain.js";
+} from "./domain";
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");

@@ -89,3 +89,54 @@ private intent + hard cap
              v
   simulated atomic settlement
 ```
+
+## Web interface
+
+The repository also includes a minimal Next.js interface for the live demo. It
+is intentionally focused on the first interaction: one Liquid Glass intent box,
+private processing feedback, and no implementation-detail dashboard.
+
+The browser sends the intent to `POST /api/intent`. The route calls the same
+`organizePrivatePurchase` orchestrator used by the CLI, so the web demo and the
+tested protocol flow cannot drift apart.
+
+```text
+Liquid Glass intent box
+          |
+          v
+   POST /api/intent
+          |
+          v
+ organizePrivatePurchase
+     /           \
+ 0G planner    mock planner
+     \           /
+    auctions + policy checks
+```
+
+Run the interface locally:
+
+```bash
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Then open `http://localhost:3000`.
+
+For UI development without a Router key:
+
+```env
+DEMO_MODE=true
+```
+
+For the private 0G flow:
+
+```env
+ZEROG_KEY=sk-your-router-key
+DEMO_MODE=false
+```
+
+The current UI does not render the generated plan, winners, or mock receipts.
+The API already runs that flow, but those views are deliberately deferred until
+the interaction design is ready.

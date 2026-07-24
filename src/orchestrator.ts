@@ -1,7 +1,7 @@
-import type { DemoResult } from "./domain.js";
-import { runAuctions } from "./auction.js";
-import { settleMockPayments } from "./payments.js";
-import type { PrivatePlanner } from "./planner.js";
+import type { DemoResult } from "./domain";
+import { runAuctions } from "./auction";
+import { settleMockPayments } from "./payments";
+import type { PrivatePlanner } from "./planner";
 
 export async function organizePrivatePurchase(
   planner: PrivatePlanner,

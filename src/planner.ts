@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { publicCatalogForPlanner } from "./catalog.js";
+import { publicCatalogForPlanner } from "./catalog";
 import {
   CATEGORIES,
   type PlanAllocation,
   type PlannerAttestation,
   type PrivatePlan,
-} from "./domain.js";
-import { parseBudgetCents } from "./money.js";
-import { tomorrowInLisbon } from "./time.js";
+} from "./domain";
+import { parseBudgetCents } from "./money";
+import { tomorrowInLisbon } from "./time";
 
 const AllocationSchema = z.object({
   category: z.enum(CATEGORIES),

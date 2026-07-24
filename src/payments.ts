@@ -3,7 +3,7 @@ import type {
   AuctionResult,
   PaymentReceipt,
   PrivatePlan,
-} from "./domain.js";
+} from "./domain";
 
 function receiptId(value: string): string {
   return `mockpay_${createHash("sha256").update(value).digest("hex").slice(0, 20)}`;

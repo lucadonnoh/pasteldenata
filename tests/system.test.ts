@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runAuctions } from "../src/auction.js";
-import type { AuctionResult, SellerAuctionView } from "../src/domain.js";
-import { organizePrivatePurchase } from "../src/orchestrator.js";
-import { settleMockPayments } from "../src/payments.js";
-import { MockPrivatePlanner } from "../src/planner.js";
+import { runAuctions } from "../src/auction";
+import type { AuctionResult, SellerAuctionView } from "../src/domain";
+import { organizePrivatePurchase } from "../src/orchestrator";
+import { settleMockPayments } from "../src/payments";
+import { MockPrivatePlanner } from "../src/planner";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
