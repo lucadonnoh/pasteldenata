@@ -12,6 +12,7 @@ import { settleMockPayments } from "../src/payments";
 import {
   MockPrivatePlanner,
   requireVerifiedPrivateTee,
+  ZeroGPrivatePlanner,
 } from "../src/planner";
 import { createMockSellerAuctionHouses } from "../src/sellers";
 
@@ -287,22 +288,27 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: false,
         model: "deterministic-test-planner",
       }),
-    /verified private TEE/,
+    /x_0g_trace\.tee_verified/,
   );
   assert.throws(
     () =>
       requireVerifiedPrivateTee({
         mode: "0g-private-tee",
-        teeVerified: false,
+        teeVerified: true,
         model: "0gm-1.0-35b-a3b",
       }),
-    /verified private TEE/,
+    /x_0g_trace\.tee_verified/,
   );
   assert.doesNotThrow(() =>
     requireVerifiedPrivateTee({
       mode: "0g-private-tee",
       teeVerified: true,
       model: "0gm-1.0-35b-a3b",
+      routerTrace: {
+        request_id: "request-1",
+        provider: "0x0000000000000000000000000000000000000001",
+        tee_verified: true,
+      },
     }),
   );
 });
@@ -310,6 +316,111 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
 test("the verified browser orchestrator rejects the mock before auctions", async () => {
   await assert.rejects(
     organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
-    /verified private TEE/,
+    /x_0g_trace\.tee_verified/,
   );
+});
+
+test("the 0G planner rejects a generic top-level TEE claim", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        id: "chat-1",
+        model: "0gm-1.0-35b-a3b",
+        tee_verified: true,
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                occasionTitle: "Private date",
+                location: "Lisbon",
+                scheduledFor: "2026-07-25",
+                allocations: [
+                  {
+                    category: "dinner",
+                    maxBudgetCents: 10_000,
+                    requirements: ["table for two"],
+                    priority: 5,
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+
+  try {
+    await assert.rejects(
+      new ZeroGPrivatePlanner("sk-test-key").plan(INTENT, NOW),
+      /x_0g_trace\.tee_verified/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("the 0G planner retains the exact verified Router trace", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        id: "chat-body-id",
+        model: "0gm-1.0-35b-a3b",
+        x_0g_trace: {
+          request_id: "request-1",
+          provider: "0x0000000000000000000000000000000000000001",
+          billing: {
+            input_cost: "10",
+            output_cost: "20",
+            total_cost: "30",
+          },
+          tee_verified: true,
+        },
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                occasionTitle: "Private date",
+                location: "Lisbon",
+                scheduledFor: "2026-07-25",
+                allocations: [
+                  {
+                    category: "dinner",
+                    maxBudgetCents: 10_000,
+                    requirements: ["table for two"],
+                    priority: 5,
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { "ZG-Res-Key": "chat-header-id" },
+      },
+    );
+
+  try {
+    const result = await new ZeroGPrivatePlanner("sk-test-key").plan(
+      INTENT,
+      NOW,
+    );
+    assert.deepEqual(result.attestation.routerTrace, {
+      request_id: "request-1",
+      provider: "0x0000000000000000000000000000000000000001",
+      billing: {
+        input_cost: "10",
+        output_cost: "20",
+        total_cost: "30",
+      },
+      tee_verified: true,
+    });
+    assert.equal(result.attestation.chatId, "chat-header-id");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

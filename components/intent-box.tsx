@@ -9,12 +9,12 @@ import {
   useState,
 } from "react";
 import type { DemoResult } from "@/src/domain";
-import { formatUsd } from "@/src/money";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
 import {
-  ExecutionDetails,
+  MockExecutionDetails,
   PrivacyDetails,
+  ZeroGVerificationReceipt,
 } from "@/components/execution-details";
 
 const examples = [
@@ -187,17 +187,8 @@ export function IntentBox() {
 
       {result && (
         <>
-          <div className="success-message" aria-live="polite">
-            <ShieldCheck size={22} />
-            <div>
-              <strong>TEE verified · mock purchases settled</strong>
-              <span>
-                {result.receipts.length} auctions ·{" "}
-                {formatUsd(result.totalSpentCents)} simulated spend
-              </span>
-            </div>
-          </div>
-          <ExecutionDetails result={result} />
+          <ZeroGVerificationReceipt result={result} />
+          <MockExecutionDetails result={result} />
         </>
       )}
 

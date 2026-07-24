@@ -26,6 +26,17 @@ export interface PrivatePlan {
   unallocatedBudgetCents: number;
 }
 
+export interface ZeroGRouterTrace {
+  request_id: string;
+  provider: string;
+  billing?: {
+    input_cost?: string | number;
+    output_cost?: string | number;
+    total_cost?: string | number;
+  };
+  tee_verified: true;
+}
+
 export interface PlannerAttestation {
   mode: "0g-private-tee" | "local-mock";
   teeVerified: boolean;
@@ -34,6 +45,7 @@ export interface PlannerAttestation {
   costNeuron?: string;
   requestId?: string;
   chatId?: string;
+  routerTrace?: ZeroGRouterTrace;
 }
 
 export type InventoryAttributes = Record<

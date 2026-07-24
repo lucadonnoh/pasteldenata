@@ -48,16 +48,14 @@ interface RouterResponse {
     };
   }>;
   model?: string;
-  provider?: string;
-  provider_address?: string;
-  tee_verified?: boolean;
-  cost?: string | number;
   x_0g_trace?: {
     request_id?: string;
     provider?: string;
     tee_verified?: boolean;
     billing?: {
-      total_cost?: string;
+      input_cost?: string | number;
+      output_cost?: string | number;
+      total_cost?: string | number;
     };
   };
 }
@@ -76,12 +74,18 @@ export function requireVerifiedPrivateTee(
 ): asserts attestation is PlannerAttestation & {
   mode: "0g-private-tee";
   teeVerified: true;
+  routerTrace: NonNullable<PlannerAttestation["routerTrace"]>;
 } {
   if (
     attestation.mode !== "0g-private-tee" ||
-    attestation.teeVerified !== true
+    attestation.teeVerified !== true ||
+    attestation.routerTrace?.tee_verified !== true ||
+    !attestation.routerTrace.request_id ||
+    !attestation.routerTrace.provider
   ) {
-    throw new Error("0G did not return a verified private TEE response.");
+    throw new Error(
+      "0G did not return x_0g_trace.tee_verified = true for this private response.",
+    );
   }
 }
 
@@ -203,22 +207,32 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         `0G Router returned ${response.status}: ${raw.error?.message ?? "unknown error"}`,
       );
     }
-    const teeVerified =
-      raw.tee_verified === true || raw.x_0g_trace?.tee_verified === true;
-    if (!teeVerified) {
-      throw new Error("0G returned a response without successful TEE verification.");
+    const trace = raw.x_0g_trace;
+    if (trace?.tee_verified !== true) {
+      throw new Error(
+        "0G returned a response without x_0g_trace.tee_verified = true.",
+      );
+    }
+    if (!trace.request_id || !trace.provider) {
+      throw new Error(
+        "0G returned an incomplete verification trace without a request ID or provider.",
+      );
     }
 
     const content = raw.choices?.[0]?.message?.content;
     if (!content) throw new Error("0G returned an empty planner response.");
 
     const modelPlan = ModelPlanSchema.parse(extractJson(content));
-    const provider =
-      raw.provider ?? raw.provider_address ?? raw.x_0g_trace?.provider;
     const costNeuron =
-      raw.x_0g_trace?.billing?.total_cost ??
-      (raw.cost === undefined ? undefined : String(raw.cost));
-    const requestId = raw.x_0g_trace?.request_id;
+      trace.billing?.total_cost === undefined
+        ? undefined
+        : String(trace.billing.total_cost);
+    const routerTrace = {
+      ...trace,
+      request_id: trace.request_id,
+      provider: trace.provider,
+      tee_verified: true as const,
+    };
 
     return {
       plan: enforcePlan(
@@ -231,10 +245,11 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         mode: "0g-private-tee",
         teeVerified: true,
         model: raw.model ?? this.model,
-        ...(provider ? { provider } : {}),
+        provider: trace.provider,
         ...(costNeuron ? { costNeuron } : {}),
-        ...(requestId ? { requestId } : {}),
+        requestId: trace.request_id,
         ...(chatId ? { chatId } : {}),
+        routerTrace,
       },
     };
   }
