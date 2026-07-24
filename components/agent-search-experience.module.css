@@ -942,6 +942,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   flex-direction: column;
+  scroll-behavior: smooth;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
   scrollbar-width: thin;
 }

@@ -14,7 +14,7 @@ import {
   WalletCards,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Category, DemoResult } from "@/src/domain";
 import { formatUsd } from "@/src/money";
@@ -325,13 +325,29 @@ function BidAuctionStage({
   const activeIndex = activeEvent?.searchIndex ?? 0;
   const activeCompetition =
     competitions[activeIndex] ?? competitions[0];
+  const visibleBidCount = (activeEvent?.bidIndex ?? 0) + 1;
+  const bidListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      const bidList = bidListRef.current;
+      if (!bidList) return;
+
+      bidList.scrollTo({
+        top: bidList.scrollHeight,
+        behavior: visibleBidCount > 1 ? "smooth" : "auto",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [activeIndex, visibleBidCount]);
 
   if (!activeCompetition) return null;
 
   const currentBid = activeEvent?.bid;
   const visibleBids = activeCompetition.bids.slice(
     0,
-    (activeEvent?.bidIndex ?? 0) + 1,
+    visibleBidCount,
   );
   const marketWallets = activeCompetition.bids
     .filter((bid) => bid.kind === "market")
@@ -469,16 +485,15 @@ function BidAuctionStage({
           <div className={styles.bidHistory}>
             <header>
               <span>LIVE BID FEED</span>
-              <b>NEWEST FIRST</b>
+              <b>AUTO-FOLLOW ↓</b>
             </header>
             <div
               className={styles.bidHistoryList}
               aria-label="Incoming buyer bids"
+              ref={bidListRef}
             >
-              {[...visibleBids].reverse().map((bid, reverseIndex) => {
-                const bidIndex = visibleBids.length - reverseIndex - 1;
-                const isLatest = reverseIndex === 0;
-
+              {visibleBids.map((bid, bidIndex) => {
+                const isLatest = bidIndex === visibleBids.length - 1;
                 return (
                   <div
                     className={`${styles.buyerBid} ${styles.buyerBidVisible} ${
