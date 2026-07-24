@@ -1,22 +1,22 @@
 .marketMain {
   display: block;
-  min-height: calc(100vh - 68px);
+  min-height: calc(100dvh - 68px);
 }
 
 .marketWorkspace,
 .emptyState {
-  width: min(960px, calc(100% - 40px));
+  width: min(1100px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 38px 0 110px;
+  padding: 14px 0 18px;
   animation: enterMarket 720ms both cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .verification {
   display: flex;
-  min-height: 62px;
+  min-height: 48px;
   align-items: center;
-  gap: 12px;
-  padding: 11px 15px;
+  gap: 10px;
+  padding: 7px 12px;
   border: 1px solid rgba(255, 255, 255, 0.66);
   border-radius: 21px;
   background: rgba(255, 255, 255, 0.34);
@@ -29,8 +29,8 @@
 
 .verification > span {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.68);
@@ -41,8 +41,8 @@
 
 .verification strong {
   display: block;
-  margin-bottom: 4px;
-  font-size: 11px;
+  margin-bottom: 3px;
+  font-size: 10px;
 }
 
 .verification p {
@@ -56,6 +56,16 @@
   color: #568738;
   font-size: 7px;
   letter-spacing: 0.1em;
+}
+
+.marketWorkspace :global(.execution-drawer) {
+  margin-top: 7px;
+}
+
+.marketWorkspace :global(.execution-drawer > summary) {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 9px;
 }
 
 .emptyState {
@@ -125,6 +135,26 @@
   }
 
   .verification > b {
+    display: none;
+  }
+}
+
+@media (min-width: 701px) and (max-height: 720px) {
+  .marketWorkspace {
+    padding: 7px 0 12px;
+  }
+
+  .verification {
+    min-height: 40px;
+    padding-block: 4px;
+  }
+
+  .verification > span {
+    width: 26px;
+    height: 26px;
+  }
+
+  .verification p {
     display: none;
   }
 }
