@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Private agentic payments with 0G confidential inference and mocked sealed-bid auctions.",
+  "description": "Private agentic payments with 0G confidential inference and mocked English auctions.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

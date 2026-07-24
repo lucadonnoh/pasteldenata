@@ -7,10 +7,11 @@ A user can say:
 > Organize me a date tomorrow in Lisbon. My budget is $200.
 
 The request is planned through 0G Private Computer. The resulting budget is
-split into category-scoped spending mandates. Independent buyer agents then run
-mock sealed-bid reverse auctions against flower, cinema, dinner, transport, and
-experience sellers. A policy controller settles the winning bundle only if
-every category cap and the global cap still hold.
+split into category-scoped spending mandates. Each allocation creates one
+independent buyer subagent, which enters seller-run English auctions for
+flower, cinema, dinner, transport, or experience inventory. A policy controller
+settles the winning bundle only if every category cap and the global cap still
+hold.
 
 ## What is real
 
@@ -18,12 +19,14 @@ every category cap and the global cap still hold.
 - TEE verification is required before a plan is accepted
 - The model chooses categories, requirements, priorities, and allocations
 - Budget, category, replay, and atomic settlement checks are enforced in code
-- Seller bids use commit/reveal semantics
+- One scoped buyer subagent is created for every model allocation
+- Buyer subagents follow ascending prices and drop at their private valuation
 
 ## What is mocked
 
-- Seller inventory and prices
-- Seller bid generation
+- Seller auction houses and their heterogeneous inventory
+- Seller-set opening floor prices
+- Rival buyers and market demand
 - USD payment settlement
 
 No real payment is sent.
@@ -32,14 +35,32 @@ No real payment is sent.
 
 - The original intent and global budget go only to the 0G private planner.
 - Sellers receive an RFQ containing category, date, location, and requirements.
-- Sellers never receive the original prompt, global budget, category cap, or
-  competing bids.
-- Each buyer agent can spend only its scoped mandate.
+- Sellers never receive the original prompt, global budget, or category cap.
+- A buyer subagent derives a listing-specific private valuation below its
+  mandate and never sends the mandate ceiling to the seller.
+- Each buyer subagent receives only its category allocation and scoped mandate.
 - Receipts contain payment metadata, not the private prompt.
 
-The commit/reveal auction is simulated in one process for the hackathon. It
-demonstrates the protocol shape but is not yet a cryptographically private
-multi-party auction.
+## Mock seller economics
+
+Each seller owns inventory instead of publishing one flat offer. Cinema
+inventory, for example, identifies the screen or section, row, and exact pair
+of seats. Center seats have higher quality, demand, market estimates, and floor
+prices than front-side or rear seats.
+
+Each listing runs a mocked English auction:
+
+1. The auction house opens at the seller's floor price.
+2. The allocation-scoped buyer subagent and mock rival buyers respond to each
+   visible asking price.
+3. The price rises in $0.50 increments and bidders drop when it exceeds their
+   private valuation.
+4. The last active bidder wins and pays the final asking price.
+5. Sold inventory cannot be auctioned again.
+
+This runs in one process for the hackathon. It demonstrates the protocol and
+economic shape. Sellers are deterministic mocks, not AI agents, and the rival
+buyers and settlement are also simulated.
 
 ## Run
 
@@ -77,9 +98,9 @@ private intent + hard cap
           v
  scoped spend mandates
      /      |      \
- flowers  cinema  dinner     buyer agents
+ flowers  cinema  dinner     buyer subagents
      |       |       |
- sealed mock auctions        sellers see no budget
+ ascending English auctions  seller floors + mock rivals
      \       |      /
           winners
              |
@@ -94,8 +115,9 @@ private intent + hard cap
 
 The repository also includes a minimal Next.js interface for the live demo. It
 keeps the primary interaction focused on one Liquid Glass intent box. Collapsed
-drawers expose the full attestation, scoped plan, auction commitments and
-reveals, mock seller floors and scores, and simulated receipts for judging.
+drawers expose the full attestation, scoped plan, buyer-subagent boundaries,
+English-auction transcripts, mock seller floors and rival valuations, and
+simulated receipts for judging.
 
 Each user enters their own 0G Router key. The key is held only in React memory
 for the current browser tab: it is not persisted in local storage, cookies, or

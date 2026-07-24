@@ -1409,6 +1409,11 @@ main {
   gap: 7px;
 }
 
+.listing-auction-list {
+  display: grid;
+  gap: 7px;
+}
+
 .auction-list details {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.52);
@@ -1446,6 +1451,58 @@ main {
 .auction-detail {
   padding: 11px;
   border-top: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.inspector-heading {
+  margin: 13px 0 8px;
+  color: rgba(35, 38, 44, 0.52);
+  font-size: 7px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.auction-transcript {
+  display: grid;
+  max-height: 280px;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.auction-transcript li {
+  display: grid;
+  min-width: 0;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22);
+  grid-template-columns: 25px 58px minmax(0, 1fr);
+}
+
+.auction-transcript li > b {
+  color: rgba(35, 38, 44, 0.4);
+  font-size: 7px;
+}
+
+.auction-transcript li > strong {
+  font-size: 8px;
+}
+
+.auction-transcript li > span {
+  min-width: 0;
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+.auction-transcript small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.4;
 }
 
 .evidence-table.compact {

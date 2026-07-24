@@ -1,7 +1,6 @@
 "use client";
 
 import { ExternalLink, ShieldCheck } from "lucide-react";
-import { MOCK_SELLERS } from "@/src/catalog";
 import type { DemoResult } from "@/src/domain";
 import { formatUsd, neuronToOg } from "@/src/money";
 
@@ -202,11 +201,16 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
         <section className="trace-section">
           <div className="trace-heading">
             <div>
-              <span>03 · MOCK SELLER MARKET</span>
-              <h3>Commit, reveal, score, select</h3>
+              <span>03 · ALLOCATION BUYER SUBAGENTS</span>
+              <h3>Scoped agents in ascending English auctions</h3>
             </div>
-            <span className="mock-pill">MOCKED SELLERS</span>
+            <span className="mock-pill">MOCKED MARKET</span>
           </div>
+          <p className="policy-copy">
+            Every allocation creates one buyer subagent. Sellers are
+            deterministic mock auction houses—not AI agents—and mocked rivals
+            provide competitive demand.
+          </p>
 
           <div className="auction-list">
             {result.auctions.map((auction) => (
@@ -214,7 +218,8 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
                 <summary>
                   <span>
                     <strong>{auction.category}</strong>
-                    {auction.bids.length} sealed bids
+                    {auction.listingAuctions.length} listing auction
+                    {auction.listingAuctions.length === 1 ? "" : "s"}
                   </span>
                   <span>
                     Winner: {auction.winner.sellerName} ·{" "}
@@ -224,9 +229,9 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
                 <div className="auction-detail">
                   <dl className="evidence-table compact">
                     <div>
-                      <dt>Auction ID</dt>
+                      <dt>Buyer subagent</dt>
                       <dd>
-                        <code>{auction.auctionId}</code>
+                        <code>{auction.buyerSubagent.id}</code>
                       </dd>
                     </div>
                     <div>
@@ -240,24 +245,22 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
                       <dd>{formatUsd(auction.mandate.maxAmountCents)}</dd>
                     </div>
                     <div>
-                      <dt>Winning score</dt>
-                      <dd>{auction.score.toFixed(2)}</dd>
+                      <dt>Private strategy</dt>
+                      <dd>{auction.buyerSubagent.strategy}</dd>
+                    </div>
+                    <div>
+                      <dt>Requirements</dt>
+                      <dd>
+                        {auction.buyerSubagent.requirements.join(" · ")}
+                      </dd>
                     </div>
                   </dl>
 
-                  <div className="bid-list">
-                    {auction.bids.map((bid, index) => (
-                      <BidInspector
-                        key={bid.sellerId}
-                        bid={bid}
-                        commitment={
-                          auction.commitments[index] ?? "Missing commitment"
-                        }
-                        evaluation={auction.evaluations.find(
-                          (evaluation) =>
-                            evaluation.sellerId === bid.sellerId,
-                        )}
-                        winner={bid.sellerId === auction.winner.sellerId}
+                  <div className="listing-auction-list">
+                    {auction.listingAuctions.map((listingAuction) => (
+                      <EnglishAuctionInspector
+                        key={listingAuction.auctionId}
+                        auction={listingAuction}
                       />
                     ))}
                   </div>
@@ -303,66 +306,105 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
   );
 }
 
-function BidInspector({
-  bid,
-  commitment,
-  evaluation,
-  winner,
+function EnglishAuctionInspector({
+  auction,
 }: {
-  bid: DemoResult["auctions"][number]["bids"][number];
-  commitment: string;
-  evaluation:
-    | DemoResult["auctions"][number]["evaluations"][number]
-    | undefined;
-  winner: boolean;
+  auction: DemoResult["auctions"][number]["listingAuctions"][number];
 }) {
-  const seller = MOCK_SELLERS.find((candidate) => candidate.id === bid.sellerId);
-
   return (
-    <article className={winner ? "winning-bid" : undefined}>
-      <header>
-        <strong>{bid.sellerName}</strong>
-        <b>{formatUsd(bid.amountCents)}</b>
-      </header>
-      <p>{bid.offering}</p>
-      <dl>
-        <div>
-          <dt>Commitment · checked before selection</dt>
-          <dd>
-            <code>{commitment}</code>
-          </dd>
+    <details className="listing-auction">
+      <summary>
+        <span>
+          <strong>{auction.listing.sellerName}</strong>
+          {auction.listing.offering}
+        </span>
+        <span>
+          {auction.status} · {auction.steps.length} ascending steps
+          {auction.clearingPriceCents === null
+            ? ""
+            : ` · ${formatUsd(auction.clearingPriceCents)}`}
+        </span>
+      </summary>
+
+      <div className="auction-detail">
+        <dl className="evidence-table compact">
+          <div>
+            <dt>Auction ID</dt>
+            <dd>
+              <code>{auction.auctionId}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Listing score</dt>
+            <dd>{auction.listingScore.toFixed(2)}</dd>
+          </div>
+          <div>
+            <dt>Seller floor</dt>
+            <dd>
+              {formatUsd(auction.debugSellerFloorPriceCents)}
+            </dd>
+          </div>
+          <div>
+            <dt>Increment</dt>
+            <dd>{formatUsd(auction.minimumIncrementCents)}</dd>
+          </div>
+          <div>
+            <dt>Buyer private max</dt>
+            <dd>{formatUsd(auction.buyerMaxBidCents)}</dd>
+          </div>
+          <div>
+            <dt>Winner</dt>
+            <dd>
+              <code>{auction.winningBidderId ?? "No bidder"}</code>
+            </dd>
+          </div>
+        </dl>
+
+        <h4 className="inspector-heading">
+          Participants · debug valuations
+        </h4>
+        <div className="bid-list">
+          {auction.participants.map((participant) => (
+            <article
+              key={participant.bidderId}
+              className={
+                participant.bidderId === auction.winningBidderId
+                  ? "winning-bid"
+                  : undefined
+              }
+            >
+              <header>
+                <strong>{participant.bidderId}</strong>
+                <b>{formatUsd(participant.debugMaxBidCents)}</b>
+              </header>
+              <p>{participant.bidderKind}</p>
+            </article>
+          ))}
         </div>
-        <div>
-          <dt>Reveal salt</dt>
-          <dd>
-            <code>{bid.salt}</code>
-          </dd>
-        </div>
-        <div>
-          <dt>Mock seller floor · inspector only</dt>
-          <dd>
-            {seller ? formatUsd(seller.reservePriceCents) : "Not available"}
-          </dd>
-        </div>
-        <div>
-          <dt>Evaluated score</dt>
-          <dd>
-            {evaluation
-              ? `${evaluation.score.toFixed(2)} · ${
-                  evaluation.affordable ? "within mandate" : "over mandate"
-                }`
-              : "Not available"}
-          </dd>
-        </div>
-        <div>
-          <dt>Quality</dt>
-          <dd>{bid.quality}/100</dd>
-        </div>
-        <div>
-          <dt>Tags</dt>
-          <dd>{bid.tags.join(", ")}</dd>
-        </div>
-      </dl>
-    </article>
+
+        <h4 className="inspector-heading">Ascending transcript</h4>
+        {auction.steps.length === 0 ? (
+          <p className="policy-copy">No bidder met the opening floor.</p>
+        ) : (
+          <ol className="auction-transcript">
+            {auction.steps.map((step) => (
+              <li key={step.sequence}>
+                <b>#{step.sequence}</b>
+                <strong>{formatUsd(step.askingPriceCents)}</strong>
+                <span>
+                  Lead: {step.leadingBidderId ?? "none"}
+                  <small>
+                    Active: {step.activeBidderIds.join(", ") || "none"}
+                    {step.droppedBidderIds.length > 0
+                      ? ` · Dropped: ${step.droppedBidderIds.join(", ")}`
+                      : ""}
+                  </small>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </details>
   );
 }

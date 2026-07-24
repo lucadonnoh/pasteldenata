@@ -36,24 +36,54 @@ export interface PlannerAttestation {
   chatId?: string;
 }
 
+export type InventoryAttributes = Record<
+  string,
+  string | number | boolean | string[]
+>;
+
+export interface SellerInventoryItem {
+  id: string;
+  offering: string;
+  estimatedMarketPriceCents: number;
+  floorPriceCents: number;
+  quality: number;
+  marketHeat: number;
+  tags: string[];
+  attributes: InventoryAttributes;
+}
+
 export interface Seller {
   id: string;
   name: string;
   category: Category;
-  offering: string;
-  listPriceCents: number;
-  reservePriceCents: number;
-  quality: number;
-  tags: string[];
   privateSalt: string;
+  inventory: SellerInventoryItem[];
 }
 
 /**
- * Deliberately excludes the user's full prompt, global budget, and category cap.
- * This is the entire view exposed to a mocked seller.
+ * The planner and buyer subagents may inspect this listing. Seller floors,
+ * demand settings, salts, and sold state are intentionally omitted.
+ */
+export interface PublicListing {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  category: Category;
+  offering: string;
+  estimatedMarketPriceCents: number;
+  quality: number;
+  tags: string[];
+  attributes: InventoryAttributes;
+}
+
+/**
+ * This is the entire request exposed to a mocked seller. It deliberately
+ * excludes the original intent, global budget, category cap, and private
+ * buyer valuation.
  */
 export interface SellerAuctionView {
   auctionId: string;
+  listingId: string;
   category: Category;
   location: string;
   scheduledFor: string;
@@ -69,37 +99,73 @@ export interface SpendMandate {
   expiresAt: string;
 }
 
-export interface Bid {
+export interface BuyerSubagentTrace {
+  id: string;
+  category: Category;
+  mandateId: string;
+  requirements: string[];
+  priority: number;
+  strategy: "fit-adjusted-private-valuation";
+}
+
+export type AuctionParticipantKind =
+  | "allocation-buyer-subagent"
+  | "mock-rival";
+
+/**
+ * Debug valuations are included only to make the local hackathon simulation
+ * auditable. A real English auction exposes bids and dropout points, not caps.
+ */
+export interface EnglishAuctionParticipantTrace {
+  bidderId: string;
+  bidderKind: AuctionParticipantKind;
+  debugMaxBidCents: number;
+}
+
+export interface EnglishAuctionStep {
+  sequence: number;
+  askingPriceCents: number;
+  activeBidderIds: string[];
+  droppedBidderIds: string[];
+  leadingBidderId: string | null;
+}
+
+export type ListingAuctionStatus = "won" | "lost" | "floor-not-met";
+
+export interface ListingEnglishAuction {
   auctionId: string;
+  listing: PublicListing;
+  listingScore: number;
+  status: ListingAuctionStatus;
+  buyerSubagentId: string;
+  buyerMaxBidCents: number;
+  debugSellerFloorPriceCents: number;
+  minimumIncrementCents: number;
+  participants: EnglishAuctionParticipantTrace[];
+  steps: EnglishAuctionStep[];
+  winningBidderId: string | null;
+  clearingPriceCents: number | null;
+}
+
+export interface AuctionWin {
+  auctionId: string;
+  listingId: string;
   sellerId: string;
   sellerName: string;
   offering: string;
   amountCents: number;
   quality: number;
   tags: string[];
-  salt: string;
-}
-
-export interface BidCommitment {
-  sellerId: string;
-  commitment: string;
-  reveal: () => Bid;
-}
-
-export interface BidEvaluation {
-  sellerId: string;
-  affordable: boolean;
-  score: number;
+  attributes: InventoryAttributes;
 }
 
 export interface AuctionResult {
   auctionId: string;
   category: Category;
+  buyerSubagent: BuyerSubagentTrace;
   mandate: SpendMandate;
-  commitments: string[];
-  bids: Bid[];
-  evaluations: BidEvaluation[];
-  winner: Bid;
+  listingAuctions: ListingEnglishAuction[];
+  winner: AuctionWin;
   score: number;
 }
 
@@ -109,6 +175,8 @@ export interface PaymentReceipt {
   mandateId: string;
   sellerId: string;
   sellerName: string;
+  listingId: string;
+  offering: string;
   category: Category;
   amountCents: number;
   currency: "USD";

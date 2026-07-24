@@ -53,7 +53,7 @@ async function main() {
     line("Provider", result.attestation.provider);
   }
   const costOg = neuronToOg(result.attestation.costNeuron);
-  if (costOg) line("Inference cost", `${costOg} testnet 0G`);
+  if (costOg) line("Inference cost", `${costOg} 0G`);
 
   console.log("\nSCOPED MANDATES");
   for (const allocation of result.plan.allocations) {
@@ -64,15 +64,30 @@ async function main() {
   }
   line("Contingency", formatUsd(result.plan.unallocatedBudgetCents));
 
-  console.log("\nSEALED-BID AUCTIONS");
+  console.log("\nALLOCATION BUYER SUBAGENTS · ENGLISH AUCTIONS");
   for (const auction of result.auctions) {
     console.log(
-      `\n${auction.category.toUpperCase()} · ${auction.bids.length} mock sellers · ${auction.commitments.length} commitments`,
+      `\n${auction.category.toUpperCase()} · ${auction.buyerSubagent.id} · mandate ${formatUsd(auction.mandate.maxAmountCents)} · ${auction.listingAuctions.length} listing auction${auction.listingAuctions.length === 1 ? "" : "s"}`,
     );
-    for (const bid of auction.bids) {
-      const marker = bid.sellerId === auction.winner.sellerId ? "✓" : " ";
+    for (const listingAuction of auction.listingAuctions) {
+      const highestRival = Math.max(
+        0,
+        ...listingAuction.participants
+          .filter(
+            (participant) => participant.bidderKind === "mock-rival",
+          )
+          .map((participant) => participant.debugMaxBidCents),
+      );
+      const marker = listingAuction.status === "won" ? "✓" : "×";
       console.log(
-        ` ${marker} ${bid.sellerName.padEnd(23)} ${formatUsd(bid.amountCents).padStart(8)}  ${bid.offering}`,
+        ` ${marker} ${listingAuction.listing.sellerName} · ${listingAuction.listing.offering}`,
+      );
+      console.log(
+        `   floor ${formatUsd(listingAuction.debugSellerFloorPriceCents)} · private agent max ${formatUsd(listingAuction.buyerMaxBidCents)} · top mock rival ${formatUsd(highestRival)} · ${listingAuction.steps.length} ascending steps · ${
+          listingAuction.clearingPriceCents === null
+            ? listingAuction.status
+            : `cleared ${formatUsd(listingAuction.clearingPriceCents)} (${listingAuction.status})`
+        }`,
       );
     }
   }
