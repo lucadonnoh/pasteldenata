@@ -152,7 +152,7 @@ function AgentSearchRun({
         "The seller offer stays fixed while three buyer wallets raise the price.",
       status: `Auction ${activeAuctionNumber}/${
         searches.length
-      } · Bid ${activeBidNumber}/6`,
+      } · Bid ${activeBidNumber}`,
     },
     complete: {
       eyebrow: "BUNDLE ASSEMBLED",
@@ -351,8 +351,7 @@ function BidAuctionStage({
         </span>
         <b>
           <Radio size={11} />
-          LIVE BID {visibleEventCount.toString().padStart(2, "0")} /{" "}
-          {bidEvents.length.toString().padStart(2, "0")}
+          LIVE BID {visibleEventCount.toString().padStart(2, "0")}
         </b>
       </div>
 
@@ -461,8 +460,7 @@ function BidAuctionStage({
                 <span>CURRENT BID</span>
                 <strong>{formatUsd(currentBid.amountCents)}</strong>
                 <small>
-                  Bid {(activeEvent?.bidIndex ?? 0) + 1} of{" "}
-                  {activeCompetition.bids.length}
+                  Bid {(activeEvent?.bidIndex ?? 0) + 1}
                 </small>
               </div>
             </div>
@@ -470,35 +468,34 @@ function BidAuctionStage({
 
           <div className={styles.bidHistory}>
             <header>
-              <span>PRICE ESCALATION</span>
-              <b>THREE BUYER WALLETS</b>
+              <span>LIVE BID FEED</span>
+              <b>NEWEST FIRST</b>
             </header>
-            <div className={styles.bidHistoryGrid}>
-              {activeCompetition.bids.map((bid, bidIndex) => {
-                const isVisible = bidIndex < visibleBids.length;
-                const isLatest = bidIndex === visibleBids.length - 1;
+            <div
+              className={styles.bidHistoryList}
+              aria-label="Incoming buyer bids"
+            >
+              {[...visibleBids].reverse().map((bid, reverseIndex) => {
+                const bidIndex = visibleBids.length - reverseIndex - 1;
+                const isLatest = reverseIndex === 0;
 
                 return (
                   <div
-                    className={`${styles.buyerBid} ${
-                      isVisible ? styles.buyerBidVisible : ""
-                    } ${isLatest ? styles.buyerBidLatest : ""} ${
+                    className={`${styles.buyerBid} ${styles.buyerBidVisible} ${
+                      isLatest ? styles.buyerBidLatest : ""
+                    } ${
                       bid.kind === "user" ? styles.buyerBidUser : ""
                     }`}
                     key={bid.id}
                   >
-                    <span>0{bidIndex + 1}</span>
+                    <span>
+                      {(bidIndex + 1).toString().padStart(2, "0")}
+                    </span>
                     <div>
-                      <strong>
-                        {isVisible ? buyerLabel(bid) : "WAITING"}
-                      </strong>
-                      <code>
-                        {isVisible ? shortWallet(bid.wallet) : "••••••••"}
-                      </code>
+                      <strong>{buyerLabel(bid)}</strong>
+                      <code>{shortWallet(bid.wallet)}</code>
                     </div>
-                    <b>
-                      {isVisible ? formatUsd(bid.amountCents) : "—"}
-                    </b>
+                    <b>{formatUsd(bid.amountCents)}</b>
                   </div>
                 );
               })}
