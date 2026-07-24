@@ -41,7 +41,7 @@
 
 .heading > div:first-child > span {
   color: rgba(34, 38, 44, 0.42);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.13em;
 }
@@ -57,7 +57,7 @@
 .heading p {
   margin: 0;
   color: rgba(34, 38, 44, 0.48);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .phasePill {
@@ -72,7 +72,7 @@
   background: rgba(255, 255, 255, 0.26);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   color: rgba(33, 36, 42, 0.5);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .phasePill i {
@@ -377,7 +377,7 @@
   align-items: center;
   gap: 6px;
   color: rgba(36, 39, 45, 0.58);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -401,7 +401,7 @@
 
 .discoveryProgress > b {
   color: rgba(36, 39, 45, 0.42);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 650;
 }
 
@@ -500,7 +500,7 @@
 .discoveryWallet code {
   color: rgba(36, 40, 46, 0.48);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 7px;
+  font-size: 9px;
 }
 
 .discoveryCard h3 {
@@ -515,7 +515,7 @@
   min-height: 24px;
   margin: 0;
   color: rgba(36, 40, 46, 0.43);
-  font-size: 7px;
+  font-size: 10px;
   line-height: 1.5;
 }
 
@@ -534,11 +534,11 @@
   align-items: center;
   gap: 5px;
   color: rgba(36, 40, 46, 0.39);
-  font-size: 6px;
+  font-size: 8px;
 }
 
 .discoveryCard > footer > strong {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 620;
 }
 
@@ -582,6 +582,435 @@
 
 .auctionTopline b svg {
   animation: livePulse 850ms ease-in-out infinite;
+}
+
+.activityTabs {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 9px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.activityTab {
+  display: grid;
+  min-width: 0;
+  min-height: 62px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  transition:
+    border-color 280ms ease,
+    background 280ms ease,
+    box-shadow 280ms ease;
+}
+
+.activityTab > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.32);
+  color: rgba(34, 38, 44, 0.58);
+}
+
+.activityTab small,
+.activityTab strong {
+  display: block;
+}
+
+.activityTab small {
+  margin-bottom: 3px;
+  color: rgba(35, 39, 45, 0.35);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.activityTab strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.activityTab > b {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(35, 39, 45, 0.32);
+  font-size: 8px;
+  font-weight: 720;
+  letter-spacing: 0.06em;
+}
+
+.activityTabActive {
+  border-color: rgba(233, 126, 61, 0.5);
+  background: rgba(255, 246, 239, 0.46);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 9px 24px rgba(123, 73, 43, 0.1);
+}
+
+.activityTabActive > b {
+  color: #b55c27;
+}
+
+.activityTabActive > b svg {
+  animation: livePulse 800ms ease-in-out infinite;
+}
+
+.activityTabComplete {
+  background: rgba(242, 251, 237, 0.38);
+}
+
+.activityTabComplete > b {
+  color: #57813c;
+}
+
+.focusAuction {
+  display: grid;
+  min-height: 286px;
+  gap: 10px;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.5fr);
+}
+
+.sellerOffer {
+  display: flex;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 21px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    0 15px 34px rgba(45, 54, 65, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  flex-direction: column;
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+}
+
+.sellerOffer > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sellerOffer > header > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.32);
+  color: rgba(35, 39, 45, 0.64);
+}
+
+.sellerOffer[data-category="flowers"] > header > span {
+  background: rgba(240, 187, 212, 0.3);
+}
+
+.sellerOffer[data-category="cinema"] > header > span {
+  background: rgba(177, 190, 237, 0.32);
+}
+
+.sellerOffer[data-category="dinner"] > header > span {
+  background: rgba(237, 195, 145, 0.3);
+}
+
+.sellerOffer > header small,
+.sellerOffer > header b {
+  display: block;
+}
+
+.sellerOffer > header small {
+  margin-bottom: 4px;
+  color: rgba(34, 38, 44, 0.4);
+  font-size: 8px;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+}
+
+.sellerOffer > header b {
+  color: #57813c;
+  font-size: 10px;
+  font-weight: 630;
+}
+
+.sellerOffer h3 {
+  margin: 18px 0 5px;
+  font-size: clamp(20px, 2.4vw, 27px);
+  font-weight: 580;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+
+.sellerOffer > p {
+  max-width: 340px;
+  margin: 0;
+  color: rgba(34, 38, 44, 0.5);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.offerRequirements {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 11px;
+}
+
+.offerRequirements span {
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  color: rgba(34, 38, 44, 0.48);
+  font-size: 8px;
+}
+
+.sellerOffer > footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.54);
+}
+
+.sellerOffer > footer span {
+  color: rgba(34, 38, 44, 0.38);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+}
+
+.sellerOffer > footer strong {
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.045em;
+}
+
+.buyerCompetition {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 21px;
+  background: linear-gradient(
+    145deg,
+    rgba(41, 44, 50, 0.96),
+    rgba(15, 17, 21, 0.93)
+  );
+  box-shadow:
+    0 18px 42px rgba(24, 29, 36, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.14);
+  color: white;
+}
+
+.liveLeader {
+  display: grid;
+  min-height: 105px;
+  align-items: center;
+  gap: 15px;
+  padding: 13px 15px;
+  border: 1px solid rgba(255, 168, 112, 0.32);
+  border-radius: 16px;
+  background:
+    radial-gradient(
+      circle at 82% 18%,
+      rgba(255, 141, 70, 0.2),
+      transparent 43%
+    ),
+    rgba(255, 255, 255, 0.06);
+  grid-template-columns: minmax(0, 1fr) auto;
+  animation: leaderChanges 460ms both
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liveLeaderUser {
+  border-color: rgba(142, 214, 99, 0.38);
+  background:
+    radial-gradient(
+      circle at 82% 18%,
+      rgba(127, 209, 80, 0.2),
+      transparent 43%
+    ),
+    rgba(255, 255, 255, 0.06);
+}
+
+.leaderIdentity > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffad76;
+  font-size: 8px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+}
+
+.liveLeaderUser .leaderIdentity > span {
+  color: #a7df83;
+}
+
+.leaderIdentity > span svg {
+  animation: livePulse 720ms ease-in-out infinite;
+}
+
+.leaderIdentity strong,
+.leaderIdentity code {
+  display: block;
+}
+
+.leaderIdentity strong {
+  margin: 8px 0 4px;
+  font-size: 18px;
+  font-weight: 640;
+}
+
+.leaderIdentity code {
+  color: rgba(255, 255, 255, 0.48);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.currentPrice {
+  min-width: 150px;
+  text-align: right;
+}
+
+.currentPrice span,
+.currentPrice strong,
+.currentPrice small {
+  display: block;
+}
+
+.currentPrice span {
+  color: rgba(255, 255, 255, 0.44);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.currentPrice strong {
+  margin: 2px 0;
+  font-size: clamp(37px, 4.4vw, 51px);
+  font-weight: 590;
+  letter-spacing: -0.065em;
+  line-height: 1;
+}
+
+.currentPrice small {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 8px;
+}
+
+.bidHistory {
+  margin-top: 9px;
+}
+
+.bidHistory > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px 6px;
+}
+
+.bidHistory > header span,
+.bidHistory > header b {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.bidHistoryGrid {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.buyerBid {
+  display: grid;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  opacity: 0.3;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  transition:
+    opacity 280ms ease,
+    border-color 280ms ease,
+    background 280ms ease;
+}
+
+.buyerBid > span {
+  color: rgba(255, 255, 255, 0.28);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+}
+
+.buyerBid strong,
+.buyerBid code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buyerBid strong {
+  margin-bottom: 3px;
+  font-size: 8px;
+  font-weight: 680;
+}
+
+.buyerBid code {
+  color: rgba(255, 255, 255, 0.4);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 7px;
+}
+
+.buyerBid > b {
+  font-size: 14px;
+  font-weight: 620;
+  letter-spacing: -0.04em;
+}
+
+.buyerBidVisible {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 1;
+  animation: bidArrives 420ms both cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.buyerBidUser {
+  color: #c9ecb4;
+}
+
+.buyerBidLatest {
+  border-color: rgba(255, 153, 88, 0.52);
+  background: rgba(255, 136, 65, 0.11);
+  box-shadow: inset 3px 0 0 rgba(255, 139, 68, 0.7);
+}
+
+.buyerBidLatest.buyerBidUser {
+  border-color: rgba(145, 216, 102, 0.52);
+  background: rgba(127, 201, 83, 0.11);
+  box-shadow: inset 3px 0 0 rgba(139, 211, 95, 0.72);
 }
 
 .bidEvent {
@@ -1434,6 +1863,44 @@
     text-align: left;
   }
 
+  .activityTabs {
+    display: flex;
+    margin-right: -18px;
+    margin-left: -18px;
+    padding: 0 18px 6px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  .activityTab {
+    flex: 0 0 78%;
+    scroll-snap-align: center;
+  }
+
+  .focusAuction {
+    grid-template-columns: 1fr;
+  }
+
+  .sellerOffer {
+    min-height: 250px;
+  }
+
+  .buyerCompetition {
+    min-height: 290px;
+  }
+
+  .liveLeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .currentPrice {
+    min-width: 125px;
+  }
+
+  .bidHistoryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .auctionGrid {
     display: flex;
     margin: 0 -18px;
@@ -1481,6 +1948,32 @@
 
   .auctionStage {
     margin-top: 6px;
+  }
+
+  .activityTab {
+    min-height: 55px;
+    padding-block: 7px;
+  }
+
+  .focusAuction {
+    min-height: 268px;
+  }
+
+  .sellerOffer {
+    padding: 14px;
+  }
+
+  .sellerOffer h3 {
+    margin-top: 13px;
+  }
+
+  .liveLeader {
+    min-height: 94px;
+    padding-block: 10px;
+  }
+
+  .buyerBid {
+    min-height: 45px;
   }
 
   .auctionRule {

@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { organizePrivatePurchase } from "../src/orchestrator";
 import {
+  createMockBuyerCompetition,
   createMockAgentSearches,
-  mockSellerAgentWallet,
 } from "../src/mock-agent-search";
 import { MockPrivatePlanner } from "../src/planner";
 
@@ -49,18 +49,37 @@ test("mock agent wallets are stable for the same private plan", async () => {
   );
 });
 
-test("each mocked seller agent has a stable bidding wallet", async () => {
+test("buyer agents raise the price while the seller offer stays fixed", async () => {
   const result = await organizePrivatePurchase(
     new MockPrivatePlanner(),
     INTENT,
     NOW,
   );
-  const sellerIds = result.auctions.flatMap((auction) =>
-    auction.bids.map((bid) => bid.sellerId),
-  );
-  const wallets = sellerIds.map(mockSellerAgentWallet);
+  const searches = createMockAgentSearches(result);
 
-  assert.equal(new Set(wallets).size, sellerIds.length);
-  assert.ok(wallets.every((wallet) => /^0x[a-f0-9]{40}$/.test(wallet)));
-  assert.deepEqual(wallets, sellerIds.map(mockSellerAgentWallet));
+  for (const search of searches) {
+    const competition = createMockBuyerCompetition(search);
+    const buyerWallets = competition.bids.map((bid) => bid.wallet);
+    const amounts = competition.bids.map((bid) => bid.amountCents);
+    const finalBid = competition.bids.at(-1);
+
+    assert.equal(competition.bids.length, 6);
+    assert.equal(new Set(buyerWallets).size, 3);
+    assert.ok(
+      buyerWallets.every((wallet) => /^0x[a-f0-9]{40}$/.test(wallet)),
+    );
+    assert.ok(
+      amounts.every(
+        (amount, index) =>
+          index === 0 || amount > amounts[index - 1]!,
+      ),
+    );
+    assert.equal(finalBid?.kind, "user");
+    assert.equal(finalBid?.wallet, search.wallet);
+    assert.equal(finalBid?.amountCents, search.auction.winner.amountCents);
+    assert.ok(
+      (finalBid?.amountCents ?? Number.POSITIVE_INFINITY) <=
+        search.allocation.maxBudgetCents,
+    );
+  }
 });

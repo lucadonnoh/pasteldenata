@@ -20,15 +20,16 @@ import type { Category, DemoResult } from "@/src/domain";
 import { formatUsd } from "@/src/money";
 import {
   createMockAgentSearches,
-  mockSellerAgentWallet,
+  createMockBuyerCompetition,
+  type MockBuyerCompetition,
   type MockAgentSearch,
 } from "@/src/mock-agent-search";
 
 import styles from "./agent-search-experience.module.css";
 
 const DISCOVERY_DURATION_MS = 4200;
-const BID_INTERVAL_MS = 1100;
-const AUCTION_SETTLE_MS = 1800;
+const BID_INTERVAL_MS = 1000;
+const AUCTION_SETTLE_MS = 1500;
 
 const categoryIcons: Record<Category, LucideIcon> = {
   flowers: Flower2,
@@ -42,23 +43,18 @@ function shortWallet(wallet: string): string {
   return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
 }
 
-function createBidEvents(searches: MockAgentSearch[]) {
+function createBidEvents(competitions: MockBuyerCompetition[]) {
   const events: Array<{
     searchIndex: number;
     bidIndex: number;
-    bid: MockAgentSearch["auction"]["bids"][number];
+    bid: MockBuyerCompetition["bids"][number];
   }> = [];
-  const largestAuction = Math.max(
-    0,
-    ...searches.map((search) => search.auction.bids.length),
-  );
 
-  for (let bidIndex = 0; bidIndex < largestAuction; bidIndex += 1) {
-    searches.forEach((search, searchIndex) => {
-      const bid = search.auction.bids[bidIndex];
-      if (bid) events.push({ searchIndex, bidIndex, bid });
+  competitions.forEach((competition, searchIndex) => {
+    competition.bids.forEach((bid, bidIndex) => {
+      events.push({ searchIndex, bidIndex, bid });
     });
-  }
+  });
 
   return events;
 }
@@ -86,12 +82,19 @@ function AgentSearchRun({
   searches: MockAgentSearch[];
   onReplay: () => void;
 }) {
+  const competitions = useMemo(
+    () => searches.map(createMockBuyerCompetition),
+    [searches],
+  );
   const [phase, setPhase] = useState<
     "searching" | "bidding" | "complete"
   >("searching");
   const [resolvedCount, setResolvedCount] = useState(0);
   const [bidTick, setBidTick] = useState(0);
-  const bidEvents = useMemo(() => createBidEvents(searches), [searches]);
+  const bidEvents = useMemo(
+    () => createBidEvents(competitions),
+    [competitions],
+  );
 
   useEffect(() => {
     let bidTimer: number | undefined;
@@ -129,10 +132,10 @@ function AgentSearchRun({
     };
   }, [bidEvents.length, searches]);
 
-  const visibleBidEvent = Math.min(
-    bidTick + 1,
-    bidEvents.length,
-  );
+  const activeEvent =
+    bidEvents[Math.min(bidTick, bidEvents.length - 1)];
+  const activeAuctionNumber = (activeEvent?.searchIndex ?? 0) + 1;
+  const activeBidNumber = (activeEvent?.bidIndex ?? 0) + 1;
 
   const phaseCopy = {
     searching: {
@@ -143,11 +146,13 @@ function AgentSearchRun({
       status: "Discovering",
     },
     bidding: {
-      eyebrow: "SELLER AGENTS · LIVE COMPETITION",
-      title: "Seller agents are competing now.",
+      eyebrow: "BUYER AGENTS · LIVE AUCTION",
+      title: "Buyer agents are competing.",
       description:
-        "One sealed bid is revealed at a time. Watch the best-value leader change.",
-      status: `Bid ${visibleBidEvent}/${bidEvents.length}`,
+        "The seller offer stays fixed while three buyer wallets raise the price.",
+      status: `Auction ${activeAuctionNumber}/${
+        searches.length
+      } · Bid ${activeBidNumber}/6`,
     },
     complete: {
       eyebrow: "BUNDLE ASSEMBLED",
@@ -186,7 +191,7 @@ function AgentSearchRun({
         />
       ) : phase === "bidding" ? (
         <BidAuctionStage
-          searches={searches}
+          competitions={competitions}
           bidEvents={bidEvents}
           bidTick={bidTick}
         />
@@ -303,11 +308,11 @@ function ActivityDiscovery({
 }
 
 function BidAuctionStage({
-  searches,
+  competitions,
   bidEvents,
   bidTick,
 }: {
-  searches: MockAgentSearch[];
+  competitions: MockBuyerCompetition[];
   bidEvents: ReturnType<typeof createBidEvents>;
   bidTick: number;
 }) {
@@ -315,199 +320,191 @@ function BidAuctionStage({
     bidTick + 1,
     bidEvents.length,
   );
-  const revealedEvents = bidEvents.slice(0, visibleEventCount);
   const activeEvent =
     bidEvents[Math.min(bidTick, bidEvents.length - 1)];
+  const activeIndex = activeEvent?.searchIndex ?? 0;
+  const activeCompetition =
+    competitions[activeIndex] ?? competitions[0];
+
+  if (!activeCompetition) return null;
+
+  const currentBid = activeEvent?.bid;
+  const visibleBids = activeCompetition.bids.slice(
+    0,
+    (activeEvent?.bidIndex ?? 0) + 1,
+  );
+  const marketWallets = activeCompetition.bids
+    .filter((bid) => bid.kind === "market")
+    .map((bid) => bid.wallet)
+    .filter((wallet, index, wallets) => wallets.indexOf(wallet) === index);
+  const buyerLabel = (bid: MockBuyerCompetition["bids"][number]) => {
+    if (bid.kind === "user") return "YOUR AGENT";
+    return `MARKET AGENT ${marketWallets.indexOf(bid.wallet) + 1}`;
+  };
 
   return (
     <div className={styles.auctionStage}>
       <div className={styles.auctionTopline}>
         <span>
           <Gavel size={13} />
-          AGENT BID COMPETITION
+          THREE SEQUENTIAL AUCTIONS
         </span>
         <b>
           <Radio size={11} />
-          BID {visibleEventCount.toString().padStart(2, "0")} /{" "}
+          LIVE BID {visibleEventCount.toString().padStart(2, "0")} /{" "}
           {bidEvents.length.toString().padStart(2, "0")}
         </b>
       </div>
 
-      {activeEvent && (
-        <div
-          className={styles.bidEvent}
-          key={`${activeEvent.searchIndex}-${activeEvent.bid.sellerId}`}
-        >
-          <span>
-            <Radio size={13} />
-            SELLER AGENT BIDS
-          </span>
-          <div>
-            <strong>{activeEvent.bid.sellerName}</strong>
-            <small>
-              {shortWallet(
-                mockSellerAgentWallet(activeEvent.bid.sellerId),
-              )}{" "}
-              enters the{" "}
-              {searches[activeEvent.searchIndex]?.allocation.category} market
-            </small>
-          </div>
-          <b>{formatUsd(activeEvent.bid.amountCents)}</b>
-          <i>Best value = quality + fit + price</i>
-        </div>
-      )}
-
-      <div className={styles.auctionGrid}>
-        {searches.map((search, searchIndex) => {
+      <nav className={styles.activityTabs} aria-label="Activity auctions">
+        {competitions.map(({ search }, searchIndex) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
-          const visibleBidCount = revealedEvents.filter(
-            (event) => event.searchIndex === searchIndex,
-          ).length;
-          const isActiveLane =
-            activeEvent?.searchIndex === searchIndex;
-          const activeSellerId = isActiveLane
-            ? activeEvent.bid.sellerId
-            : undefined;
-          const visibleBids = search.auction.bids.slice(
-            0,
-            visibleBidCount,
-          );
-          const affordableBids = visibleBids.filter(
-            (bid) =>
-              search.auction.evaluations.find(
-                (evaluation) => evaluation.sellerId === bid.sellerId,
-              )?.affordable,
-          );
-          const rankedBids =
-            affordableBids.length > 0 ? affordableBids : visibleBids;
-          const leader =
-            rankedBids.length > 0
-              ? rankedBids.reduce((currentLeader, bid) => {
-                  const currentScore =
-                    search.auction.evaluations.find(
-                      (evaluation) =>
-                        evaluation.sellerId ===
-                        currentLeader.sellerId,
-                    )?.score ?? Number.NEGATIVE_INFINITY;
-                  const bidScore =
-                    search.auction.evaluations.find(
-                      (evaluation) =>
-                        evaluation.sellerId === bid.sellerId,
-                    )?.score ?? Number.NEGATIVE_INFINITY;
-                  return bidScore > currentScore
-                    ? bid
-                    : currentLeader;
-                })
-              : null;
-          const leaderScore = leader
-            ? (search.auction.evaluations.find(
-                (evaluation) =>
-                  evaluation.sellerId === leader.sellerId,
-              )?.score ?? 0)
-            : 0;
-          const sealedBidCount =
-            search.auction.bids.length - visibleBidCount;
-
+          const isActive = searchIndex === activeIndex;
+          const isComplete = searchIndex < activeIndex;
           return (
-            <article
-              className={`${styles.auctionLane} ${
-                isActiveLane ? styles.auctionLaneActive : ""
-              }`}
-              data-category={search.allocation.category}
+            <div
+              className={`${styles.activityTab} ${
+                isActive ? styles.activityTabActive : ""
+              } ${isComplete ? styles.activityTabComplete : ""}`}
               key={search.id}
             >
-              <header className={styles.auctionLaneHeader}>
-                <span>
-                  <CategoryIcon size={16} />
-                </span>
-                <div>
-                  <strong>{search.allocation.category}</strong>
-                  <code>{shortWallet(search.wallet)}</code>
-                </div>
-                <b>0{searchIndex + 1}</b>
-              </header>
-
-              <div className={styles.activityScope}>
-                <span>ACTIVITY FOUND</span>
-                <strong>
-                  {search.allocation.requirements.slice(0, 2).join(" · ")}
-                </strong>
-                <p>
-                  Scoped cap{" "}
-                  {formatUsd(search.allocation.maxBudgetCents)}
-                </p>
+              <span>
+                <CategoryIcon size={17} />
+              </span>
+              <div>
+                <small>AUCTION 0{searchIndex + 1}</small>
+                <strong>{search.allocation.category}</strong>
               </div>
-
-              <div
-                className={styles.currentBest}
-                key={`${search.id}-${leader?.sellerId ?? "waiting"}`}
-              >
-                <div>
-                  <span>LEADING SELLER AGENT</span>
-                  <strong>
-                    {leader?.sellerName ?? "Waiting for first bid"}
-                  </strong>
-                  <small>
-                    {leader
-                      ? `${shortWallet(
-                          mockSellerAgentWallet(leader.sellerId),
-                        )} · score ${leaderScore.toFixed(1)}`
-                      : "sealed market"}
-                  </small>
-                </div>
-                <b>
-                  {leader ? formatUsd(leader.amountCents) : "—"}
-                </b>
-              </div>
-
-              <div className={styles.bidStack}>
-                {visibleBids.map((bid, bidIndex) => {
-                  const isLeading =
-                    bid.sellerId === leader?.sellerId;
-                  const isNewest =
-                    bid.sellerId === activeSellerId;
-
-                  return (
-                    <div
-                      className={`${styles.bidRow} ${styles.bidVisible} ${
-                        isLeading ? styles.bidLeading : ""
-                      } ${isNewest ? styles.bidNewest : ""}`}
-                      key={bid.sellerId}
-                    >
-                      <span>{(bidIndex + 1).toString().padStart(2, "0")}</span>
-                      <div>
-                        <strong>{bid.sellerName}</strong>
-                        <small>
-                          {shortWallet(
-                            mockSellerAgentWallet(bid.sellerId),
-                          )}{" "}
-                          · {bid.quality}/100 quality
-                        </small>
-                      </div>
-                      <b>{formatUsd(bid.amountCents)}</b>
-                      {isLeading && <i>BEST VALUE</i>}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <footer className={styles.sealedStatus}>
-                {sealedBidCount > 0 ? (
+              <b>
+                {isComplete ? (
                   <>
-                    <i />
-                    {sealedBidCount} sealed{" "}
-                    {sealedBidCount === 1 ? "bid" : "bids"} waiting
+                    <Check size={11} />
+                    WON
+                  </>
+                ) : isActive ? (
+                  <>
+                    <Radio size={10} />
+                    LIVE
                   </>
                 ) : (
-                  <>
-                    <Check size={10} />
-                    All seller bids revealed
-                  </>
+                  "QUEUED"
                 )}
-              </footer>
-            </article>
+              </b>
+            </div>
           );
         })}
+      </nav>
+
+      <div className={styles.focusAuction}>
+        <section
+          className={styles.sellerOffer}
+          data-category={activeCompetition.search.allocation.category}
+        >
+          <header>
+            <span>
+              {(() => {
+                const CategoryIcon =
+                  categoryIcons[
+                    activeCompetition.search.allocation.category
+                  ];
+                return <CategoryIcon size={22} />;
+              })()}
+            </span>
+            <div>
+              <small>FIXED SELLER OFFER</small>
+              <b>Seller does not bid</b>
+            </div>
+          </header>
+
+          <h3>{activeCompetition.search.auction.winner.sellerName}</h3>
+          <p>{activeCompetition.search.auction.winner.offering}</p>
+
+          <div className={styles.offerRequirements}>
+            {activeCompetition.search.allocation.requirements
+              .slice(0, 3)
+              .map((requirement) => (
+                <span key={requirement}>{requirement}</span>
+              ))}
+          </div>
+
+          <footer>
+            <span>BUYER AGENT SPEND LIMIT</span>
+            <strong>
+              {formatUsd(
+                activeCompetition.search.allocation.maxBudgetCents,
+              )}
+            </strong>
+          </footer>
+        </section>
+
+        <section className={styles.buyerCompetition}>
+          {currentBid && (
+            <div
+              className={`${styles.liveLeader} ${
+                currentBid.kind === "user"
+                  ? styles.liveLeaderUser
+                  : ""
+              }`}
+              key={currentBid.id}
+            >
+              <div className={styles.leaderIdentity}>
+                <span>
+                  <Radio size={12} />
+                  {currentBid.kind === "user"
+                    ? "YOUR AGENT TAKES THE LEAD"
+                    : "A MARKET AGENT TAKES THE LEAD"}
+                </span>
+                <strong>{buyerLabel(currentBid)}</strong>
+                <code>{shortWallet(currentBid.wallet)}</code>
+              </div>
+              <div className={styles.currentPrice}>
+                <span>CURRENT BID</span>
+                <strong>{formatUsd(currentBid.amountCents)}</strong>
+                <small>
+                  Bid {(activeEvent?.bidIndex ?? 0) + 1} of{" "}
+                  {activeCompetition.bids.length}
+                </small>
+              </div>
+            </div>
+          )}
+
+          <div className={styles.bidHistory}>
+            <header>
+              <span>PRICE ESCALATION</span>
+              <b>THREE BUYER WALLETS</b>
+            </header>
+            <div className={styles.bidHistoryGrid}>
+              {activeCompetition.bids.map((bid, bidIndex) => {
+                const isVisible = bidIndex < visibleBids.length;
+                const isLatest = bidIndex === visibleBids.length - 1;
+
+                return (
+                  <div
+                    className={`${styles.buyerBid} ${
+                      isVisible ? styles.buyerBidVisible : ""
+                    } ${isLatest ? styles.buyerBidLatest : ""} ${
+                      bid.kind === "user" ? styles.buyerBidUser : ""
+                    }`}
+                    key={bid.id}
+                  >
+                    <span>0{bidIndex + 1}</span>
+                    <div>
+                      <strong>
+                        {isVisible ? buyerLabel(bid) : "WAITING"}
+                      </strong>
+                      <code>
+                        {isVisible ? shortWallet(bid.wallet) : "••••••••"}
+                      </code>
+                    </div>
+                    <b>
+                      {isVisible ? formatUsd(bid.amountCents) : "—"}
+                    </b>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );

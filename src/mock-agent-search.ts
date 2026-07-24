@@ -14,6 +14,18 @@ export interface MockAgentSearch {
   matchedTags: string[];
 }
 
+export interface MockBuyerBid {
+  id: string;
+  wallet: `0x${string}`;
+  kind: "user" | "market";
+  amountCents: number;
+}
+
+export interface MockBuyerCompetition {
+  search: MockAgentSearch;
+  bids: MockBuyerBid[];
+}
+
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -27,10 +39,13 @@ function walletFor(
   return `0x${hash.slice(0, 40)}`;
 }
 
-export function mockSellerAgentWallet(
-  sellerId: string,
+function marketBuyerWallet(
+  searchWallet: `0x${string}`,
+  index: number,
 ): `0x${string}` {
-  const hash = sha256Hex(`pastel-seller-agent:${sellerId}`);
+  const hash = sha256Hex(
+    `pastel-market-buyer:${searchWallet}:${index}`,
+  );
   return `0x${hash.slice(0, 40)}`;
 }
 
@@ -70,4 +85,47 @@ export function createMockAgentSearches(
       matchedTags,
     };
   });
+}
+
+export function createMockBuyerCompetition(
+  search: MockAgentSearch,
+): MockBuyerCompetition {
+  const finalAmount = search.auction.winner.amountCents;
+  const bidderSequence = [
+    marketBuyerWallet(search.wallet, 0),
+    marketBuyerWallet(search.wallet, 1),
+    search.wallet,
+    marketBuyerWallet(search.wallet, 0),
+    marketBuyerWallet(search.wallet, 1),
+    search.wallet,
+  ];
+  const ratios = [0.62, 0.7, 0.78, 0.86, 0.93, 1];
+  let previousAmount = 0;
+
+  const bids = bidderSequence.map((wallet, index) => {
+    const proposedAmount =
+      index === ratios.length - 1
+        ? finalAmount
+        : Math.round((finalAmount * ratios[index]!) / 100) * 100;
+    const remainingBids = ratios.length - index - 1;
+    const highestSafeAmount = finalAmount - remainingBids * 100;
+    const amountCents =
+      index === ratios.length - 1
+        ? finalAmount
+        : Math.min(
+            highestSafeAmount,
+            Math.max(previousAmount + 100, proposedAmount),
+          );
+
+    previousAmount = amountCents;
+
+    return {
+      id: `${search.id}_buyer_bid_${index + 1}`,
+      wallet,
+      kind: wallet === search.wallet ? "user" : "market",
+      amountCents,
+    } satisfies MockBuyerBid;
+  });
+
+  return { search, bids };
 }
