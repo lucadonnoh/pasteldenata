@@ -23,7 +23,9 @@ import { fundBuyer, resetBuyerBalance, type HederaSettlementContext } from "./se
 
 const LEAF_AGENT_PATH = fileURLToPath(new URL("./leafAgent.ts", import.meta.url));
 const LEAF_TIMEOUT_MS = 240_000;
-const LEAF_FEE_HBAR = 1;
+// Must cover the settlement's maximum fee ceiling, which includes the claim
+// NFT auto-association charged to the leaf as payer.
+const LEAF_FEE_HBAR = 5;
 
 /**
  * Swarm settlement: one forked leaf agent per mandate, each with a fresh
