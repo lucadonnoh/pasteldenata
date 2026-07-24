@@ -24,7 +24,9 @@ import { createMockSellerAuctionHouses } from "../src/sellers";
 import {
   type IndependentTeeVerificationInput,
   verifyEip191Signature,
+  verifyResponseContentHash,
 } from "../src/tee-verifier";
+import { sha256Hex } from "../src/hash";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
@@ -37,7 +39,7 @@ function independentVerification(
 ): IndependentTeeVerification {
   return {
     verified: true,
-    method: "onchain-signer-eip191",
+    method: "onchain-signer-eip191-response-bound",
     chainId: 16661,
     rpcUrl: "https://evmrpc.0g.ai",
     serviceContract: "0x0000000000000000000000000000000000000003",
@@ -54,6 +56,10 @@ function independentVerification(
     signature: `0x${"11".repeat(65)}`,
     messageHash: `0x${"22".repeat(32)}`,
     signatureVerified: true,
+    responseHashVerified: true,
+    responseHashMethod: "raw-without-router-trace",
+    computedResponseHash: "bb".repeat(32),
+    excludedResponseFields: ["x_0g_trace"],
     signedRequestHash: "aa".repeat(32),
     signedResponseHash: "bb".repeat(32),
     ...overrides,
@@ -373,6 +379,38 @@ test("proof lookup derives ZG-Res-Key from the OpenAI response ID", () => {
   );
 });
 
+test("response proof binds the exact plan while excluding only Router trace metadata", () => {
+  const providerResponse =
+    '{"id":"chatcmpl-proof","choices":[{"message":{"content":"{\\"budget\\":200,\\"plan\\":\\"dinner\\"}"}}],"model":"0GM"}';
+  const routerResponse =
+    providerResponse.slice(0, -1) +
+    ',"x_0g_trace":{"request_id":"router-only","tee_verified":true}}';
+  const signedResponseHash = sha256Hex(providerResponse);
+
+  assert.deepEqual(
+    verifyResponseContentHash({
+      routerResponseText: routerResponse,
+      signedResponseHash,
+    }),
+    {
+      method: "raw-without-router-trace",
+      computedResponseHash: signedResponseHash,
+      excludedResponseFields: ["x_0g_trace"],
+    },
+  );
+  assert.throws(
+    () =>
+      verifyResponseContentHash({
+        routerResponseText: routerResponse.replace(
+          '\\"budget\\":200',
+          '\\"budget\\":900',
+        ),
+        signedResponseHash,
+      }),
+    /does not match the plan response/,
+  );
+});
+
 test("the verified browser orchestrator rejects the mock before auctions", async () => {
   await assert.rejects(
     organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
@@ -492,12 +530,13 @@ test("the 0G planner retains the exact verified Router trace", async () => {
       tee_verified: true,
     });
     assert.equal(result.attestation.chatId, "chat-header-id");
-    assert.deepEqual(verificationInputs, [
-      {
-        provider: TEST_PROVIDER,
-        chatId: "chat-header-id",
-      },
-    ]);
+    assert.equal(verificationInputs.length, 1);
+    assert.equal(verificationInputs[0]?.provider, TEST_PROVIDER);
+    assert.equal(verificationInputs[0]?.chatId, "chat-header-id");
+    assert.match(
+      verificationInputs[0]?.routerResponseText ?? "",
+      /\\"occasionTitle\\":\\"Private date\\"/,
+    );
     assert.equal(
       result.attestation.independentVerification?.verified,
       true,

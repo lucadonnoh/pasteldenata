@@ -104,7 +104,8 @@ export function requireVerifiedPrivateTee(
     !attestation.routerTrace.request_id ||
     !attestation.routerTrace.provider ||
     attestation.independentVerification?.verified !== true ||
-    attestation.independentVerification.signatureVerified !== true
+    attestation.independentVerification.signatureVerified !== true ||
+    attestation.independentVerification.responseHashVerified !== true
   ) {
     throw new Error(
       "The 0G response did not pass both Router and independent TEE verification.",
@@ -220,9 +221,17 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
       }),
     });
 
-    const raw = (await response.json()) as RouterResponse & {
-      error?: { message?: string };
-    };
+    const responseText = await response.text();
+    let raw: RouterResponse & { error?: { message?: string } };
+    try {
+      raw = JSON.parse(responseText) as RouterResponse & {
+        error?: { message?: string };
+      };
+    } catch {
+      throw new Error(
+        `0G Router returned a non-JSON response with status ${response.status}.`,
+      );
+    }
     const chatId = resolveProofChatId(response, raw.id);
     if (!response.ok) {
       throw new Error(
@@ -251,6 +260,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const independentVerification = await this.teeVerifier.verify({
       provider: trace.provider,
       chatId,
+      routerResponseText: responseText,
     });
 
     const modelPlan = ModelPlanSchema.parse(extractJson(content));

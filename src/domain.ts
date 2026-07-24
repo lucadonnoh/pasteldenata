@@ -39,7 +39,7 @@ export interface ZeroGRouterTrace {
 
 export interface IndependentTeeVerification {
   verified: true;
-  method: "onchain-signer-eip191";
+  method: "onchain-signer-eip191-response-bound";
   chainId: 16661;
   rpcUrl: string;
   serviceContract: string;
@@ -55,8 +55,16 @@ export interface IndependentTeeVerification {
   signature: string;
   messageHash: string;
   signatureVerified: true;
+  responseHashVerified: true;
+  responseHashMethod:
+    | "raw-router-response"
+    | "raw-without-router-trace"
+    | "json-without-router-trace"
+    | "jcs-without-router-trace";
+  computedResponseHash: string;
+  excludedResponseFields: [] | ["x_0g_trace"];
   signedRequestHash?: string;
-  signedResponseHash?: string;
+  signedResponseHash: string;
   providerType?: string;
   providerIdentity?: string;
   tlsCertFingerprint?: string;

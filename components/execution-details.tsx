@@ -51,7 +51,8 @@ export function PrivacyDetails() {
             <strong>Independent browser verification</strong>
             <p>
               This browser reads the on-chain TEE signer, fetches the raw
-              provider proof, and independently recovers its EIP-191 signer.
+              provider proof, recovers its EIP-191 signer, and matches the
+              signed response hash to the returned plan.
             </p>
           </div>
         </div>
@@ -96,14 +97,14 @@ export function ZeroGVerificationReceipt({
           <ShieldCheck size={15} aria-hidden="true" />
         </span>
         <div>
-          <span>LIVE · LOCALLY VERIFIED 0G PROOF</span>
-          <h2>TEE proof independently verified in this browser</h2>
+          <span>LIVE · END-TO-END 0G CONTENT PROOF</span>
+          <h2>TEE signer and exact plan response verified</h2>
           <p>
-            The browser fetched the provider&apos;s raw proof and checked its
-            signature against the acknowledged on-chain 0G TEE signer.
+            The browser checked both the TEE signature and that its signed
+            response hash equals the plan response received here.
           </p>
         </div>
-        <span className="verification-pill">INDEPENDENTLY VERIFIED</span>
+        <span className="verification-pill">RESPONSE BOUND</span>
       </header>
 
       <div className="zerog-proof-grid">
@@ -118,7 +119,7 @@ export function ZeroGVerificationReceipt({
         <div className="zerog-request-facts">
           <div className="verification-equation">
             <span>Acceptance condition</span>
-            <code>recovered signer === on-chain signer</code>
+            <code>signer match &amp;&amp; response hash match</code>
           </div>
           <dl className="evidence-table">
             <div>
@@ -149,9 +150,19 @@ export function ZeroGVerificationReceipt({
             <div>
               <dt>Signed response hash</dt>
               <dd>
-                <code>
-                  {proof.signedResponseHash ?? "Embedded in signed payload"}
-                </code>
+                <code>{proof.signedResponseHash}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Computed response hash</dt>
+              <dd>
+                <code>{proof.computedResponseHash}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Content binding</dt>
+              <dd>
+                <code>{proof.responseHashMethod}</code>
               </dd>
             </div>
             <div>
@@ -169,10 +180,11 @@ export function ZeroGVerificationReceipt({
         provider&apos;s service record from 0G Mainnet, fetches the signature
         identified by <code>{proof.chatId}</code>, performs EIP-191 recovery,
         and requires the recovered address to equal the acknowledged TEE signer.
-        The signed payload includes the provider&apos;s response hash. Because
-        the Router rewrites the provider envelope to add its trace, the separate
-        Router assertion is still required to associate this proof with the
-        returned plan.
+        It also recomputes the response hash, excluding at most the
+        Router-injected <code>x_0g_trace</code> field, and requires an exact
+        match with the hash inside the signed proof. The model plan is therefore
+        bound to the TEE signature; Router trace and billing metadata remain
+        separate, untrusted Router assertions.
       </p>
       <div className="docs-links">
         {providerExplorerUrl && (

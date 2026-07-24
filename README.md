@@ -16,8 +16,8 @@ hold.
 ## What is real
 
 - 0G Router private-tier inference
-- Router verification and independent browser-side TEE signature verification
-  are both required before a plan is accepted
+- Independent browser-side TEE signature and response-content verification are
+  required before a plan is accepted
 - The model chooses categories, requirements, priorities, and allocations
 - Budget, category, replay, and atomic settlement checks are enforced in code
 - One scoped buyer subagent is created for every model allocation
@@ -119,10 +119,10 @@ keeps the primary interaction focused on one Liquid Glass intent box. After a
 successful request, an always-visible 0G verification receipt shows the exact
 cryptographic proof checked by the browser: 0G chain ID, provider service
 contract, on-chain TEE signer, recovered EIP-191 signer, raw signature, signed
-proof payload, and request/response hashes. Provider, signer, and service
-contract addresses link to 0G ChainScan. The Router's `x_0g_trace` remains
-available as the separate evidence associating that proof with the returned
-plan.
+proof payload, and the independently matched response hash. Provider, signer,
+and service contract addresses link to 0G ChainScan. The Router's
+`x_0g_trace` remains visible as explicitly separate, untrusted routing and
+billing metadata.
 
 The 0G-generated plan stays attached to that live receipt. Mock buyer
 subagents, English-auction transcripts, seller floors, rival valuations, and
@@ -144,20 +144,16 @@ the Router exposes it; otherwise it derives the same key from the documented
 2. Fetches the signed proof payload and raw signature from the provider's
    public signature endpoint using the chat ID.
 3. Recovers the EIP-191 signer and requires it to equal the on-chain TEE signer.
-4. Exposes the signed request/response hashes and complete signed payload for
-   inspection.
+4. Excludes at most the Router-injected `x_0g_trace`, hashes the remaining
+   response, and requires it to equal the response hash inside the signed proof.
+5. Exposes both hashes, the raw signature, and complete signed payload.
 
-Only both successful checks—Router and independent—allow the plan to be parsed
-and the local auctions to start. A generic top-level verification claim, mock
-response, incomplete trace, missing chat ID, wrong signer, invalid signature, or
-unacknowledged signer fails closed.
-
-The provider signs hashes over its original request and response bytes. The
-Router rewrites the response envelope to add `x_0g_trace`, so this client cannot
-honestly recompute that byte-for-byte response hash from the rewritten Router
-body. The independent check proves the raw proof was signed by the provider's
-acknowledged on-chain TEE signer; the required Router check associates that
-proof with this Router response.
+Only the successful signer and response-content checks allow the plan to be
+parsed and the local auctions to start. A generic top-level verification claim,
+mock response, incomplete trace, missing proof key, wrong signer, invalid
+signature, changed plan, mismatched response hash, or unacknowledged signer
+fails closed. `x_0g_trace.tee_verified` is retained as corroborating Router
+metadata, but it is not the source of the content guarantee.
 
 ```text
 user key + private intent
@@ -165,15 +161,17 @@ user key + private intent
           v
  browser -> 0G private Router
           |
-  Router says verified?
-       no /  \ yes
-      fail    read 0G service contract
+  Router returns provider + proof key
+                        |
+               read 0G service contract
                         |
                  fetch raw signature
                         |
              recover and match TEE signer
                    no /       \ yes
-                  fail     local mock auctions
+                  fail     match response hash
+                              no /     \ yes
+                             fail   local mock auctions
                                   |
                                   v
                           local payment checks
@@ -188,8 +186,8 @@ npm run dev
 
 Then open `http://localhost:3000`, paste your own 0G key into the password
 field, and submit an intent containing a USD budget. The interface renders the
-0G verification receipt only after both the Router trace and the independent
-cryptographic check pass; it does not render the private prompt in the result.
+0G verification receipt only after the independent signer and response-content
+checks pass; it does not render the private prompt in the result.
 
 0G currently permits this direct browser call from localhost. A deployed
 production origin must be registered with 0G for CORS before the same static

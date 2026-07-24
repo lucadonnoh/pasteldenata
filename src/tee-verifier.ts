@@ -7,6 +7,7 @@ import {
 } from "ethers";
 import { z } from "zod";
 import type { IndependentTeeVerification } from "./domain";
+import { sha256Hex } from "./hash";
 
 export const ZEROG_MAINNET_CHAIN_ID = 16661;
 export const ZEROG_MAINNET_RPC = "https://evmrpc.0g.ai";
@@ -51,6 +52,7 @@ interface OnchainServiceRecord {
 export interface IndependentTeeVerificationInput {
   provider: string;
   chatId: string;
+  routerResponseText: string;
 }
 
 export interface IndependentTeeVerifier {
@@ -100,6 +102,203 @@ function extractSignedHashes(signedPayload: string): {
   };
 }
 
+type ResponseHashMethod =
+  IndependentTeeVerification["responseHashMethod"];
+
+interface ResponseHashCandidate {
+  method: ResponseHashMethod;
+  content: string;
+  excludedResponseFields: [] | ["x_0g_trace"];
+}
+
+function canonicalJson(value: unknown): string {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "string"
+  ) {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) {
+      throw new Error("Cannot canonicalize an unsupported JSON value.");
+    }
+    return encoded;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${canonicalJson(record[key])}`,
+      )
+      .join(",")}}`;
+  }
+
+  throw new Error("Cannot canonicalize an unsupported JSON value.");
+}
+
+function stripTopLevelJsonField(
+  json: string,
+  fieldName: string,
+): string | undefined {
+  const objectStart = json.indexOf("{");
+  const objectEnd = json.lastIndexOf("}");
+  if (objectStart < 0 || objectEnd <= objectStart) return undefined;
+
+  const commas: number[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = objectStart; index <= objectEnd; index += 1) {
+    const character = json[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+    } else if (character === "{" || character === "[") {
+      depth += 1;
+    } else if (character === "}" || character === "]") {
+      depth -= 1;
+    } else if (character === "," && depth === 1) {
+      commas.push(index);
+    }
+  }
+
+  const boundaries = [objectStart, ...commas, objectEnd];
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const startBoundary = boundaries[index];
+    const endBoundary = boundaries[index + 1];
+    if (startBoundary === undefined || endBoundary === undefined) {
+      return undefined;
+    }
+    const start = startBoundary + 1;
+    const end = endBoundary;
+    const member = json.slice(start, end);
+    try {
+      const parsed = JSON.parse(`{${member}}`) as Record<
+        string,
+        unknown
+      >;
+      if (
+        Object.keys(parsed).length === 1 &&
+        Object.hasOwn(parsed, fieldName)
+      ) {
+        const removeStart =
+          index === 0 ? start : startBoundary;
+        const removeEnd =
+          index === 0 && commas.length > 0
+            ? endBoundary + 1
+            : end;
+        return json.slice(0, removeStart) + json.slice(removeEnd);
+      }
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+export function verifyResponseContentHash({
+  routerResponseText,
+  signedResponseHash,
+}: {
+  routerResponseText: string;
+  signedResponseHash: string;
+}): {
+  method: ResponseHashMethod;
+  computedResponseHash: string;
+  excludedResponseFields: [] | ["x_0g_trace"];
+} {
+  const expectedHash = signedResponseHash.toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
+    throw new Error(
+      "Independent TEE verification failed: the signed proof has no valid response hash.",
+    );
+  }
+
+  const candidates: ResponseHashCandidate[] = [
+    {
+      method: "raw-router-response",
+      content: routerResponseText,
+      excludedResponseFields: [],
+    },
+  ];
+  const rawWithoutTrace = stripTopLevelJsonField(
+    routerResponseText,
+    "x_0g_trace",
+  );
+  if (rawWithoutTrace !== undefined) {
+    candidates.push({
+      method: "raw-without-router-trace",
+      content: rawWithoutTrace,
+      excludedResponseFields: ["x_0g_trace"],
+    });
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(routerResponseText) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    throw new Error(
+      "Independent TEE verification failed: the Router response is not valid JSON.",
+    );
+  }
+  const providerResponse = { ...parsed };
+  delete providerResponse.x_0g_trace;
+  candidates.push(
+    {
+      method: "json-without-router-trace",
+      content: JSON.stringify(providerResponse),
+      excludedResponseFields: ["x_0g_trace"],
+    },
+    {
+      method: "jcs-without-router-trace",
+      content: canonicalJson(providerResponse),
+      excludedResponseFields: ["x_0g_trace"],
+    },
+  );
+
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (seen.has(candidate.content)) continue;
+    seen.add(candidate.content);
+    const candidateHash = sha256Hex(candidate.content);
+    if (candidateHash === expectedHash) {
+      return {
+        method: candidate.method,
+        computedResponseHash: candidateHash,
+        excludedResponseFields: candidate.excludedResponseFields,
+      };
+    }
+  }
+
+  const candidateHashes = candidates
+    .map(
+      (candidate) =>
+        `${candidate.method}=${sha256Hex(candidate.content)}`,
+    )
+    .join(", ");
+  throw new Error(
+    `Independent TEE verification failed: signed response hash ${expectedHash} does not match the plan response received from the Router (${candidateHashes}).`,
+  );
+}
+
 function resolveSigningAddress(service: OnchainServiceRecord): string {
   let additionalInfo: z.infer<typeof AdditionalInfoSchema>;
   try {
@@ -130,6 +329,7 @@ export class ZeroGIndependentTeeVerifier
   async verify({
     provider,
     chatId,
+    routerResponseText,
   }: IndependentTeeVerificationInput): Promise<IndependentTeeVerification> {
     const providerAddress = getAddress(provider);
     const rpc = new JsonRpcProvider(ZEROG_MAINNET_RPC);
@@ -190,10 +390,19 @@ export class ZeroGIndependentTeeVerifier
       signingAddress,
     });
     const signedHashes = extractSignedHashes(signed.text);
+    if (!signedHashes.signedResponseHash) {
+      throw new Error(
+        "Independent TEE verification failed: the signed payload contains no response hash.",
+      );
+    }
+    const responseBinding = verifyResponseContentHash({
+      routerResponseText,
+      signedResponseHash: signedHashes.signedResponseHash,
+    });
 
     return {
       verified: true,
-      method: "onchain-signer-eip191",
+      method: "onchain-signer-eip191-response-bound",
       chainId: ZEROG_MAINNET_CHAIN_ID,
       rpcUrl: ZEROG_MAINNET_RPC,
       serviceContract: ZEROG_INFERENCE_SERVICE_CONTRACT,
@@ -209,7 +418,14 @@ export class ZeroGIndependentTeeVerifier
       signature: signed.signature,
       messageHash,
       signatureVerified: true,
-      ...signedHashes,
+      responseHashVerified: true,
+      responseHashMethod: responseBinding.method,
+      computedResponseHash: responseBinding.computedResponseHash,
+      excludedResponseFields: responseBinding.excludedResponseFields,
+      ...(signedHashes.signedRequestHash
+        ? { signedRequestHash: signedHashes.signedRequestHash }
+        : {}),
+      signedResponseHash: signedHashes.signedResponseHash,
       ...(signed.provider_type
         ? { providerType: signed.provider_type }
         : {}),

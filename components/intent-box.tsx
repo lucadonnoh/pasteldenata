@@ -174,8 +174,8 @@ export function IntentBox() {
             <span>REQUESTING + VERIFYING 0G PRIVATE COMPUTE</span>
             <strong>Turning your intent into market mandates</strong>
             <p>
-              Auctions wait for the on-chain signer lookup and independent
-              EIP-191 proof recovery
+              Auctions wait for the on-chain signer, EIP-191 signature, and
+              exact response-hash match
             </p>
           </div>
         </div>
