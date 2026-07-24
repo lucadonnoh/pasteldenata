@@ -5,6 +5,7 @@ import {
   FormEvent,
   KeyboardEvent,
   PointerEvent,
+  useEffect,
   useState,
 } from "react";
 import type { DemoResult } from "@/src/domain";
@@ -30,6 +31,15 @@ export function IntentBox() {
   const [result, setResult] = useState<DemoResult | null>(null);
   const hasUsableKey =
     apiKey.trim().startsWith("sk-") && apiKey.trim().length >= 12;
+
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV === "development" &&
+      window.location.origin === "http://127.0.0.1:3000"
+    ) {
+      window.location.replace("http://localhost:3000/");
+    }
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
