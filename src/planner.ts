@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { publicCatalogForPlanner } from "./catalog";
 import {
@@ -7,6 +6,7 @@ import {
   type PlannerAttestation,
   type PrivatePlan,
 } from "./domain";
+import { sha256Hex } from "./hash";
 import { parseBudgetCents } from "./money";
 import { tomorrowInLisbon } from "./time";
 
@@ -41,6 +41,7 @@ interface ModelPlan {
 }
 
 interface RouterResponse {
+  id?: string;
   choices?: Array<{
     message?: {
       content?: string;
@@ -52,6 +53,7 @@ interface RouterResponse {
   tee_verified?: boolean;
   cost?: string | number;
   x_0g_trace?: {
+    request_id?: string;
     provider?: string;
     tee_verified?: boolean;
     billing?: {
@@ -69,8 +71,22 @@ export interface PrivatePlanner {
   plan(intent: string, now?: Date): Promise<PlannerResult>;
 }
 
+export function requireVerifiedPrivateTee(
+  attestation: PlannerAttestation,
+): asserts attestation is PlannerAttestation & {
+  mode: "0g-private-tee";
+  teeVerified: true;
+} {
+  if (
+    attestation.mode !== "0g-private-tee" ||
+    attestation.teeVerified !== true
+  ) {
+    throw new Error("0G did not return a verified private TEE response.");
+  }
+}
+
 function stableId(prefix: string, value: string): string {
-  return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
+  return `${prefix}_${sha256Hex(value).slice(0, 16)}`;
 }
 
 function extractJson(content: string): unknown {
@@ -178,6 +194,10 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const raw = (await response.json()) as RouterResponse & {
       error?: { message?: string };
     };
+    const chatId =
+      response.headers.get("ZG-Res-Key") ??
+      response.headers.get("zg-res-key") ??
+      raw.id;
     if (!response.ok) {
       throw new Error(
         `0G Router returned ${response.status}: ${raw.error?.message ?? "unknown error"}`,
@@ -198,6 +218,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const costNeuron =
       raw.x_0g_trace?.billing?.total_cost ??
       (raw.cost === undefined ? undefined : String(raw.cost));
+    const requestId = raw.x_0g_trace?.request_id;
 
     return {
       plan: enforcePlan(
@@ -212,6 +233,8 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         model: raw.model ?? this.model,
         ...(provider ? { provider } : {}),
         ...(costNeuron ? { costNeuron } : {}),
+        ...(requestId ? { requestId } : {}),
+        ...(chatId ? { chatId } : {}),
       },
     };
   }

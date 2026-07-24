@@ -93,50 +93,47 @@ private intent + hard cap
 ## Web interface
 
 The repository also includes a minimal Next.js interface for the live demo. It
-is intentionally focused on the first interaction: one Liquid Glass intent box,
-private processing feedback, and no implementation-detail dashboard.
+keeps the primary interaction focused on one Liquid Glass intent box. Collapsed
+drawers expose the full attestation, scoped plan, auction commitments and
+reveals, mock seller floors and scores, and simulated receipts for judging.
 
-The browser sends the intent to `POST /api/intent`. The route calls the same
-`organizePrivatePurchase` orchestrator used by the CLI, so the web demo and the
-tested protocol flow cannot drift apart.
+Each user enters their own 0G Router key. The key is held only in React memory
+for the current browser tab: it is not persisted in local storage, cookies, or
+an application database. The browser calls the 0G Router directly, so neither
+the key nor the private prompt passes through an application server.
+
+The response must report a successful private TEE verification before the
+browser runs the local mock auctions and payment policy checks. A mock or
+unverified response fails closed.
 
 ```text
-Liquid Glass intent box
+user key + private intent
           |
           v
-   POST /api/intent
+ browser -> 0G private Router
           |
-          v
- organizePrivatePurchase
-     /           \
- 0G planner    mock planner
-     \           /
-    auctions + policy checks
+     verified TEE?
+       no /  \ yes
+      fail    local mock auctions
+                  |
+                  v
+          local payment checks
 ```
 
 Run the interface locally:
 
 ```bash
 npm install
-cp .env.example .env
 npm run dev
 ```
 
-Then open `http://localhost:3000`.
+Then open `http://localhost:3000`, paste your own 0G key into the password
+field, and submit an intent containing a USD budget. The interface displays a
+small success summary only after `teeVerified` is exactly `true`; it does not
+render the private prompt in the result.
 
-For UI development without a Router key:
-
-```env
-DEMO_MODE=true
-```
-
-For the private 0G flow:
-
-```env
-ZEROG_KEY=sk-your-router-key
-DEMO_MODE=false
-```
-
-The current UI does not render the generated plan, winners, or mock receipts.
-The API already runs that flow, but those views are deliberately deferred until
-the interaction design is ready.
+0G currently permits this direct browser call from localhost. A deployed
+production origin must be registered with 0G for CORS before the same static
+frontend can call the Router. Do not add an application proxy as a workaround:
+that would expose both the user's key and private prompt to the application
+server.

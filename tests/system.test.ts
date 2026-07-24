@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runAuctions } from "../src/auction";
 import type { AuctionResult, SellerAuctionView } from "../src/domain";
-import { organizePrivatePurchase } from "../src/orchestrator";
+import {
+  organizePrivatePurchase,
+  organizeVerifiedPrivatePurchase,
+} from "../src/orchestrator";
 import { settleMockPayments } from "../src/payments";
-import { MockPrivatePlanner } from "../src/planner";
+import {
+  MockPrivatePlanner,
+  requireVerifiedPrivateTee,
+} from "../src/planner";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
@@ -82,5 +88,40 @@ test("payment policy rejects a replayed mandate", async () => {
   assert.throws(
     () => settleMockPayments(plan, [first, first]),
     /cannot be spent twice/,
+  );
+});
+
+test("the browser flow accepts only an attested 0G private TEE", () => {
+  assert.throws(
+    () =>
+      requireVerifiedPrivateTee({
+        mode: "local-mock",
+        teeVerified: false,
+        model: "deterministic-test-planner",
+      }),
+    /verified private TEE/,
+  );
+  assert.throws(
+    () =>
+      requireVerifiedPrivateTee({
+        mode: "0g-private-tee",
+        teeVerified: false,
+        model: "0gm-1.0-35b-a3b",
+      }),
+    /verified private TEE/,
+  );
+  assert.doesNotThrow(() =>
+    requireVerifiedPrivateTee({
+      mode: "0g-private-tee",
+      teeVerified: true,
+      model: "0gm-1.0-35b-a3b",
+    }),
+  );
+});
+
+test("the verified browser orchestrator rejects the mock before auctions", async () => {
+  await assert.rejects(
+    organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
+    /verified private TEE/,
   );
 });

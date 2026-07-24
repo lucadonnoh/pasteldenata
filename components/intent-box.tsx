@@ -7,6 +7,14 @@ import {
   PointerEvent,
   useState,
 } from "react";
+import type { DemoResult } from "@/src/domain";
+import { formatUsd } from "@/src/money";
+import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
+import { ZeroGPrivatePlanner } from "@/src/planner";
+import {
+  ExecutionDetails,
+  PrivacyDetails,
+} from "@/components/execution-details";
 
 const examples = [
   "Organize me a date tomorrow in Lisbon. My budget is $200.",
@@ -16,27 +24,28 @@ const examples = [
 
 export function IntentBox() {
   const [intent, setIntent] = useState(examples[0] ?? "");
+  const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<DemoResult | null>(null);
+  const hasUsableKey =
+    apiKey.trim().startsWith("sk-") && apiKey.trim().length >= 12;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (intent.trim().length < 3 || loading) return;
+    if (intent.trim().length < 3 || !hasUsableKey || loading) return;
 
     setLoading(true);
     setError("");
+    setResult(null);
 
     try {
-      const response = await fetch("/api/intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intent }),
-      });
-      const payload = (await response.json()) as { error?: string };
-
-      if (!response.ok) {
-        throw new Error(payload.error ?? "The agent could not answer.");
-      }
+      const planner = new ZeroGPrivatePlanner(apiKey.trim());
+      const purchase = await organizeVerifiedPrivatePurchase(
+        planner,
+        intent.trim(),
+      );
+      setResult(purchase);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -79,6 +88,21 @@ export function IntentBox() {
           <span>Private session</span>
         </div>
 
+        <div className="key-field">
+          <label htmlFor="zerog-key">Your 0G key</label>
+          <input
+            id="zerog-key"
+            type="password"
+            value={apiKey}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder="sk-…"
+            aria-describedby="zerog-key-help"
+          />
+          <span id="zerog-key-help">Held in this tab only</span>
+        </div>
+
         <div className="composer-input">
           <textarea
             aria-label="Describe what you need"
@@ -92,7 +116,9 @@ export function IntentBox() {
           <button
             className="launch-button"
             type="submit"
-            disabled={loading || intent.trim().length < 3}
+            disabled={
+              loading || intent.trim().length < 3 || !hasUsableKey
+            }
             aria-label="Send intent"
           >
             {loading ? <span className="spinner" /> : <ArrowUp size={22} />}
@@ -102,7 +128,7 @@ export function IntentBox() {
         <div className="composer-footer">
           <div className="privacy-note">
             <ShieldCheck size={13} />
-            Private inference
+            Direct to 0G · verified TEE required
           </div>
           <div className="character-count">
             <span>⌘ ENTER</span>
@@ -111,7 +137,7 @@ export function IntentBox() {
         </div>
       </form>
 
-      {!loading && !error && (
+      {!loading && !error && !result && (
         <div className="suggestions">
           <span>Examples</span>
           <div>
@@ -135,9 +161,9 @@ export function IntentBox() {
             <Sparkles size={18} />
           </div>
           <div className="thinking-copy">
-            <span>0G PRIVATE COMPUTE</span>
+            <span>REQUESTING 0G PRIVATE COMPUTE</span>
             <strong>Turning your intent into market mandates</strong>
-            <p>Extracting constraints · Allocating budget · Sealing context</p>
+            <p>Waiting for verified TEE attestation before running auctions</p>
           </div>
         </div>
       )}
@@ -148,6 +174,24 @@ export function IntentBox() {
           <span>{error}</span>
         </div>
       )}
+
+      {result && (
+        <>
+          <div className="success-message" aria-live="polite">
+            <ShieldCheck size={22} />
+            <div>
+              <strong>TEE verified · mock purchases settled</strong>
+              <span>
+                {result.receipts.length} auctions ·{" "}
+                {formatUsd(result.totalSpentCents)} simulated spend
+              </span>
+            </div>
+          </div>
+          <ExecutionDetails result={result} />
+        </>
+      )}
+
+      {!loading && <PrivacyDetails />}
     </section>
   );
 }

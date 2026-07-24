@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { MOCK_SELLERS } from "./catalog";
 import type {
   AuctionResult,
@@ -10,9 +9,10 @@ import type {
   SellerAuctionView,
   SpendMandate,
 } from "./domain";
+import { sha256Hex } from "./hash";
 
 function hash(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return sha256Hex(value);
 }
 
 function canonicalBid(bid: Bid): string {
@@ -132,9 +132,13 @@ export async function runCategoryAuction(
     return bid;
   });
 
-  const affordable = bids
-    .filter((bid) => bid.amountCents <= mandate.maxAmountCents)
-    .map((bid) => ({ bid, score: scoreBid(bid, allocation) }))
+  const evaluated = bids.map((bid) => ({
+    bid,
+    affordable: bid.amountCents <= mandate.maxAmountCents,
+    score: scoreBid(bid, allocation),
+  }));
+  const affordable = evaluated
+    .filter((evaluation) => evaluation.affordable)
     .sort(
       (left, right) =>
         right.score - left.score ||
@@ -153,6 +157,11 @@ export async function runCategoryAuction(
     mandate,
     commitments: commitments.map((item) => item.commitment),
     bids,
+    evaluations: evaluated.map(({ bid, affordable: fitsMandate, score }) => ({
+      sellerId: bid.sellerId,
+      affordable: fitsMandate,
+      score,
+    })),
     winner: selected.bid,
     score: selected.score,
   };

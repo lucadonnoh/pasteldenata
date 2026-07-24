@@ -1,12 +1,12 @@
-import { createHash } from "node:crypto";
 import type {
   AuctionResult,
   PaymentReceipt,
   PrivatePlan,
 } from "./domain";
+import { sha256Hex } from "./hash";
 
 function receiptId(value: string): string {
-  return `mockpay_${createHash("sha256").update(value).digest("hex").slice(0, 20)}`;
+  return `mockpay_${sha256Hex(value).slice(0, 20)}`;
 }
 
 /**
