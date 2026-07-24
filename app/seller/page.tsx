@@ -1,10 +1,10 @@
-import { IntentBox } from "@/components/intent-box";
+import { SellerStudio } from "@/components/seller-studio";
 import Link from "next/link";
 
-export default function Home() {
+export default function SellerPage() {
   return (
-    <div className="app-shell">
-      <div className="ambient-field" aria-hidden="true">
+    <div className="app-shell seller-shell">
+      <div className="ambient-field seller-ambient" aria-hidden="true">
         <i className="ambient-blue" />
         <i className="ambient-violet" />
         <i className="ambient-mint" />
@@ -19,18 +19,15 @@ export default function Home() {
         </Link>
 
         <div className="header-actions">
-          <Link className="mode-link" href="/seller">
-            Seller
+          <Link className="mode-link" href="/">
+            Buyer
           </Link>
-          <div className="network-status">
-            <span className="network-dot" />
-            0G
-          </div>
+          <div className="surface-label">Seller studio</div>
         </div>
       </header>
 
-      <main>
-        <IntentBox />
+      <main className="seller-main">
+        <SellerStudio />
       </main>
     </div>
   );
