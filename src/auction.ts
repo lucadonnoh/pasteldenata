@@ -80,8 +80,15 @@ function createMandate(
   };
 }
 
-function scoreBid(bid: Bid, allocation: PlanAllocation): number {
-  const requirements = allocation.requirements.map((item) => item.toLowerCase());
+export interface ScoringConstraints {
+  requirements: string[];
+  maxBudgetCents: number;
+}
+
+export function scoreBid(bid: Bid, constraints: ScoringConstraints): number {
+  const requirements = constraints.requirements.map((item) =>
+    item.toLowerCase(),
+  );
   const tagMatches = bid.tags.filter((tag) =>
     requirements.some(
       (requirement) =>
@@ -90,8 +97,26 @@ function scoreBid(bid: Bid, allocation: PlanAllocation): number {
     ),
   ).length;
   const priceValue =
-    25 * (1 - bid.amountCents / allocation.maxBudgetCents);
+    25 * (1 - bid.amountCents / constraints.maxBudgetCents);
   return bid.quality + tagMatches * 6 + priceValue;
+}
+
+export function verifyRevealedBid(bid: Bid, commitment: string): boolean {
+  return hash(canonicalBid(bid)) === commitment;
+}
+
+export function pickWinner(
+  bids: Bid[],
+  constraints: ScoringConstraints,
+): { bid: Bid; score: number } | undefined {
+  return bids
+    .filter((bid) => bid.amountCents <= constraints.maxBudgetCents)
+    .map((bid) => ({ bid, score: scoreBid(bid, constraints) }))
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.bid.amountCents - right.bid.amountCents,
+    )[0];
 }
 
 export async function runCategoryAuction(
@@ -132,15 +157,10 @@ export async function runCategoryAuction(
     return bid;
   });
 
-  const affordable = bids
-    .filter((bid) => bid.amountCents <= mandate.maxAmountCents)
-    .map((bid) => ({ bid, score: scoreBid(bid, allocation) }))
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        left.bid.amountCents - right.bid.amountCents,
-    );
-  const selected = affordable[0];
+  const selected = pickWinner(bids, {
+    requirements: allocation.requirements,
+    maxBudgetCents: mandate.maxAmountCents,
+  });
   if (!selected) {
     throw new Error(
       `No ${allocation.category} bid fits its scoped mandate.`,

@@ -7,11 +7,16 @@
   "scripts": {
     "demo": "tsx src/cli.ts",
     "demo:mock": "tsx src/cli.ts --mock",
+    "demo:hedera": "tsx src/cli.ts --hedera",
+    "demo:hedera:mock": "tsx src/cli.ts --mock --hedera",
+    "demo:hedera:simple": "tsx src/cli.ts --mock --hedera-simple",
+    "hedera:setup": "tsx src/hedera/setup.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
+    "@hashgraph/sdk": "^2.81.0",
     "dotenv": "^16.6.1",
     "zod": "^3.25.76"
   },

@@ -1,0 +1,188 @@
+import {
+  Client,
+  Transaction,
+  TransferTransaction,
+} from "@hashgraph/sdk";
+import { pickWinner, verifyRevealedBid } from "../auction.js";
+import { parsePrivateKey } from "./client.js";
+import type { LeafInit, LeafToParent, ParentToLeaf } from "./ipc.js";
+import { publishToTopic } from "./log.js";
+
+/**
+ * An isolated buyer agent. It runs in its own process, holds only its own
+ * wallet key and one scoped mandate, and pays with its own funds through its
+ * own Hedera client. It never sees the buyer's intent, the global budget, or
+ * any sibling agent. It cannot overspend: its wallet holds exactly the
+ * mandate cap.
+ */
+
+const inbox: ParentToLeaf[] = [];
+let waiter: ((message: ParentToLeaf) => void) | undefined;
+
+process.on("message", (message) => {
+  const typed = message as ParentToLeaf;
+  if (waiter) {
+    const resolve = waiter;
+    waiter = undefined;
+    resolve(typed);
+  } else {
+    inbox.push(typed);
+  }
+});
+
+function nextMessage(): Promise<ParentToLeaf> {
+  return new Promise((resolve) => {
+    const queued = inbox.shift();
+    if (queued) resolve(queued);
+    else waiter = resolve;
+  });
+}
+
+async function expectMessage<T extends ParentToLeaf["type"]>(
+  type: T,
+): Promise<Extract<ParentToLeaf, { type: T }>> {
+  const message = await nextMessage();
+  if (message.type !== type) {
+    throw new Error(`Expected ${type} from the marketplace, got ${message.type}.`);
+  }
+  return message as Extract<ParentToLeaf, { type: T }>;
+}
+
+function send(message: LeafToParent): void {
+  if (!process.send) throw new Error("Leaf agents must be forked with IPC.");
+  process.send(message);
+}
+
+async function run(init: LeafInit): Promise<void> {
+  const { mandate, wallet } = init;
+  const tag = `[${mandate.category}-agent ${wallet.accountId}]`;
+  const key = parsePrivateKey(wallet.privateKey);
+  const client = Client.forTestnet().setOperator(wallet.accountId, key);
+
+  try {
+    console.log(
+      `${tag} online · cap $${(mandate.maxAmountCents / 100).toFixed(2)} · goal: ${mandate.requirements.join(", ")}`,
+    );
+
+    // Ask the marketplace for sealed bids, then verify every reveal against
+    // its commitment before considering it.
+    send({ type: "RFQ" });
+    const { commitments, reveals } = await expectMessage("BIDS");
+    const commitmentBySeller = new Map(
+      commitments.map((item) => [item.sellerId, item.commitment]),
+    );
+    const validBids = reveals.filter((bid) => {
+      const commitment = commitmentBySeller.get(bid.sellerId);
+      return commitment !== undefined && verifyRevealedBid(bid, commitment);
+    });
+    if (validBids.length !== reveals.length) {
+      throw new Error("A sealed bid failed commitment verification.");
+    }
+
+    const selected = pickWinner(validBids, {
+      requirements: mandate.requirements,
+      maxBudgetCents: mandate.maxAmountCents,
+    });
+    if (!selected) {
+      throw new Error(`No ${mandate.category} bid fits the mandate cap.`);
+    }
+    const winner = selected.bid;
+    console.log(
+      `${tag} chose ${winner.sellerName} at $${(winner.amountCents / 100).toFixed(2)}`,
+    );
+
+    // The seller readies the claim NFT, then both parties sign one atomic
+    // swap: my NATA out, the claim NFT in. This agent is the fee payer and
+    // signs with its own key; the seller counter-signs.
+    send({ type: "PREPARE", sellerId: winner.sellerId });
+    const prepared = await expectMessage("PREPARED");
+
+    const swap = new TransferTransaction()
+      .addTokenTransfer(
+        init.paymentTokenId,
+        wallet.accountId,
+        -winner.amountCents,
+      )
+      .addTokenTransfer(
+        init.paymentTokenId,
+        prepared.sellerAccountId,
+        winner.amountCents,
+      )
+      .addNftTransfer(
+        init.claimTokenId,
+        prepared.claimNftSerial,
+        prepared.sellerAccountId,
+        wallet.accountId,
+      )
+      .freezeWith(client);
+    await swap.sign(key);
+    send({
+      type: "SIGN_REQUEST",
+      sellerId: winner.sellerId,
+      txBytesB64: Buffer.from(swap.toBytes()).toString("base64"),
+    });
+    const signed = await expectMessage("SIGNED");
+
+    const settlement = Transaction.fromBytes(
+      Buffer.from(signed.txBytesB64, "base64"),
+    );
+    const response = await settlement.execute(client);
+    await response.getReceipt(client);
+    const transactionId = response.transactionId.toString();
+    console.log(`${tag} settled atomically · ${transactionId}`);
+
+    await publishToTopic(client, init.auctionTopicId, {
+      type: "SETTLED",
+      auctionId: mandate.auctionId,
+      sellerId: winner.sellerId,
+      amountCents: winner.amountCents,
+      claimNftSerial: prepared.claimNftSerial,
+      transactionId,
+    });
+
+    // Return the unspent remainder to the marketplace clearing account. The
+    // claim NFT stays in this wallet; consolidating it would publicly link
+    // the purchases.
+    const leftover = mandate.maxAmountCents - winner.amountCents;
+    if (leftover > 0) {
+      await (
+        await new TransferTransaction()
+          .addTokenTransfer(init.paymentTokenId, wallet.accountId, -leftover)
+          .addTokenTransfer(init.paymentTokenId, init.clearingAccountId, leftover)
+          .execute(client)
+      ).getReceipt(client);
+    }
+
+    send({
+      type: "DONE",
+      result: {
+        sellerId: winner.sellerId,
+        sellerName: winner.sellerName,
+        amountCents: winner.amountCents,
+        transactionId,
+        leafAccountId: wallet.accountId,
+        claimNftSerial: prepared.claimNftSerial,
+        auctionTopicId: init.auctionTopicId,
+      },
+    });
+  } finally {
+    client.close();
+  }
+}
+
+async function main(): Promise<void> {
+  const init = await expectMessage("MANDATE");
+  await run(init);
+  process.disconnect();
+}
+
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    send({ type: "ERROR", message });
+  } catch {
+    console.error(message);
+  }
+  process.exitCode = 1;
+  process.disconnect();
+});

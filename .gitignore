@@ -1,4 +1,5 @@
 .env
+hedera-infra.json
 node_modules/
 dist/
 coverage/

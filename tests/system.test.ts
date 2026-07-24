@@ -3,7 +3,7 @@ import test from "node:test";
 import { runAuctions } from "../src/auction.js";
 import type { AuctionResult, SellerAuctionView } from "../src/domain.js";
 import { organizePrivatePurchase } from "../src/orchestrator.js";
-import { settleMockPayments } from "../src/payments.js";
+import { settleMockPayments, validateSettlement } from "../src/payments.js";
 import { MockPrivatePlanner } from "../src/planner.js";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
@@ -70,6 +70,18 @@ test("payment policy rejects a category mandate overspend", async () => {
   assert.throws(
     () => settleMockPayments(plan, tampered),
     /exceeded its category mandate/,
+  );
+});
+
+test("payment policy rejects a global budget overspend", async () => {
+  const { plan } = await new MockPrivatePlanner().plan(INTENT, NOW);
+  const auctions = await runAuctions(plan);
+  const tampered = structuredClone(plan);
+  tampered.totalBudgetCents = 1;
+
+  assert.throws(
+    () => validateSettlement(tampered, auctions),
+    /exceed the global budget/,
   );
 });
 

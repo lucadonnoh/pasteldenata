@@ -10,17 +10,19 @@ function receiptId(value: string): string {
 }
 
 /**
- * A mock settlement controller. The policy checks here are intentionally
- * independent from the model and auction agents.
+ * Policy checks that are intentionally independent from the model and auction
+ * agents. Both the mock settlement and the Hedera settlement run these before
+ * moving any value; on Hedera the budget cap is additionally enforced by the
+ * ledger itself.
  */
-export function settleMockPayments(
+export function validateSettlement(
   plan: PrivatePlan,
   auctions: AuctionResult[],
-): PaymentReceipt[] {
+): void {
   const seenMandates = new Set<string>();
   let total = 0;
 
-  const receipts = auctions.map((auction) => {
+  for (const auction of auctions) {
     if (auction.mandate.planId !== plan.planId) {
       throw new Error("A mandate belongs to a different plan.");
     }
@@ -39,7 +41,16 @@ export function settleMockPayments(
     if (total > plan.totalBudgetCents) {
       throw new Error("Atomic settlement would exceed the global budget.");
     }
+  }
+}
 
+export function settleMockPayments(
+  plan: PrivatePlan,
+  auctions: AuctionResult[],
+): PaymentReceipt[] {
+  validateSettlement(plan, auctions);
+
+  const receipts = auctions.map((auction) => {
     return {
       id: receiptId(
         `${plan.planId}|${auction.mandate.id}|${auction.winner.sellerId}`,

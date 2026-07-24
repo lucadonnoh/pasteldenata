@@ -24,9 +24,65 @@ every category cap and the global cap still hold.
 
 - Seller inventory and prices
 - Seller bid generation
-- USD payment settlement
+- USD payment settlement, unless run with `--hedera`
 
-No real payment is sent.
+By default no real payment is sent. With `--hedera`, settlement runs on the
+Hedera testnet with real HTS transfers.
+
+## Hedera agent swarm (`--hedera`)
+
+Built with the Hedera SDK only — no Solidity. One isolated buyer agent per
+mandate, each a separate OS process holding only its own wallet key and one
+scoped mandate:
+
+- **Fresh leaf wallets.** Each agent gets a new Hedera account funded with
+  exactly its category cap in NATA (an HTS token, 1 unit = 1 USD cent) plus a
+  little HBAR to pay its own fees. The agent never sees the intent, the
+  global budget, or its siblings — and the ledger physically caps its
+  spending at its balance.
+- **Unlinkable at the application layer.** Leaves are funded by the
+  marketplace clearing account, not the buyer wallet, each auction has its
+  own HCS topic, and claim NFTs stay in the leaf wallets. Sellers see three
+  unrelated bidders. The clearing account is a declared trust point (like the
+  0G TEE); this is compartmentalization, not cryptographic anonymity.
+- **Two-party atomic settlement.** The leaf builds and signs one
+  `TransferTransaction` (its NATA out, the claim NFT in), the seller agent
+  counter-signs it, and the leaf submits it as fee payer. All legs succeed or
+  none do. Unspent remainders flow back to the buyer through clearing.
+- **Replayable auction log.** Each auction topic records the RFQ and the
+  settlement on HCS, auditable on HashScan / Mirror Node. No private data
+  (intent, global budget, category caps) is ever published.
+
+`--hedera-simple` keeps the earlier single-process escrow settlement as a
+fallback. In both modes the policy checks run in code first, and the token
+balances enforce the hard budget even against a malicious planner output.
+
+## What is missing
+
+- **A real auction.** What runs today is a one-shot commit/reveal RFQ: each
+  seller quotes once, the leaf picks a winner, done. A live auction —
+  competing bids as HCS messages, consensus timestamps for ordering and
+  close, agents reacting to being outbid, mirror-node streaming of auction
+  state — is the natural next step. The topic-per-auction structure and the
+  leaf-agent loop are already shaped for it: bids would become
+  `TopicMessageSubmitTransaction`s from leaf wallets instead of IPC replies.
+- **Independent seller agents.** Sellers are catalog entries simulated by the
+  root process, which also counter-signs their settlements. Real seller
+  agents would run as their own processes (or machines), quote against the
+  RFQ themselves, and hold their own keys.
+- **Real 0G run end to end.** The Hedera swarm is verified on testnet with
+  the mock planner; the `demo:hedera` path with the real 0G private planner
+  needs a router key (testnet: [pc.testnet.0g.ai](https://pc.testnet.0g.ai),
+  model `qwen2.5-omni`, funded via [faucet.0g.ai](https://faucet.0g.ai)).
+- **Smarter leaf agents.** Leaves currently score bids deterministically.
+  Each leaf could make one scoped 0G call to judge qualitative fit
+  (requirements vs. offering) without ever seeing the global mandate.
+- **Human-gated auctions.** Seller-selectable one-allocation-per-human
+  policies (World AgentKit style) are not started.
+- **A UI.** Everything is CLI. The budget flowing from the buyer through
+  clearing into the leaf wallets and back is the demo's best visual.
+- **Reclaiming leaf HBAR.** Each run leaves ~1 HBAR of fee float in the leaf
+  wallets; fine on testnet, sloppy in production.
 
 ## Privacy boundaries
 
@@ -60,6 +116,19 @@ Run the full flow without calling 0G:
 npm run demo:mock
 ```
 
+Settle for real on the Hedera testnet (add `HEDERA_OPERATOR_ID` and
+`HEDERA_OPERATOR_KEY` to `.env` from a free
+[portal.hedera.com](https://portal.hedera.com) account):
+
+```bash
+npm run hedera:setup        # one-time: creates NATA token, claim NFTs, wallets
+npm run demo:hedera         # 0G planner + agent swarm settlement
+npm run demo:hedera:mock    # mock planner + agent swarm settlement
+npm run demo:hedera:simple  # mock planner + single-process escrow fallback
+```
+
+Generated testnet accounts are stored in `hedera-infra.json` (gitignored).
+
 Validate the policy invariants:
 
 ```bash
@@ -87,5 +156,8 @@ private intent + hard cap
   independent policy checks
              |
              v
-  simulated atomic settlement
+   atomic settlement
+   simulated by default
+   real HTS escrow + NFT swap with --hedera
+   auction history on HCS
 ```
