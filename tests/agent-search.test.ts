@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { organizePrivatePurchase } from "../src/orchestrator";
-import { createMockAgentSearches } from "../src/mock-agent-search";
+import {
+  createMockAgentSearches,
+  mockSellerAgentWallet,
+} from "../src/mock-agent-search";
 import { MockPrivatePlanner } from "../src/planner";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
@@ -44,4 +47,20 @@ test("mock agent wallets are stable for the same private plan", async () => {
     createMockAgentSearches(result).map((search) => search.wallet),
     createMockAgentSearches(result).map((search) => search.wallet),
   );
+});
+
+test("each mocked seller agent has a stable bidding wallet", async () => {
+  const result = await organizePrivatePurchase(
+    new MockPrivatePlanner(),
+    INTENT,
+    NOW,
+  );
+  const sellerIds = result.auctions.flatMap((auction) =>
+    auction.bids.map((bid) => bid.sellerId),
+  );
+  const wallets = sellerIds.map(mockSellerAgentWallet);
+
+  assert.equal(new Set(wallets).size, sellerIds.length);
+  assert.ok(wallets.every((wallet) => /^0x[a-f0-9]{40}$/.test(wallet)));
+  assert.deepEqual(wallets, sellerIds.map(mockSellerAgentWallet));
 });

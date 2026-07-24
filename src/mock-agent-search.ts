@@ -27,6 +27,13 @@ function walletFor(
   return `0x${hash.slice(0, 40)}`;
 }
 
+export function mockSellerAgentWallet(
+  sellerId: string,
+): `0x${string}` {
+  const hash = sha256Hex(`pastel-seller-agent:${sellerId}`);
+  return `0x${hash.slice(0, 40)}`;
+}
+
 export function createMockAgentSearches(
   result: DemoResult,
 ): MockAgentSearch[] {

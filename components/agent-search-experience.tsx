@@ -20,13 +20,15 @@ import type { Category, DemoResult } from "@/src/domain";
 import { formatUsd } from "@/src/money";
 import {
   createMockAgentSearches,
+  mockSellerAgentWallet,
   type MockAgentSearch,
 } from "@/src/mock-agent-search";
 
 import styles from "./agent-search-experience.module.css";
 
-const DISCOVERY_DURATION_MS = 2900;
-const AUCTION_DURATION_MS = 3200;
+const DISCOVERY_DURATION_MS = 4200;
+const BID_INTERVAL_MS = 1100;
+const AUCTION_SETTLE_MS = 1800;
 
 const categoryIcons: Record<Category, LucideIcon> = {
   flowers: Flower2,
@@ -38,6 +40,27 @@ const categoryIcons: Record<Category, LucideIcon> = {
 
 function shortWallet(wallet: string): string {
   return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
+}
+
+function createBidEvents(searches: MockAgentSearch[]) {
+  const events: Array<{
+    searchIndex: number;
+    bidIndex: number;
+    bid: MockAgentSearch["auction"]["bids"][number];
+  }> = [];
+  const largestAuction = Math.max(
+    0,
+    ...searches.map((search) => search.auction.bids.length),
+  );
+
+  for (let bidIndex = 0; bidIndex < largestAuction; bidIndex += 1) {
+    searches.forEach((search, searchIndex) => {
+      const bid = search.auction.bids[bidIndex];
+      if (bid) events.push({ searchIndex, bidIndex, bid });
+    });
+  }
+
+  return events;
 }
 
 export function AgentSearchExperience({ result }: { result: DemoResult }) {
@@ -68,13 +91,14 @@ function AgentSearchRun({
   >("searching");
   const [resolvedCount, setResolvedCount] = useState(0);
   const [bidTick, setBidTick] = useState(0);
+  const bidEvents = useMemo(() => createBidEvents(searches), [searches]);
 
   useEffect(() => {
     let bidTimer: number | undefined;
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
-        850 + index * 560,
+        1100 + index * 900,
       ),
     );
     const auctionTimer = window.setTimeout(
@@ -82,7 +106,7 @@ function AgentSearchRun({
         setPhase("bidding");
         bidTimer = window.setInterval(
           () => setBidTick((current) => current + 1),
-          720,
+          BID_INTERVAL_MS,
         );
       },
       DISCOVERY_DURATION_MS,
@@ -92,7 +116,9 @@ function AgentSearchRun({
         if (bidTimer !== undefined) window.clearInterval(bidTimer);
         setPhase("complete");
       },
-      DISCOVERY_DURATION_MS + AUCTION_DURATION_MS,
+      DISCOVERY_DURATION_MS +
+        bidEvents.length * BID_INTERVAL_MS +
+        AUCTION_SETTLE_MS,
     );
 
     return () => {
@@ -101,7 +127,12 @@ function AgentSearchRun({
       if (bidTimer !== undefined) window.clearInterval(bidTimer);
       window.clearTimeout(completionTimer);
     };
-  }, [searches]);
+  }, [bidEvents.length, searches]);
+
+  const visibleBidEvent = Math.min(
+    bidTick + 1,
+    bidEvents.length,
+  );
 
   const phaseCopy = {
     searching: {
@@ -112,11 +143,11 @@ function AgentSearchRun({
       status: "Discovering",
     },
     bidding: {
-      eyebrow: "ACTIVITIES LOCKED · AUCTIONS OPEN",
-      title: `${searches.length} activities. ${searches.length} live auctions.`,
+      eyebrow: "SELLER AGENTS · LIVE COMPETITION",
+      title: "Seller agents are competing now.",
       description:
-        "Seller bids arrive independently inside each scoped market.",
-      status: "Auction live",
+        "One sealed bid is revealed at a time. Watch the best-value leader change.",
+      status: `Bid ${visibleBidEvent}/${bidEvents.length}`,
     },
     complete: {
       eyebrow: "BUNDLE ASSEMBLED",
@@ -154,7 +185,11 @@ function AgentSearchRun({
           resolvedCount={resolvedCount}
         />
       ) : phase === "bidding" ? (
-        <BidAuctionStage searches={searches} bidTick={bidTick} />
+        <BidAuctionStage
+          searches={searches}
+          bidEvents={bidEvents}
+          bidTick={bidTick}
+        />
       ) : (
         <>
           <div className={styles.bundleGrid}>
@@ -269,41 +304,70 @@ function ActivityDiscovery({
 
 function BidAuctionStage({
   searches,
+  bidEvents,
   bidTick,
 }: {
   searches: MockAgentSearch[];
+  bidEvents: ReturnType<typeof createBidEvents>;
   bidTick: number;
 }) {
-  const largestAuction = Math.max(
-    ...searches.map((search) => search.auction.bids.length),
+  const visibleEventCount = Math.min(
+    bidTick + 1,
+    bidEvents.length,
   );
-  const currentRound = Math.min(bidTick + 1, largestAuction);
+  const revealedEvents = bidEvents.slice(0, visibleEventCount);
+  const activeEvent =
+    bidEvents[Math.min(bidTick, bidEvents.length - 1)];
 
   return (
     <div className={styles.auctionStage}>
       <div className={styles.auctionTopline}>
         <span>
           <Gavel size={13} />
-          LIVE SELLER AUCTION
+          AGENT BID COMPETITION
         </span>
         <b>
           <Radio size={11} />
-          REVEAL ROUND {currentRound.toString().padStart(2, "0")} /{" "}
-          {largestAuction.toString().padStart(2, "0")}
+          BID {visibleEventCount.toString().padStart(2, "0")} /{" "}
+          {bidEvents.length.toString().padStart(2, "0")}
         </b>
       </div>
-      <div className={styles.auctionRule}>
-        <span>Every round reveals one new seller bid per activity.</span>
-        <b>Best value = quality + requirement fit + price</b>
-      </div>
+
+      {activeEvent && (
+        <div
+          className={styles.bidEvent}
+          key={`${activeEvent.searchIndex}-${activeEvent.bid.sellerId}`}
+        >
+          <span>
+            <Radio size={13} />
+            SELLER AGENT BIDS
+          </span>
+          <div>
+            <strong>{activeEvent.bid.sellerName}</strong>
+            <small>
+              {shortWallet(
+                mockSellerAgentWallet(activeEvent.bid.sellerId),
+              )}{" "}
+              enters the{" "}
+              {searches[activeEvent.searchIndex]?.allocation.category} market
+            </small>
+          </div>
+          <b>{formatUsd(activeEvent.bid.amountCents)}</b>
+          <i>Best value = quality + fit + price</i>
+        </div>
+      )}
 
       <div className={styles.auctionGrid}>
         {searches.map((search, searchIndex) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
-          const visibleBidCount = Math.min(
-            bidTick + 1,
-            search.auction.bids.length,
-          );
+          const visibleBidCount = revealedEvents.filter(
+            (event) => event.searchIndex === searchIndex,
+          ).length;
+          const isActiveLane =
+            activeEvent?.searchIndex === searchIndex;
+          const activeSellerId = isActiveLane
+            ? activeEvent.bid.sellerId
+            : undefined;
           const visibleBids = search.auction.bids.slice(
             0,
             visibleBidCount,
@@ -316,31 +380,39 @@ function BidAuctionStage({
           );
           const rankedBids =
             affordableBids.length > 0 ? affordableBids : visibleBids;
-          const leader = rankedBids.reduce(
-            (currentLeader, bid) => {
-              const currentScore =
-                search.auction.evaluations.find(
-                  (evaluation) =>
-                    evaluation.sellerId === currentLeader.sellerId,
-                )?.score ?? Number.NEGATIVE_INFINITY;
-              const bidScore =
-                search.auction.evaluations.find(
-                  (evaluation) => evaluation.sellerId === bid.sellerId,
-                )?.score ?? Number.NEGATIVE_INFINITY;
-              return bidScore > currentScore ? bid : currentLeader;
-            },
-            rankedBids[0] ?? search.auction.winner,
-          );
-          const leaderScore =
-            search.auction.evaluations.find(
-              (evaluation) => evaluation.sellerId === leader.sellerId,
-            )?.score ?? 0;
+          const leader =
+            rankedBids.length > 0
+              ? rankedBids.reduce((currentLeader, bid) => {
+                  const currentScore =
+                    search.auction.evaluations.find(
+                      (evaluation) =>
+                        evaluation.sellerId ===
+                        currentLeader.sellerId,
+                    )?.score ?? Number.NEGATIVE_INFINITY;
+                  const bidScore =
+                    search.auction.evaluations.find(
+                      (evaluation) =>
+                        evaluation.sellerId === bid.sellerId,
+                    )?.score ?? Number.NEGATIVE_INFINITY;
+                  return bidScore > currentScore
+                    ? bid
+                    : currentLeader;
+                })
+              : null;
+          const leaderScore = leader
+            ? (search.auction.evaluations.find(
+                (evaluation) =>
+                  evaluation.sellerId === leader.sellerId,
+              )?.score ?? 0)
+            : 0;
           const sealedBidCount =
             search.auction.bids.length - visibleBidCount;
 
           return (
             <article
-              className={styles.auctionLane}
+              className={`${styles.auctionLane} ${
+                isActiveLane ? styles.auctionLaneActive : ""
+              }`}
               data-category={search.allocation.category}
               key={search.id}
             >
@@ -368,33 +440,48 @@ function BidAuctionStage({
 
               <div
                 className={styles.currentBest}
-                key={`${search.id}-${leader.sellerId}`}
+                key={`${search.id}-${leader?.sellerId ?? "waiting"}`}
               >
                 <div>
-                  <span>CURRENT BEST VALUE</span>
-                  <strong>{leader.sellerName}</strong>
-                  <small>score {leaderScore.toFixed(1)}</small>
+                  <span>LEADING SELLER AGENT</span>
+                  <strong>
+                    {leader?.sellerName ?? "Waiting for first bid"}
+                  </strong>
+                  <small>
+                    {leader
+                      ? `${shortWallet(
+                          mockSellerAgentWallet(leader.sellerId),
+                        )} · score ${leaderScore.toFixed(1)}`
+                      : "sealed market"}
+                  </small>
                 </div>
-                <b>{formatUsd(leader.amountCents)}</b>
+                <b>
+                  {leader ? formatUsd(leader.amountCents) : "—"}
+                </b>
               </div>
 
               <div className={styles.bidStack}>
                 {visibleBids.map((bid, bidIndex) => {
                   const isLeading =
-                    bid.sellerId === leader.sellerId;
+                    bid.sellerId === leader?.sellerId;
+                  const isNewest =
+                    bid.sellerId === activeSellerId;
 
                   return (
                     <div
                       className={`${styles.bidRow} ${styles.bidVisible} ${
                         isLeading ? styles.bidLeading : ""
-                      }`}
+                      } ${isNewest ? styles.bidNewest : ""}`}
                       key={bid.sellerId}
                     >
                       <span>{(bidIndex + 1).toString().padStart(2, "0")}</span>
                       <div>
                         <strong>{bid.sellerName}</strong>
                         <small>
-                          {bid.quality}/100 quality
+                          {shortWallet(
+                            mockSellerAgentWallet(bid.sellerId),
+                          )}{" "}
+                          · {bid.quality}/100 quality
                         </small>
                       </div>
                       <b>{formatUsd(bid.amountCents)}</b>
