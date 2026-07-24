@@ -1438,6 +1438,75 @@ main {
   margin-top: 13px;
 }
 
+.router-corroboration {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.router-corroboration > summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  color: rgba(35, 38, 44, 0.66);
+  cursor: pointer;
+  font-size: 9px;
+  list-style: none;
+}
+
+.router-corroboration > summary::-webkit-details-marker {
+  display: none;
+}
+
+.router-corroboration > summary span {
+  font-weight: 630;
+}
+
+.router-corroboration > summary small {
+  margin-left: auto;
+  color: #4d782f;
+  font-size: 7px;
+}
+
+.router-corroboration > summary::after {
+  color: rgba(35, 38, 44, 0.42);
+  content: "+";
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 14px;
+}
+
+.router-corroboration[open] > summary::after {
+  content: "−";
+}
+
+.router-corroboration > div {
+  display: grid;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid rgba(83, 116, 65, 0.1);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.router-corroboration pre {
+  max-height: 210px;
+  margin: 0;
+  padding: 11px;
+  overflow: auto;
+  border-radius: 10px;
+  background: rgba(22, 27, 22, 0.88);
+  color: #dff4d3;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 7px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .zerog-plan-drawer {
   margin: 17px -20px -20px;
   border-top: 1px solid rgba(83, 116, 65, 0.13);
@@ -1949,6 +2018,14 @@ main {
   .verification-equation {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .router-corroboration > summary small {
+    display: none;
+  }
+
+  .router-corroboration > div {
+    grid-template-columns: 1fr;
   }
 
   .zerog-plan-drawer {

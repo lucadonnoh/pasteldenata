@@ -47,11 +47,11 @@ export function PrivacyDetails() {
             </p>
           </div>
           <div>
-            <span className="evidence-label enforced">Verified</span>
-            <strong>Synchronous signature check</strong>
+            <span className="evidence-label enforced">Local proof</span>
+            <strong>Independent browser verification</strong>
             <p>
-              The response is accepted only when the documented{" "}
-              <code>x_0g_trace.tee_verified</code> field is exactly true.
+              This browser reads the on-chain TEE signer, fetches the raw
+              provider proof, and independently recovers its EIP-191 signer.
             </p>
           </div>
         </div>
@@ -75,10 +75,16 @@ export function ZeroGVerificationReceipt({
 }) {
   const costOg = neuronToOg(result.attestation.costNeuron);
   const trace = result.attestation.routerTrace;
+  const proof = result.attestation.independentVerification;
+  if (!proof) return null;
+
   const providerExplorerUrl =
     trace && /^0x[0-9a-fA-F]{40}$/.test(trace.provider)
       ? `${CHAINSCAN_ADDRESS}${trace.provider}`
       : undefined;
+  const signerExplorerUrl = `${CHAINSCAN_ADDRESS}${proof.signingAddress}`;
+  const serviceContractExplorerUrl =
+    `${CHAINSCAN_ADDRESS}${proof.serviceContract}`;
 
   return (
     <section
@@ -90,31 +96,116 @@ export function ZeroGVerificationReceipt({
           <ShieldCheck size={15} aria-hidden="true" />
         </span>
         <div>
-          <span>LIVE 0G VERIFICATION RECEIPT</span>
-          <h2>TEE signature verified by the 0G Router</h2>
+          <span>LIVE · LOCALLY VERIFIED 0G PROOF</span>
+          <h2>TEE proof independently verified in this browser</h2>
           <p>
-            The private plan below was accepted only after the Router returned
-            its documented verification result inside <code>x_0g_trace</code>.
+            The browser fetched the provider&apos;s raw proof and checked its
+            signature against the acknowledged on-chain 0G TEE signer.
           </p>
         </div>
-        <span className="verification-pill">ROUTER VERIFIED</span>
+        <span className="verification-pill">INDEPENDENTLY VERIFIED</span>
       </header>
 
       <div className="zerog-proof-grid">
         <div className="trace-json">
           <div>
-            <span>Exact response evidence retained by this browser</span>
-            <code>x_0g_trace</code>
+            <span>Cryptographic verification receipt</span>
+            <code>EIP-191</code>
           </div>
-          <pre>{JSON.stringify(trace, null, 2)}</pre>
+          <pre>{JSON.stringify(proof, null, 2)}</pre>
         </div>
 
         <div className="zerog-request-facts">
           <div className="verification-equation">
             <span>Acceptance condition</span>
-            <code>x_0g_trace.tee_verified === true</code>
+            <code>recovered signer === on-chain signer</code>
           </div>
           <dl className="evidence-table">
+            <div>
+              <dt>On-chain lookup</dt>
+              <dd>
+                0G Mainnet · chain <code>{proof.chainId}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Provider service</dt>
+              <dd>
+                <code>{proof.verifiability}</code> ·{" "}
+                <code>{proof.serviceModel}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Expected signer</dt>
+              <dd>
+                <code>{proof.signingAddress}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Recovered signer</dt>
+              <dd>
+                <code>{proof.recoveredAddress}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Signed response hash</dt>
+              <dd>
+                <code>
+                  {proof.signedResponseHash ?? "Embedded in signed payload"}
+                </code>
+              </dd>
+            </div>
+            <div>
+              <dt>Message hash</dt>
+              <dd>
+                <code>{proof.messageHash}</code>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      <p className="verification-caveat prominent">
+        No application server performs this check. The browser reads the
+        provider&apos;s service record from 0G Mainnet, fetches the signature
+        identified by <code>{proof.chatId}</code>, performs EIP-191 recovery,
+        and requires the recovered address to equal the acknowledged TEE signer.
+        The signed payload includes the provider&apos;s response hash. Because
+        the Router rewrites the provider envelope to add its trace, the separate
+        Router assertion is still required to associate this proof with the
+        returned plan.
+      </p>
+      <div className="docs-links">
+        {providerExplorerUrl && (
+          <DocsLink href={providerExplorerUrl}>
+            Provider on 0G ChainScan
+          </DocsLink>
+        )}
+        <DocsLink href={signerExplorerUrl}>TEE signer on ChainScan</DocsLink>
+        <DocsLink href={serviceContractExplorerUrl}>
+          0G service contract
+        </DocsLink>
+        <DocsLink href={VERIFICATION_DOCS}>
+          Verification mechanics
+        </DocsLink>
+        <DocsLink href={PRIVACY_DOCS}>Privacy-mode guarantee</DocsLink>
+      </div>
+
+      <details className="router-corroboration">
+        <summary>
+          <span>View 0G Router corroboration</span>
+          <small>
+            <code>x_0g_trace.tee_verified === true</code>
+          </small>
+        </summary>
+        <div>
+          <pre>{JSON.stringify(trace, null, 2)}</pre>
+          <dl className="evidence-table">
+            <div>
+              <dt>Request</dt>
+              <dd>
+                <code>POST {ROUTER_ENDPOINT}</code>
+              </dd>
+            </div>
             <div>
               <dt>Routing</dt>
               <dd>
@@ -122,27 +213,15 @@ export function ZeroGVerificationReceipt({
               </dd>
             </div>
             <div>
-              <dt>Verification requested</dt>
+              <dt>Router verification</dt>
               <dd>
-                <code>verify_tee: true</code>
+                <code>verify_tee: true</code> · returned true
               </dd>
             </div>
             <div>
-              <dt>Endpoint</dt>
-              <dd>
-                <code>POST {ROUTER_ENDPOINT}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Model</dt>
+              <dt>Router model</dt>
               <dd>
                 <code>{result.attestation.model}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Response / chat ID</dt>
-              <dd>
-                <code>{result.attestation.chatId ?? "Not returned"}</code>
               </dd>
             </div>
             <div>
@@ -160,26 +239,7 @@ export function ZeroGVerificationReceipt({
             </div>
           </dl>
         </div>
-      </div>
-
-      <p className="verification-caveat prominent">
-        This is the Router&apos;s synchronous verification receipt: 0G says it
-        fetched and validated the provider&apos;s TEE signature before returning
-        the response. The Router returns this boolean, not the raw signature.
-        ChainScan identifies the provider on 0G, but it is not a receipt for
-        this individual inference.
-      </p>
-      <div className="docs-links">
-        {providerExplorerUrl && (
-          <DocsLink href={providerExplorerUrl}>
-            Provider on 0G ChainScan
-          </DocsLink>
-        )}
-        <DocsLink href={VERIFICATION_DOCS}>
-          Verification mechanics
-        </DocsLink>
-        <DocsLink href={PRIVACY_DOCS}>Privacy-mode guarantee</DocsLink>
-      </div>
+      </details>
 
       <details className="zerog-plan-drawer">
         <summary>

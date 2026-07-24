@@ -8,6 +8,10 @@ import {
 } from "./domain";
 import { sha256Hex } from "./hash";
 import { parseBudgetCents } from "./money";
+import {
+  type IndependentTeeVerifier,
+  ZeroGIndependentTeeVerifier,
+} from "./tee-verifier";
 import { tomorrowInLisbon } from "./time";
 
 const AllocationSchema = z.object({
@@ -75,16 +79,21 @@ export function requireVerifiedPrivateTee(
   mode: "0g-private-tee";
   teeVerified: true;
   routerTrace: NonNullable<PlannerAttestation["routerTrace"]>;
+  independentVerification: NonNullable<
+    PlannerAttestation["independentVerification"]
+  >;
 } {
   if (
     attestation.mode !== "0g-private-tee" ||
     attestation.teeVerified !== true ||
     attestation.routerTrace?.tee_verified !== true ||
     !attestation.routerTrace.request_id ||
-    !attestation.routerTrace.provider
+    !attestation.routerTrace.provider ||
+    attestation.independentVerification?.verified !== true ||
+    attestation.independentVerification.signatureVerified !== true
   ) {
     throw new Error(
-      "0G did not return x_0g_trace.tee_verified = true for this private response.",
+      "The 0G response did not pass both Router and independent TEE verification.",
     );
   }
 }
@@ -144,6 +153,8 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     private readonly apiKey: string,
     private readonly baseUrl = "https://router-api.0g.ai/v1",
     private readonly model = "0gm-1.0-35b-a3b",
+    private readonly teeVerifier: IndependentTeeVerifier =
+      new ZeroGIndependentTeeVerifier(),
   ) {}
 
   async plan(intent: string, now = new Date()): Promise<PlannerResult> {
@@ -218,9 +229,18 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         "0G returned an incomplete verification trace without a request ID or provider.",
       );
     }
+    if (!chatId) {
+      throw new Error(
+        "0G returned no ZG-Res-Key or response ID for independent TEE verification.",
+      );
+    }
 
     const content = raw.choices?.[0]?.message?.content;
     if (!content) throw new Error("0G returned an empty planner response.");
+    const independentVerification = await this.teeVerifier.verify({
+      provider: trace.provider,
+      chatId,
+    });
 
     const modelPlan = ModelPlanSchema.parse(extractJson(content));
     const costNeuron =
@@ -248,8 +268,9 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         provider: trace.provider,
         ...(costNeuron ? { costNeuron } : {}),
         requestId: trace.request_id,
-        ...(chatId ? { chatId } : {}),
+        chatId,
         routerTrace,
+        independentVerification,
       },
     };
   }

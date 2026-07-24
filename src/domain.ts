@@ -37,6 +37,31 @@ export interface ZeroGRouterTrace {
   tee_verified: true;
 }
 
+export interface IndependentTeeVerification {
+  verified: true;
+  method: "onchain-signer-eip191";
+  chainId: 16661;
+  rpcUrl: string;
+  serviceContract: string;
+  provider: string;
+  chatId: string;
+  serviceUrl: string;
+  serviceModel: string;
+  verifiability: "TeeML";
+  signingAddress: string;
+  recoveredAddress: string;
+  signatureEndpoint: string;
+  signedPayload: string;
+  signature: string;
+  messageHash: string;
+  signatureVerified: true;
+  signedRequestHash?: string;
+  signedResponseHash?: string;
+  providerType?: string;
+  providerIdentity?: string;
+  tlsCertFingerprint?: string;
+}
+
 export interface PlannerAttestation {
   mode: "0g-private-tee" | "local-mock";
   teeVerified: boolean;
@@ -46,6 +71,7 @@ export interface PlannerAttestation {
   requestId?: string;
   chatId?: string;
   routerTrace?: ZeroGRouterTrace;
+  independentVerification?: IndependentTeeVerification;
 }
 
 export type InventoryAttributes = Record<

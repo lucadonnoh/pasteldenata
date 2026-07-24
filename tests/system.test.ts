@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Wallet } from "ethers";
 import { runAuctions } from "../src/auction";
 import type { EnglishAuctionBidder } from "../src/buyer-agent";
 import { MOCK_SELLERS, publicCatalogForPlanner } from "../src/catalog";
-import type { AuctionResult, SellerAuctionView } from "../src/domain";
+import type {
+  AuctionResult,
+  IndependentTeeVerification,
+  SellerAuctionView,
+} from "../src/domain";
 import {
   organizePrivatePurchase,
   organizeVerifiedPrivatePurchase,
@@ -15,10 +20,44 @@ import {
   ZeroGPrivatePlanner,
 } from "../src/planner";
 import { createMockSellerAuctionHouses } from "../src/sellers";
+import {
+  type IndependentTeeVerificationInput,
+  verifyEip191Signature,
+} from "../src/tee-verifier";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
   "Organize me a date tomorrow in Lisbon. My budget is $200.";
+const TEST_PROVIDER = "0x0000000000000000000000000000000000000001";
+const TEST_SIGNER = "0x0000000000000000000000000000000000000002";
+
+function independentVerification(
+  overrides: Partial<IndependentTeeVerification> = {},
+): IndependentTeeVerification {
+  return {
+    verified: true,
+    method: "onchain-signer-eip191",
+    chainId: 16661,
+    rpcUrl: "https://evmrpc.0g.ai",
+    serviceContract: "0x0000000000000000000000000000000000000003",
+    provider: TEST_PROVIDER,
+    chatId: "chat-header-id",
+    serviceUrl: "https://provider.example",
+    serviceModel: "0gm-test",
+    verifiability: "TeeML",
+    signingAddress: TEST_SIGNER,
+    recoveredAddress: TEST_SIGNER,
+    signatureEndpoint:
+      "https://provider.example/v1/proxy/signature/chat-header-id?model=0gm-test",
+    signedPayload: `${"aa".repeat(32)}:${"bb".repeat(32)}`,
+    signature: `0x${"11".repeat(65)}`,
+    messageHash: `0x${"22".repeat(32)}`,
+    signatureVerified: true,
+    signedRequestHash: "aa".repeat(32),
+    signedResponseHash: "bb".repeat(32),
+    ...overrides,
+  };
+}
 
 function strongBuyer(id = "test-buyer"): EnglishAuctionBidder {
   return {
@@ -288,7 +327,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: false,
         model: "deterministic-test-planner",
       }),
-    /x_0g_trace\.tee_verified/,
+    /both Router and independent TEE verification/,
   );
   assert.throws(
     () =>
@@ -297,7 +336,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: true,
         model: "0gm-1.0-35b-a3b",
       }),
-    /x_0g_trace\.tee_verified/,
+    /both Router and independent TEE verification/,
   );
   assert.doesNotThrow(() =>
     requireVerifiedPrivateTee({
@@ -306,9 +345,10 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
       model: "0gm-1.0-35b-a3b",
       routerTrace: {
         request_id: "request-1",
-        provider: "0x0000000000000000000000000000000000000001",
+        provider: TEST_PROVIDER,
         tee_verified: true,
       },
+      independentVerification: independentVerification(),
     }),
   );
 });
@@ -316,7 +356,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
 test("the verified browser orchestrator rejects the mock before auctions", async () => {
   await assert.rejects(
     organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
-    /x_0g_trace\.tee_verified/,
+    /both Router and independent TEE verification/,
   );
 });
 
@@ -363,6 +403,16 @@ test("the 0G planner rejects a generic top-level TEE claim", async () => {
 
 test("the 0G planner retains the exact verified Router trace", async () => {
   const originalFetch = globalThis.fetch;
+  const verificationInputs: IndependentTeeVerificationInput[] = [];
+  const verifier = {
+    verify: async (input: IndependentTeeVerificationInput) => {
+      verificationInputs.push(input);
+      return independentVerification({
+        provider: input.provider,
+        chatId: input.chatId,
+      });
+    },
+  };
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify({
@@ -370,7 +420,7 @@ test("the 0G planner retains the exact verified Router trace", async () => {
         model: "0gm-1.0-35b-a3b",
         x_0g_trace: {
           request_id: "request-1",
-          provider: "0x0000000000000000000000000000000000000001",
+          provider: TEST_PROVIDER,
           billing: {
             input_cost: "10",
             output_cost: "20",
@@ -405,13 +455,15 @@ test("the 0G planner retains the exact verified Router trace", async () => {
     );
 
   try {
-    const result = await new ZeroGPrivatePlanner("sk-test-key").plan(
-      INTENT,
-      NOW,
-    );
+    const result = await new ZeroGPrivatePlanner(
+      "sk-test-key",
+      "https://router-api.0g.ai/v1",
+      "0gm-1.0-35b-a3b",
+      verifier,
+    ).plan(INTENT, NOW);
     assert.deepEqual(result.attestation.routerTrace, {
       request_id: "request-1",
-      provider: "0x0000000000000000000000000000000000000001",
+      provider: TEST_PROVIDER,
       billing: {
         input_cost: "10",
         output_cost: "20",
@@ -420,7 +472,99 @@ test("the 0G planner retains the exact verified Router trace", async () => {
       tee_verified: true,
     });
     assert.equal(result.attestation.chatId, "chat-header-id");
+    assert.deepEqual(verificationInputs, [
+      {
+        provider: TEST_PROVIDER,
+        chatId: "chat-header-id",
+      },
+    ]);
+    assert.equal(
+      result.attestation.independentVerification?.verified,
+      true,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("the 0G planner rejects a Router-verified response when independent verification fails", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        id: "chat-body-id",
+        model: "0gm-1.0-35b-a3b",
+        x_0g_trace: {
+          request_id: "request-1",
+          provider: TEST_PROVIDER,
+          tee_verified: true,
+        },
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                occasionTitle: "Private date",
+                location: "Lisbon",
+                scheduledFor: "2026-07-25",
+                allocations: [
+                  {
+                    category: "dinner",
+                    maxBudgetCents: 10_000,
+                    requirements: ["table for two"],
+                    priority: 5,
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+
+  const verifier = {
+    verify: async () => {
+      throw new Error(
+        "Independent TEE verification failed: bad signature.",
+      );
+    },
+  };
+
+  try {
+    await assert.rejects(
+      new ZeroGPrivatePlanner(
+        "sk-test-key",
+        "https://router-api.0g.ai/v1",
+        "0gm-1.0-35b-a3b",
+        verifier,
+      ).plan(INTENT, NOW),
+      /Independent TEE verification failed: bad signature/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("independent verification validates the EIP-191 proof signer", async () => {
+  const wallet = Wallet.createRandom();
+  const signedPayload = `${"aa".repeat(32)}:${"bb".repeat(32)}`;
+  const signature = await wallet.signMessage(signedPayload);
+
+  assert.deepEqual(
+    verifyEip191Signature({
+      signedText: signedPayload,
+      signature,
+      signingAddress: wallet.address,
+    }).recoveredAddress,
+    wallet.address,
+  );
+  assert.throws(
+    () =>
+      verifyEip191Signature({
+        signedText: signedPayload,
+        signature,
+        signingAddress: Wallet.createRandom().address,
+      }),
+    /does not recover/,
+  );
 });

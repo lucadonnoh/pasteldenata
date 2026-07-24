@@ -171,9 +171,12 @@ export function IntentBox() {
             <Sparkles size={18} />
           </div>
           <div className="thinking-copy">
-            <span>REQUESTING 0G PRIVATE COMPUTE</span>
+            <span>REQUESTING + VERIFYING 0G PRIVATE COMPUTE</span>
             <strong>Turning your intent into market mandates</strong>
-            <p>Waiting for verified TEE attestation before running auctions</p>
+            <p>
+              Auctions wait for the on-chain signer lookup and independent
+              EIP-191 proof recovery
+            </p>
           </div>
         </div>
       )}
