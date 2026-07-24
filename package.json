@@ -1,0 +1,26 @@
+{
+  "name": "pastel-de-nata",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private agentic payments with 0G confidential inference and mocked sealed-bid auctions.",
+  "scripts": {
+    "demo": "tsx src/cli.ts",
+    "demo:mock": "tsx src/cli.ts --mock",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
