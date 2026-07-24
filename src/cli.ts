@@ -1,11 +1,11 @@
 import "dotenv/config";
-import { formatUsd, neuronToOg } from "./money.js";
-import { organizePrivatePurchase } from "./orchestrator.js";
+import { formatUsd, neuronToOg } from "./money";
+import { organizePrivatePurchase } from "./orchestrator";
 import {
   MockPrivatePlanner,
   ZeroGPrivatePlanner,
   type PrivatePlanner,
-} from "./planner.js";
+} from "./planner";
 
 const argv = process.argv.slice(2);
 const useMock = argv.includes("--mock");
