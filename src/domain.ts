@@ -60,9 +60,12 @@ export interface IndependentTeeVerification {
     | "raw-router-response"
     | "raw-without-router-trace"
     | "json-without-router-trace"
-    | "jcs-without-router-trace";
+    | "jcs-without-router-trace"
+    | "json-without-router-trace-provider-model"
+    | "jcs-without-router-trace-provider-model";
   computedResponseHash: string;
   excludedResponseFields: [] | ["x_0g_trace"];
+  normalizedResponseFields: [] | ["model"];
   signedRequestHash?: string;
   signedResponseHash: string;
   providerType?: string;

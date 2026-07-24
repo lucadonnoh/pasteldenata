@@ -166,6 +166,19 @@ export function ZeroGVerificationReceipt({
               </dd>
             </div>
             <div>
+              <dt>On-chain normalization</dt>
+              <dd>
+                {proof.normalizedResponseFields.length > 0 ? (
+                  <>
+                    <code>{proof.normalizedResponseFields.join(", ")}</code>{" "}
+                    from service record
+                  </>
+                ) : (
+                  "None"
+                )}
+              </dd>
+            </div>
+            <div>
               <dt>Message hash</dt>
               <dd>
                 <code>{proof.messageHash}</code>
@@ -181,10 +194,12 @@ export function ZeroGVerificationReceipt({
         identified by <code>{proof.chatId}</code>, performs EIP-191 recovery,
         and requires the recovered address to equal the acknowledged TEE signer.
         It also recomputes the response hash, excluding at most the
-        Router-injected <code>x_0g_trace</code> field, and requires an exact
-        match with the hash inside the signed proof. The model plan is therefore
-        bound to the TEE signature; Router trace and billing metadata remain
-        separate, untrusted Router assertions.
+        Router-injected <code>x_0g_trace</code> field. If the Router presents a
+        model alias, the browser restores only the canonical model name from the
+        same on-chain service record. It then requires an exact match with the
+        hash inside the signed proof. The model plan is therefore bound to the
+        TEE signature; Router trace and billing metadata remain separate,
+        untrusted Router assertions.
       </p>
       <div className="docs-links">
         {providerExplorerUrl && (

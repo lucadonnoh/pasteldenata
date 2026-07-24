@@ -109,6 +109,7 @@ interface ResponseHashCandidate {
   method: ResponseHashMethod;
   content: string;
   excludedResponseFields: [] | ["x_0g_trace"];
+  normalizedResponseFields: [] | ["model"];
 }
 
 function canonicalJson(value: unknown): string {
@@ -214,13 +215,16 @@ function stripTopLevelJsonField(
 export function verifyResponseContentHash({
   routerResponseText,
   signedResponseHash,
+  providerModel,
 }: {
   routerResponseText: string;
   signedResponseHash: string;
+  providerModel?: string;
 }): {
   method: ResponseHashMethod;
   computedResponseHash: string;
   excludedResponseFields: [] | ["x_0g_trace"];
+  normalizedResponseFields: [] | ["model"];
 } {
   const expectedHash = signedResponseHash.toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
@@ -234,6 +238,7 @@ export function verifyResponseContentHash({
       method: "raw-router-response",
       content: routerResponseText,
       excludedResponseFields: [],
+      normalizedResponseFields: [],
     },
   ];
   const rawWithoutTrace = stripTopLevelJsonField(
@@ -245,6 +250,7 @@ export function verifyResponseContentHash({
       method: "raw-without-router-trace",
       content: rawWithoutTrace,
       excludedResponseFields: ["x_0g_trace"],
+      normalizedResponseFields: [],
     });
   }
 
@@ -266,13 +272,39 @@ export function verifyResponseContentHash({
       method: "json-without-router-trace",
       content: JSON.stringify(providerResponse),
       excludedResponseFields: ["x_0g_trace"],
+      normalizedResponseFields: [],
     },
     {
       method: "jcs-without-router-trace",
       content: canonicalJson(providerResponse),
       excludedResponseFields: ["x_0g_trace"],
+      normalizedResponseFields: [],
     },
   );
+  if (
+    providerModel &&
+    typeof providerResponse.model === "string" &&
+    providerResponse.model !== providerModel
+  ) {
+    const providerModelResponse = {
+      ...providerResponse,
+      model: providerModel,
+    };
+    candidates.push(
+      {
+        method: "json-without-router-trace-provider-model",
+        content: JSON.stringify(providerModelResponse),
+        excludedResponseFields: ["x_0g_trace"],
+        normalizedResponseFields: ["model"],
+      },
+      {
+        method: "jcs-without-router-trace-provider-model",
+        content: canonicalJson(providerModelResponse),
+        excludedResponseFields: ["x_0g_trace"],
+        normalizedResponseFields: ["model"],
+      },
+    );
+  }
 
   const seen = new Set<string>();
   for (const candidate of candidates) {
@@ -284,6 +316,7 @@ export function verifyResponseContentHash({
         method: candidate.method,
         computedResponseHash: candidateHash,
         excludedResponseFields: candidate.excludedResponseFields,
+        normalizedResponseFields: candidate.normalizedResponseFields,
       };
     }
   }
@@ -398,6 +431,7 @@ export class ZeroGIndependentTeeVerifier
     const responseBinding = verifyResponseContentHash({
       routerResponseText,
       signedResponseHash: signedHashes.signedResponseHash,
+      providerModel: service.model,
     });
 
     return {
@@ -422,6 +456,7 @@ export class ZeroGIndependentTeeVerifier
       responseHashMethod: responseBinding.method,
       computedResponseHash: responseBinding.computedResponseHash,
       excludedResponseFields: responseBinding.excludedResponseFields,
+      normalizedResponseFields: responseBinding.normalizedResponseFields,
       ...(signedHashes.signedRequestHash
         ? { signedRequestHash: signedHashes.signedRequestHash }
         : {}),

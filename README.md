@@ -145,8 +145,11 @@ the Router exposes it; otherwise it derives the same key from the documented
    public signature endpoint using the chat ID.
 3. Recovers the EIP-191 signer and requires it to equal the on-chain TEE signer.
 4. Excludes at most the Router-injected `x_0g_trace`, hashes the remaining
-   response, and requires it to equal the response hash inside the signed proof.
-5. Exposes both hashes, the raw signature, and complete signed payload.
+   response, and restores the canonical provider model name from the same
+   on-chain record if the Router returned an alias.
+5. Requires the reconstructed hash to equal the response hash inside the signed
+   proof.
+6. Exposes both hashes, the raw signature, and complete signed payload.
 
 Only the successful signer and response-content checks allow the plan to be
 parsed and the local auctions to start. A generic top-level verification claim,

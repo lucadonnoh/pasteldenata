@@ -60,6 +60,7 @@ function independentVerification(
     responseHashMethod: "raw-without-router-trace",
     computedResponseHash: "bb".repeat(32),
     excludedResponseFields: ["x_0g_trace"],
+    normalizedResponseFields: [],
     signedRequestHash: "aa".repeat(32),
     signedResponseHash: "bb".repeat(32),
     ...overrides,
@@ -396,6 +397,7 @@ test("response proof binds the exact plan while excluding only Router trace meta
       method: "raw-without-router-trace",
       computedResponseHash: signedResponseHash,
       excludedResponseFields: ["x_0g_trace"],
+      normalizedResponseFields: [],
     },
   );
   assert.throws(
@@ -406,6 +408,37 @@ test("response proof binds the exact plan while excluding only Router trace meta
           '\\"budget\\":900',
         ),
         signedResponseHash,
+      }),
+    /does not match the plan response/,
+  );
+});
+
+test("response proof reconstructs only the provider's on-chain model name", () => {
+  const providerResponse =
+    '{"choices":[{"message":{"content":"{\\"plan\\":\\"dinner\\"}"}}],"id":"chatcmpl-proof","model":"0GM-1.0-35B-A3B"}';
+  const routerResponse =
+    '{"choices":[{"message":{"content":"{\\"plan\\":\\"dinner\\"}"}}],"id":"chatcmpl-proof","model":"0gm-1.0-35b-a3b","x_0g_trace":{"tee_verified":true}}';
+  const signedResponseHash = sha256Hex(providerResponse);
+
+  assert.deepEqual(
+    verifyResponseContentHash({
+      routerResponseText: routerResponse,
+      signedResponseHash,
+      providerModel: "0GM-1.0-35B-A3B",
+    }),
+    {
+      method: "json-without-router-trace-provider-model",
+      computedResponseHash: signedResponseHash,
+      excludedResponseFields: ["x_0g_trace"],
+      normalizedResponseFields: ["model"],
+    },
+  );
+  assert.throws(
+    () =>
+      verifyResponseContentHash({
+        routerResponseText: routerResponse.replace("dinner", "flowers"),
+        signedResponseHash,
+        providerModel: "0GM-1.0-35B-A3B",
       }),
     /does not match the plan response/,
   );
