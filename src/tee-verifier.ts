@@ -175,8 +175,9 @@ export class ZeroGIndependentTeeVerifier
       headers: { Accept: "application/json" },
     });
     if (!signatureResponse.ok) {
+      const errorBody = await signatureResponse.text();
       throw new Error(
-        `Independent TEE verification failed: provider signature endpoint returned ${signatureResponse.status}.`,
+        `Independent TEE verification failed: provider signature endpoint returned ${signatureResponse.status}${errorBody ? `: ${errorBody}` : "."}`,
       );
     }
 

@@ -73,6 +73,20 @@ export interface PrivatePlanner {
   plan(intent: string, now?: Date): Promise<PlannerResult>;
 }
 
+export function resolveProofChatId(
+  response: Response,
+  responseId?: string,
+): string | undefined {
+  const responseKey =
+    response.headers.get("ZG-Res-Key") ??
+    response.headers.get("zg-res-key");
+  if (responseKey) return responseKey;
+
+  return responseId?.startsWith("chatcmpl-")
+    ? responseId.slice("chatcmpl-".length)
+    : responseId;
+}
+
 export function requireVerifiedPrivateTee(
   attestation: PlannerAttestation,
 ): asserts attestation is PlannerAttestation & {
@@ -209,10 +223,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const raw = (await response.json()) as RouterResponse & {
       error?: { message?: string };
     };
-    const chatId =
-      response.headers.get("ZG-Res-Key") ??
-      response.headers.get("zg-res-key") ??
-      raw.id;
+    const chatId = resolveProofChatId(response, raw.id);
     if (!response.ok) {
       throw new Error(
         `0G Router returned ${response.status}: ${raw.error?.message ?? "unknown error"}`,

@@ -135,7 +135,9 @@ an application database. The browser calls the 0G Router directly, so neither
 the key nor the private prompt passes through an application server.
 
 The response must contain `x_0g_trace.tee_verified: true`, a request ID,
-provider address, and a `ZG-Res-Key` chat ID. The browser then independently:
+provider address, and a proof lookup key. The browser uses `ZG-Res-Key` when
+the Router exposes it; otherwise it derives the same key from the documented
+`chatcmpl-<ZG-Res-Key>` response ID. It then independently:
 
 1. Reads the provider's service record and acknowledged TEE signer from the
    official 0G Compute `InferenceServing` contract on 0G Mainnet.

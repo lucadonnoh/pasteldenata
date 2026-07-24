@@ -17,6 +17,7 @@ import { settleMockPayments } from "../src/payments";
 import {
   MockPrivatePlanner,
   requireVerifiedPrivateTee,
+  resolveProofChatId,
   ZeroGPrivatePlanner,
 } from "../src/planner";
 import { createMockSellerAuctionHouses } from "../src/sellers";
@@ -350,6 +351,25 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
       },
       independentVerification: independentVerification(),
     }),
+  );
+});
+
+test("proof lookup derives ZG-Res-Key from the OpenAI response ID", () => {
+  assert.equal(
+    resolveProofChatId(
+      new Response(null),
+      "chatcmpl-5606b697-425d-4fd4-ab7d-85cb0e79a8f9",
+    ),
+    "5606b697-425d-4fd4-ab7d-85cb0e79a8f9",
+  );
+  assert.equal(
+    resolveProofChatId(
+      new Response(null, {
+        headers: { "ZG-Res-Key": "header-proof-key" },
+      }),
+      "chatcmpl-body-proof-key",
+    ),
+    "header-proof-key",
   );
 });
 
