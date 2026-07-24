@@ -28,7 +28,7 @@ import {
 
 import styles from "./agent-search-experience.module.css";
 
-const SEARCH_DURATION_MS = 3600;
+const SEARCH_DURATION_MS = 4800;
 
 const categoryIcons: Record<Category, LucideIcon> = {
   flowers: Flower2,
@@ -67,13 +67,18 @@ function AgentSearchRun({
 }) {
   const [phase, setPhase] = useState<"searching" | "complete">("searching");
   const [resolvedCount, setResolvedCount] = useState(0);
+  const [bidTick, setBidTick] = useState(0);
 
   useEffect(() => {
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
-        950 + index * 650,
+        2600 + index * 600,
       ),
+    );
+    const bidTimer = window.setInterval(
+      () => setBidTick((current) => current + 1),
+      650,
     );
     const completionTimer = window.setTimeout(
       () => setPhase("complete"),
@@ -82,6 +87,7 @@ function AgentSearchRun({
 
     return () => {
       resolutionTimers.forEach(window.clearTimeout);
+      window.clearInterval(bidTimer);
       window.clearTimeout(completionTimer);
     };
   }, [searches]);
@@ -113,7 +119,11 @@ function AgentSearchRun({
       </header>
 
       {phase === "searching" ? (
-        <DreamOrbit searches={searches} resolvedCount={resolvedCount} />
+        <DreamOrbit
+          searches={searches}
+          resolvedCount={resolvedCount}
+          bidTick={bidTick}
+        />
       ) : (
         <>
           <div className={styles.bundleGrid}>
@@ -142,9 +152,11 @@ function AgentSearchRun({
 function DreamOrbit({
   searches,
   resolvedCount,
+  bidTick,
 }: {
   searches: MockAgentSearch[];
   resolvedCount: number;
+  bidTick: number;
 }) {
   return (
     <>
@@ -159,6 +171,18 @@ function DreamOrbit({
 
         {searches.map((search, index) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
+          const isResolved = index < resolvedCount;
+          const activeBidIndex = Math.min(
+            bidTick,
+            search.auction.bids.length - 1,
+          );
+          const activeBid = isResolved
+            ? search.auction.winner
+            : (search.auction.bids[activeBidIndex] ??
+              search.auction.winner);
+          const visibleBidCount = isResolved
+            ? search.auction.bids.length
+            : Math.min(bidTick + 1, search.auction.bids.length);
           const delay = -((index * 9) / searches.length);
           const orbitStyle = {
             "--agent-delay": `${delay}s`,
@@ -173,7 +197,7 @@ function DreamOrbit({
               <div className={styles.orbitTraveller}>
                 <article
                   className={`${styles.orbitCard} ${
-                    index < resolvedCount ? styles.found : ""
+                    isResolved ? styles.found : ""
                   }`}
                 >
                   <header>
@@ -181,18 +205,40 @@ function DreamOrbit({
                       <CategoryIcon size={14} />
                     </span>
                     <b>
-                      {index < resolvedCount ? (
+                      {isResolved ? (
                         <>
                           <Check size={10} />
                           Match
                         </>
                       ) : (
-                        "Searching"
+                        "Bid escalation"
                       )}
                     </b>
                   </header>
                   <h3>{search.allocation.category}</h3>
                   <code>{shortWallet(search.wallet)}</code>
+                  <div className={styles.bidReadout}>
+                    <div>
+                      <span>
+                        {isResolved ? "WINNING BID" : "LIVE BID"} ·{" "}
+                        {visibleBidCount}/{search.auction.bids.length}
+                      </span>
+                      <small>{activeBid.sellerName}</small>
+                    </div>
+                    <strong>{formatUsd(activeBid.amountCents)}</strong>
+                  </div>
+                  <div className={styles.bidProgress} aria-hidden="true">
+                    {search.auction.bids.map((bid, bidIndex) => (
+                      <i
+                        className={
+                          bidIndex < visibleBidCount
+                            ? styles.bidReceived
+                            : ""
+                        }
+                        key={bid.sellerId}
+                      />
+                    ))}
+                  </div>
                   <footer>
                     <WalletCards size={11} />
                     {search.auction.bids.length} sellers · cap{" "}
@@ -218,7 +264,10 @@ function DreamOrbit({
             <b>
               {index < resolvedCount
                 ? `${search.auction.winner.sellerName} found`
-                : "scanning"}
+                : `${Math.min(
+                    bidTick + 1,
+                    search.auction.bids.length,
+                  )}/${search.auction.bids.length} bids`}
             </b>
           </div>
         ))}

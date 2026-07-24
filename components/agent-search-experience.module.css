@@ -93,7 +93,7 @@
 .orbitScene {
   --orbit-radius: 180px;
   position: relative;
-  height: 480px;
+  height: 540px;
   margin: 5px 0 2px;
   isolation: isolate;
 }
@@ -272,6 +272,68 @@
 .orbitCard code {
   color: rgba(36, 39, 44, 0.4);
   font-size: 7px;
+}
+
+.bidReadout {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 11px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.bidReadout span,
+.bidReadout small {
+  display: block;
+}
+
+.bidReadout span {
+  color: rgba(37, 40, 46, 0.42);
+  font-size: 5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.bidReadout small {
+  max-width: 88px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: rgba(37, 40, 46, 0.58);
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bidReadout strong {
+  font-size: 12px;
+  font-weight: 580;
+  letter-spacing: -0.035em;
+}
+
+.bidProgress {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.bidProgress i {
+  height: 2px;
+  flex: 1;
+  border-radius: 999px;
+  background: rgba(38, 42, 47, 0.1);
+  transition: background 260ms ease;
+}
+
+.bidProgress i.bidReceived {
+  background: rgba(109, 83, 197, 0.53);
+}
+
+.found .bidProgress i.bidReceived {
+  background: rgba(86, 135, 56, 0.5);
 }
 
 .orbitCard footer {
@@ -620,7 +682,7 @@
 
   .orbitScene {
     --orbit-radius: 105px;
-    height: 365px;
+    height: 410px;
     margin-top: 12px;
   }
 
@@ -647,6 +709,19 @@
 
   .orbitCard footer {
     margin-top: 8px;
+  }
+
+  .bidReadout {
+    margin-top: 7px;
+    padding: 6px;
+  }
+
+  .bidReadout small {
+    max-width: 62px;
+  }
+
+  .bidReadout strong {
+    font-size: 10px;
   }
 
   .agentLedger {
