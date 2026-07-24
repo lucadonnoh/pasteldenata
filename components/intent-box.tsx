@@ -16,6 +16,7 @@ import {
   ExecutionDetails,
   PrivacyDetails,
 } from "@/components/execution-details";
+import { AgentSearchExperience } from "@/components/agent-search-experience";
 
 const examples = [
   "Organize me a date tomorrow in Lisbon. My budget is $200.",
@@ -197,6 +198,7 @@ export function IntentBox() {
               </span>
             </div>
           </div>
+          <AgentSearchExperience result={result} />
           <ExecutionDetails result={result} />
         </>
       )}
