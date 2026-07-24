@@ -90,10 +90,16 @@
   animation: none;
 }
 
+.phasePill i.auctionDot {
+  background: #ff8c45;
+  box-shadow: 0 0 10px rgba(255, 117, 45, 0.7);
+  animation-duration: 750ms;
+}
+
 .orbitScene {
   --orbit-radius: 180px;
   position: relative;
-  height: 540px;
+  height: 480px;
   margin: 5px 0 2px;
   isolation: isolate;
 }
@@ -274,68 +280,6 @@
   font-size: 7px;
 }
 
-.bidReadout {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 11px;
-  padding: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.22);
-}
-
-.bidReadout span,
-.bidReadout small {
-  display: block;
-}
-
-.bidReadout span {
-  color: rgba(37, 40, 46, 0.42);
-  font-size: 5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
-
-.bidReadout small {
-  max-width: 88px;
-  margin-top: 4px;
-  overflow: hidden;
-  color: rgba(37, 40, 46, 0.58);
-  font-size: 6px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bidReadout strong {
-  font-size: 12px;
-  font-weight: 580;
-  letter-spacing: -0.035em;
-}
-
-.bidProgress {
-  display: flex;
-  gap: 3px;
-  margin-top: 6px;
-}
-
-.bidProgress i {
-  height: 2px;
-  flex: 1;
-  border-radius: 999px;
-  background: rgba(38, 42, 47, 0.1);
-  transition: background 260ms ease;
-}
-
-.bidProgress i.bidReceived {
-  background: rgba(109, 83, 197, 0.53);
-}
-
-.found .bidProgress i.bidReceived {
-  background: rgba(86, 135, 56, 0.5);
-}
-
 .orbitCard footer {
   gap: 5px;
   margin-top: 12px;
@@ -410,6 +354,265 @@
 
 .agentLedger b {
   display: none;
+}
+
+.auctionStage {
+  position: relative;
+  z-index: 2;
+  margin-top: 25px;
+  animation: revealStage 620ms both cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.auctionTopline {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+  padding: 0 5px;
+}
+
+.auctionTopline span,
+.auctionTopline b {
+  display: flex;
+  align-items: center;
+}
+
+.auctionTopline span {
+  gap: 7px;
+  color: rgba(38, 41, 47, 0.72);
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+}
+
+.auctionTopline b {
+  gap: 6px;
+  color: #a55225;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.auctionTopline b svg {
+  animation: livePulse 850ms ease-in-out infinite;
+}
+
+.auctionGrid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.auctionLane {
+  min-width: 0;
+  overflow: hidden;
+  padding: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    0 17px 40px rgba(46, 55, 67, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.83);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+}
+
+.auctionLaneHeader {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.auctionLaneHeader > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.32);
+  color: rgba(42, 45, 51, 0.64);
+}
+
+.auctionLane[data-category="flowers"] .auctionLaneHeader > span {
+  background: rgba(240, 187, 212, 0.25);
+}
+
+.auctionLane[data-category="cinema"] .auctionLaneHeader > span {
+  background: rgba(177, 190, 237, 0.28);
+}
+
+.auctionLane[data-category="dinner"] .auctionLaneHeader > span {
+  background: rgba(237, 195, 145, 0.25);
+}
+
+.auctionLaneHeader strong,
+.auctionLaneHeader code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auctionLaneHeader strong {
+  margin-bottom: 3px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+.auctionLaneHeader code {
+  color: rgba(36, 39, 44, 0.38);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 6px;
+}
+
+.auctionLaneHeader > b {
+  color: rgba(34, 37, 43, 0.25);
+  font-size: 8px;
+}
+
+.activityScope {
+  min-height: 79px;
+  margin: 13px 0 10px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.activityScope > span {
+  color: #557a3c;
+  font-size: 6px;
+  font-weight: 720;
+  letter-spacing: 0.09em;
+}
+
+.activityScope > strong {
+  display: block;
+  min-height: 25px;
+  margin: 6px 0 4px;
+  color: rgba(34, 37, 43, 0.7);
+  font-size: 8px;
+  font-weight: 570;
+  line-height: 1.35;
+}
+
+.activityScope p {
+  margin: 0;
+  color: rgba(34, 37, 43, 0.4);
+  font-size: 6px;
+}
+
+.bidStack {
+  display: grid;
+  gap: 6px;
+}
+
+.bidRow {
+  position: relative;
+  display: grid;
+  min-height: 55px;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 0.38;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  transition:
+    opacity 300ms ease,
+    border-color 300ms ease,
+    background 300ms ease,
+    transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bidRow > span {
+  color: rgba(34, 37, 43, 0.28);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 6px;
+}
+
+.bidRow strong,
+.bidRow small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bidRow strong {
+  margin-bottom: 4px;
+  font-size: 8px;
+}
+
+.bidRow small {
+  color: rgba(34, 37, 43, 0.38);
+  font-size: 6px;
+}
+
+.bidRow > b {
+  font-size: 12px;
+  font-weight: 630;
+  letter-spacing: -0.035em;
+}
+
+.bidRow > i {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  color: #5b873e;
+  font-size: 5px;
+  font-style: normal;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+
+.bidRow.bidVisible {
+  border-color: rgba(255, 255, 255, 0.66);
+  background: rgba(255, 255, 255, 0.3);
+  opacity: 1;
+  transform: translateY(0);
+  animation: bidArrives 480ms both cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bidRow.bidLeading {
+  border-color: rgba(100, 161, 64, 0.3);
+  background: rgba(142, 213, 98, 0.09);
+  box-shadow: inset 0 0 18px rgba(135, 207, 91, 0.05);
+}
+
+.auctionLeader {
+  display: grid;
+  align-items: end;
+  gap: 3px 7px;
+  margin-top: 11px;
+  padding: 11px 3px 1px;
+  border-top: 1px solid rgba(255, 255, 255, 0.5);
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.auctionLeader span {
+  color: rgba(34, 37, 43, 0.36);
+  font-size: 6px;
+  grid-column: 1 / -1;
+}
+
+.auctionLeader strong {
+  overflow: hidden;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auctionLeader b {
+  font-size: 14px;
+  font-weight: 640;
+  letter-spacing: -0.035em;
 }
 
 .bundleGrid {
@@ -664,6 +867,36 @@
   }
 }
 
+@keyframes revealStage {
+  from {
+    opacity: 0;
+    filter: blur(9px);
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bidArrives {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes livePulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 @media (max-width: 700px) {
   .experience {
     padding: 18px;
@@ -682,7 +915,7 @@
 
   .orbitScene {
     --orbit-radius: 105px;
-    height: 410px;
+    height: 365px;
     margin-top: 12px;
   }
 
@@ -711,19 +944,6 @@
     margin-top: 8px;
   }
 
-  .bidReadout {
-    margin-top: 7px;
-    padding: 6px;
-  }
-
-  .bidReadout small {
-    max-width: 62px;
-  }
-
-  .bidReadout strong {
-    font-size: 10px;
-  }
-
   .agentLedger {
     grid-template-columns: 1fr;
   }
@@ -747,6 +967,27 @@
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .auctionTopline {
+    padding: 0 2px;
+  }
+
+  .auctionTopline span {
+    font-size: 8px;
+  }
+
+  .auctionGrid {
+    display: flex;
+    margin: 0 -18px;
+    padding: 0 18px 12px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+  }
+
+  .auctionLane {
+    flex: 0 0 82%;
+    scroll-snap-align: center;
   }
 
   .bundleGrid {
@@ -776,6 +1017,8 @@
   .orbitCard,
   .core::after,
   .phasePill i,
+  .auctionStage,
+  .bidRow,
   .resultCard {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;

@@ -5,7 +5,9 @@ import {
   Check,
   Clapperboard,
   Flower2,
+  Gavel,
   Palette,
+  Radio,
   RotateCcw,
   Sparkles,
   UtensilsCrossed,
@@ -28,7 +30,8 @@ import {
 
 import styles from "./agent-search-experience.module.css";
 
-const SEARCH_DURATION_MS = 4800;
+const DISCOVERY_DURATION_MS = 2900;
+const AUCTION_DURATION_MS = 4200;
 
 const categoryIcons: Record<Category, LucideIcon> = {
   flowers: Flower2,
@@ -65,65 +68,95 @@ function AgentSearchRun({
   searches: MockAgentSearch[];
   onReplay: () => void;
 }) {
-  const [phase, setPhase] = useState<"searching" | "complete">("searching");
+  const [phase, setPhase] = useState<
+    "searching" | "bidding" | "complete"
+  >("searching");
   const [resolvedCount, setResolvedCount] = useState(0);
   const [bidTick, setBidTick] = useState(0);
 
   useEffect(() => {
+    let bidTimer: number | undefined;
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
-        2600 + index * 600,
+        850 + index * 560,
       ),
     );
-    const bidTimer = window.setInterval(
-      () => setBidTick((current) => current + 1),
-      650,
+    const auctionTimer = window.setTimeout(
+      () => {
+        setPhase("bidding");
+        bidTimer = window.setInterval(
+          () => setBidTick((current) => current + 1),
+          720,
+        );
+      },
+      DISCOVERY_DURATION_MS,
     );
     const completionTimer = window.setTimeout(
-      () => setPhase("complete"),
-      SEARCH_DURATION_MS,
+      () => {
+        if (bidTimer !== undefined) window.clearInterval(bidTimer);
+        setPhase("complete");
+      },
+      DISCOVERY_DURATION_MS + AUCTION_DURATION_MS,
     );
 
     return () => {
       resolutionTimers.forEach(window.clearTimeout);
-      window.clearInterval(bidTimer);
+      window.clearTimeout(auctionTimer);
+      if (bidTimer !== undefined) window.clearInterval(bidTimer);
       window.clearTimeout(completionTimer);
     };
   }, [searches]);
+
+  const phaseCopy = {
+    searching: {
+      eyebrow: `${searches.length} AGENT WALLETS ACTIVE`,
+      title: "Finding the right activities.",
+      description:
+        "Each agent sees one activity, one budget and nothing else.",
+      status: "Dreaming",
+    },
+    bidding: {
+      eyebrow: "ACTIVITIES LOCKED · AUCTIONS OPEN",
+      title: `${searches.length} activities. ${searches.length} live auctions.`,
+      description:
+        "Seller bids arrive independently inside each scoped market.",
+      status: "Auction live",
+    },
+    complete: {
+      eyebrow: "BUNDLE ASSEMBLED",
+      title: result.plan.occasionTitle,
+      description: `${result.plan.location} · ${result.plan.scheduledFor}`,
+      status: "Ready",
+    },
+  }[phase];
 
   return (
     <section className={styles.experience} aria-live="polite">
       <header className={styles.heading}>
         <div>
-          <span>
-            {phase === "searching"
-              ? `${searches.length} AGENT WALLETS ACTIVE`
-              : "BUNDLE ASSEMBLED"}
-          </span>
-          <h2>
-            {phase === "searching"
-              ? "Searching the market in parallel."
-              : result.plan.occasionTitle}
-          </h2>
-          <p>
-            {phase === "searching"
-              ? "Each agent sees one activity, one budget and nothing else."
-              : `${result.plan.location} · ${result.plan.scheduledFor}`}
-          </p>
+          <span>{phaseCopy.eyebrow}</span>
+          <h2>{phaseCopy.title}</h2>
+          <p>{phaseCopy.description}</p>
         </div>
         <div className={styles.phasePill}>
-          <i className={phase === "complete" ? styles.completeDot : ""} />
-          {phase === "searching" ? "Dreaming" : "Ready"}
+          <i
+            className={
+              phase === "complete"
+                ? styles.completeDot
+                : phase === "bidding"
+                  ? styles.auctionDot
+                  : ""
+            }
+          />
+          {phaseCopy.status}
         </div>
       </header>
 
       {phase === "searching" ? (
-        <DreamOrbit
-          searches={searches}
-          resolvedCount={resolvedCount}
-          bidTick={bidTick}
-        />
+        <DreamOrbit searches={searches} resolvedCount={resolvedCount} />
+      ) : phase === "bidding" ? (
+        <BidAuctionStage searches={searches} bidTick={bidTick} />
       ) : (
         <>
           <div className={styles.bundleGrid}>
@@ -152,11 +185,9 @@ function AgentSearchRun({
 function DreamOrbit({
   searches,
   resolvedCount,
-  bidTick,
 }: {
   searches: MockAgentSearch[];
   resolvedCount: number;
-  bidTick: number;
 }) {
   return (
     <>
@@ -172,17 +203,6 @@ function DreamOrbit({
         {searches.map((search, index) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
           const isResolved = index < resolvedCount;
-          const activeBidIndex = Math.min(
-            bidTick,
-            search.auction.bids.length - 1,
-          );
-          const activeBid = isResolved
-            ? search.auction.winner
-            : (search.auction.bids[activeBidIndex] ??
-              search.auction.winner);
-          const visibleBidCount = isResolved
-            ? search.auction.bids.length
-            : Math.min(bidTick + 1, search.auction.bids.length);
           const delay = -((index * 9) / searches.length);
           const orbitStyle = {
             "--agent-delay": `${delay}s`,
@@ -211,34 +231,12 @@ function DreamOrbit({
                           Match
                         </>
                       ) : (
-                        "Bid escalation"
+                        "Discovering"
                       )}
                     </b>
                   </header>
                   <h3>{search.allocation.category}</h3>
                   <code>{shortWallet(search.wallet)}</code>
-                  <div className={styles.bidReadout}>
-                    <div>
-                      <span>
-                        {isResolved ? "WINNING BID" : "LIVE BID"} ·{" "}
-                        {visibleBidCount}/{search.auction.bids.length}
-                      </span>
-                      <small>{activeBid.sellerName}</small>
-                    </div>
-                    <strong>{formatUsd(activeBid.amountCents)}</strong>
-                  </div>
-                  <div className={styles.bidProgress} aria-hidden="true">
-                    {search.auction.bids.map((bid, bidIndex) => (
-                      <i
-                        className={
-                          bidIndex < visibleBidCount
-                            ? styles.bidReceived
-                            : ""
-                        }
-                        key={bid.sellerId}
-                      />
-                    ))}
-                  </div>
                   <footer>
                     <WalletCards size={11} />
                     {search.auction.bids.length} sellers · cap{" "}
@@ -263,16 +261,144 @@ function DreamOrbit({
             </div>
             <b>
               {index < resolvedCount
-                ? `${search.auction.winner.sellerName} found`
-                : `${Math.min(
-                    bidTick + 1,
-                    search.auction.bids.length,
-                  )}/${search.auction.bids.length} bids`}
+                ? `${search.auction.bids.length} sellers ready`
+                : "scanning"}
             </b>
           </div>
         ))}
       </div>
     </>
+  );
+}
+
+function BidAuctionStage({
+  searches,
+  bidTick,
+}: {
+  searches: MockAgentSearch[];
+  bidTick: number;
+}) {
+  const largestAuction = Math.max(
+    ...searches.map((search) => search.auction.bids.length),
+  );
+  const currentRound = Math.min(bidTick + 1, largestAuction);
+
+  return (
+    <div className={styles.auctionStage}>
+      <div className={styles.auctionTopline}>
+        <span>
+          <Gavel size={13} />
+          LIVE BID ESCALATION
+        </span>
+        <b>
+          <Radio size={11} />
+          ROUND {currentRound.toString().padStart(2, "0")} /{" "}
+          {largestAuction.toString().padStart(2, "0")}
+        </b>
+      </div>
+
+      <div className={styles.auctionGrid}>
+        {searches.map((search, searchIndex) => {
+          const CategoryIcon = categoryIcons[search.allocation.category];
+          const visibleBidCount = Math.min(
+            bidTick + 1,
+            search.auction.bids.length,
+          );
+          const visibleBids = search.auction.bids.slice(
+            0,
+            visibleBidCount,
+          );
+          const affordableBids = visibleBids.filter(
+            (bid) =>
+              search.auction.evaluations.find(
+                (evaluation) => evaluation.sellerId === bid.sellerId,
+              )?.affordable,
+          );
+          const rankedBids =
+            affordableBids.length > 0 ? affordableBids : visibleBids;
+          const leader = rankedBids.reduce(
+            (currentLeader, bid) => {
+              const currentScore =
+                search.auction.evaluations.find(
+                  (evaluation) =>
+                    evaluation.sellerId === currentLeader.sellerId,
+                )?.score ?? Number.NEGATIVE_INFINITY;
+              const bidScore =
+                search.auction.evaluations.find(
+                  (evaluation) => evaluation.sellerId === bid.sellerId,
+                )?.score ?? Number.NEGATIVE_INFINITY;
+              return bidScore > currentScore ? bid : currentLeader;
+            },
+            rankedBids[0] ?? search.auction.winner,
+          );
+
+          return (
+            <article
+              className={styles.auctionLane}
+              data-category={search.allocation.category}
+              key={search.id}
+            >
+              <header className={styles.auctionLaneHeader}>
+                <span>
+                  <CategoryIcon size={16} />
+                </span>
+                <div>
+                  <strong>{search.allocation.category}</strong>
+                  <code>{shortWallet(search.wallet)}</code>
+                </div>
+                <b>0{searchIndex + 1}</b>
+              </header>
+
+              <div className={styles.activityScope}>
+                <span>ACTIVITY FOUND</span>
+                <strong>
+                  {search.allocation.requirements.slice(0, 2).join(" · ")}
+                </strong>
+                <p>
+                  Scoped cap{" "}
+                  {formatUsd(search.allocation.maxBudgetCents)}
+                </p>
+              </div>
+
+              <div className={styles.bidStack}>
+                {search.auction.bids.map((bid, bidIndex) => {
+                  const isVisible = bidIndex < visibleBidCount;
+                  const isLeading =
+                    isVisible && bid.sellerId === leader.sellerId;
+
+                  return (
+                    <div
+                      className={`${styles.bidRow} ${
+                        isVisible ? styles.bidVisible : ""
+                      } ${isLeading ? styles.bidLeading : ""}`}
+                      key={bid.sellerId}
+                    >
+                      <span>{(bidIndex + 1).toString().padStart(2, "0")}</span>
+                      <div>
+                        <strong>{isVisible ? bid.sellerName : "Waiting"}</strong>
+                        <small>
+                          {isVisible
+                            ? `${bid.quality}/100 quality`
+                            : "Seller bid sealed"}
+                        </small>
+                      </div>
+                      <b>{isVisible ? formatUsd(bid.amountCents) : "—"}</b>
+                      {isLeading && <i>LEADING</i>}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <footer className={styles.auctionLeader}>
+                <span>Current leader</span>
+                <strong>{leader.sellerName}</strong>
+                <b>{formatUsd(leader.amountCents)}</b>
+              </footer>
+            </article>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
