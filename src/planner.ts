@@ -169,6 +169,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
               "Use only categories present in the catalog.",
               "Choose a practical bundle, normally 2-4 categories.",
               "Never exceed the hard total budget.",
+              "Each category budget must cover at least one public listPriceCents in availableServices.",
               "Leave a small unallocated contingency when practical.",
               "The scheduledFor date must equal the supplied target date.",
               "Return JSON only with: occasionTitle, location, scheduledFor, allocations.",

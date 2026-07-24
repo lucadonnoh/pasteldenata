@@ -10,7 +10,9 @@ import { settleMockPayments } from "../src/payments";
 import {
   MockPrivatePlanner,
   requireVerifiedPrivateTee,
+  type PrivatePlanner,
 } from "../src/planner";
+import { minimumCatalogListPriceCents } from "../src/market-plan";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
@@ -25,6 +27,68 @@ test("the complete purchase stays below the user's hard cap", async () => {
 
   assert.ok(result.totalSpentCents <= result.plan.totalBudgetCents);
   assert.equal(result.receipts.length, result.plan.allocations.length);
+  assert.ok(
+    result.auctions.every(
+      (auction) =>
+        auction.winner.amountCents <= auction.mandate.maxAmountCents,
+    ),
+  );
+});
+
+test("an underfunded experience mandate is repaired before auctions", async () => {
+  const planner: PrivatePlanner = {
+    async plan() {
+      return {
+        plan: {
+          planId: "plan_underfunded_experience",
+          occasionTitle: "A private date in Lisbon",
+          location: "Lisbon",
+          scheduledFor: "2026-07-25",
+          currency: "USD",
+          totalBudgetCents: 20000,
+          allocations: [
+            {
+              category: "experience",
+              maxBudgetCents: 3000,
+              requirements: ["romantic", "two seats"],
+              priority: 5,
+            },
+            {
+              category: "dinner",
+              maxBudgetCents: 11500,
+              requirements: ["dinner for two", "central"],
+              priority: 4,
+            },
+            {
+              category: "flowers",
+              maxBudgetCents: 3000,
+              requirements: ["romantic", "delivery"],
+              priority: 3,
+            },
+          ],
+          unallocatedBudgetCents: 2500,
+        },
+        attestation: {
+          mode: "local-mock",
+          teeVerified: false,
+          model: "underfunded-test-planner",
+        },
+      };
+    },
+  };
+
+  const result = await organizePrivatePurchase(planner, INTENT, NOW);
+  const experience = result.plan.allocations.find(
+    (allocation) => allocation.category === "experience",
+  );
+
+  assert.ok(experience);
+  assert.ok(
+    experience.maxBudgetCents >=
+      minimumCatalogListPriceCents("experience"),
+  );
+  assert.equal(result.receipts.length, 3);
+  assert.ok(result.totalSpentCents <= result.plan.totalBudgetCents);
   assert.ok(
     result.auctions.every(
       (auction) =>
