@@ -8,12 +8,13 @@ import {
   type ItemState,
 } from "./mirror";
 
-// Judge mode targets a complete market in roughly 45 seconds. These windows
-// remain consensus-time rules enforced independently by seller policy; they
-// are shorter, not simulated or bypassed.
-export const MARKET_MIN_AUCTION_MS = 4_000;
-export const MARKET_QUIET_CLOSE_MS = 2_000;
-export const MARKET_HARD_CLOSE_MS = 25_000;
+// Demo mode targets a complete market in roughly 90 seconds. The longer
+// consensus-time window and quiet period let bidders observe Mirror state and
+// counter repeatedly instead of allowing a leader to close between Hedera
+// consensus updates.
+export const MARKET_MIN_AUCTION_MS = 40_000;
+export const MARKET_QUIET_CLOSE_MS = 8_000;
+export const MARKET_HARD_CLOSE_MS = 50_000;
 export const MARKET_CLAIM_WINDOW_MS = 30_000;
 
 export interface MarketWinnerExpectation {

@@ -4,10 +4,10 @@ export const ACCOUNT_CREATION_HBAR = 1.5;
 export const MARKET_LEAF_FLOAT_HBAR = 5;
 export const RUN_MARGIN_HBAR = 6;
 
-// Each deterministic demo rival receives one scoped allocation. This is
-// enough to demonstrate competing agents and mixed World identities without
-// making the judge wait for nine unrelated rival tasks.
-export const DEMO_RIVAL_ALLOCATIONS = 3;
+// Four deterministic rival buyers run five scoped agents: four verified
+// contenders plus one deliberately unverified protected-market fixture.
+// The extra verified cinema bidder creates real counter-bids in judge runs.
+export const DEMO_RIVAL_ALLOCATIONS = 5;
 export const MAX_USER_ALLOCATIONS = CATEGORIES.length;
 export const MAX_MARKET_LEAF_COUNT =
   DEMO_RIVAL_ALLOCATIONS + MAX_USER_ALLOCATIONS;

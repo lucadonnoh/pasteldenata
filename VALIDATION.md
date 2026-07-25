@@ -57,31 +57,34 @@ to protocols, not to any specific account.
 ## Network impact (measured, not estimated)
 
 Agentic commerce is transaction-dense by construction: every plan mints
-budget, funds scoped agent accounts, opens per-listing HCS topics, streams
+budget, funds scoped agent accounts, reserves prepared per-listing HCS topics, streams
 authenticated bids, and settles with atomic swaps. Measured from real
 testnet runs (all replayable via the operator's history on HashScan,
 account `0.0.9695863`):
 
-**The optimized judge profile for one $200 date plan (4 categories and 3
-scoped rival agents) was repeated end to end in 53.0 and 50.0 seconds:**
+**The latest prepared judge profile for one $200 date plan (4 categories and
+5 scoped rival agents) completed end to end in 83 seconds:**
 
-- **7 pre-warmed Hedera agent accounts** — fresh mandates and funding, with no
+- **9 pre-warmed Hedera agent accounts** — fresh mandates and funding, with no
   account creation on the judge-run critical path
-- **8 fresh HCS topics** — one per live scarce listing, each with its own
-  submit key
-- **30 consensus messages** in the 50.0-second run — payer-authenticated
-  listings, bids, closes, authorizations, and settlements
+- **8 fresh HCS topics consumed from a 10-topic prepared pool** — one per live
+  scarce listing, each with its own submit key; the pool automatically returned
+  to 10 after the run
+- **56 consensus messages**, including **33 real bids**, over a 71.8-second HCS
+  event span — payer-authenticated listings, bids, closes, authorizations, and
+  settlements
 - **6 atomic swaps and 6 claim-NFT mints** — four purchases for the user and
   two for rival agents
-- **4/4 requested user categories settled**, **7/7 agent wallets reconciled**,
+- **4/4 requested user categories settled**, **9/9 agent wallets reconciled**,
   and **8/8 topics replay-verified** before the job reported `done`
 - **2 protected listings refused the unverified rival before bidding**, while
   the human-backed paths continued normally
 
 The earlier stress profile used 13 agents and 16 topics. The judge profile
 keeps the same HTS atomic settlement, HCS authentication, seller policy, World
-gating, and Mirror replay checks while moving reusable account provisioning to
-setup and scoping each mock rival to one category.
+gating, and Mirror replay checks while moving reusable account and topic
+provisioning outside the prompt path and scoping mock rivals to their intended
+categories.
 
 ## External feedback
 

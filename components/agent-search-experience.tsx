@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import {
   type CSSProperties,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -551,6 +552,72 @@ function marketStateLabel(state: MarketVisualState): string {
   }
 }
 
+function marketEventTitle(event: MarketEvent): string {
+  const yours = "yours" in event && event.yours;
+  if (event.type === "LISTED") return "Clearing opened the listing";
+  if (event.type === "AUTHORIZED") {
+    return yours
+      ? "Your World credential was accepted"
+      : `Bidder ${shortAccount(event.bidder)} is human-backed`;
+  }
+  if (event.type === "CLOSED") return "Clearing closed bidding";
+  if (event.type === "FORFEITED") {
+    return yours
+      ? "Your claim window expired"
+      : `Bidder ${shortAccount(event.bidder)} forfeited`;
+  }
+  if (event.type === "SETTLED") {
+    return yours
+      ? "Your atomic swap settled"
+      : `Bidder ${shortAccount(event.bidder)} settled`;
+  }
+  return yours
+    ? "Your agent placed a bid"
+    : `Rival ${shortAccount(event.bidder)} raised`;
+}
+
+function marketEventDetail(event: MarketEvent): string {
+  if (event.type === "SETTLED") return event.transactionId;
+  if (event.type === "AUTHORIZED") return `nullifier ${event.nullifier}`;
+  if ("bidder" in event) return event.bidder;
+  return event.payerAccountId;
+}
+
+function MarketEventIcon({ event }: { event: MarketEvent }) {
+  const yours = "yours" in event && event.yours;
+  if (event.type === "SETTLED") {
+    return <CheckCircle2 size={11} aria-hidden="true" />;
+  }
+  if (event.type === "AUTHORIZED") {
+    return <ShieldCheck size={11} aria-hidden="true" />;
+  }
+  if (event.type === "FORFEITED") {
+    return <X size={11} aria-hidden="true" />;
+  }
+  if (event.type === "CLOSED") {
+    return <Gavel size={11} aria-hidden="true" />;
+  }
+  if (event.type === "LISTED") {
+    return <Radio size={11} aria-hidden="true" />;
+  }
+  return yours ? (
+    <Check size={11} aria-hidden="true" />
+  ) : (
+    <Store size={11} aria-hidden="true" />
+  );
+}
+
+function consensusTimeMs(timestamp?: string): number | undefined {
+  if (!timestamp) return undefined;
+  const [seconds, nanos = "0"] = timestamp.split(".");
+  const secondsNumber = Number(seconds);
+  const nanosNumber = Number(nanos.padEnd(9, "0").slice(0, 9));
+  if (!Number.isFinite(secondsNumber) || !Number.isFinite(nanosNumber)) {
+    return undefined;
+  }
+  return secondsNumber * 1000 + nanosNumber / 1_000_000;
+}
+
 function MarketBidStage({
   searches,
   live,
@@ -572,6 +639,11 @@ function MarketBidStage({
   );
   const [pinnedCategory, setPinnedCategory] = useState<Category | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const followedCategory = useMemo(
     () =>
       [...categories].sort((left, right) => {
@@ -717,6 +789,16 @@ function MarketBidStage({
   );
   const userWorldBlocks =
     live.world?.blocked.filter((entry) => entry.buyerName === "You") ?? [];
+  const recentMarketActivity = live.activity
+    .filter((entry) => categorySet.has(entry.category as Category))
+    .slice(0, 8);
+  const latestConsensusMs = consensusTimeMs(
+    recentMarketActivity[0]?.event.consensusTimestamp,
+  );
+  const secondsSinceActivity =
+    latestConsensusMs === undefined
+      ? undefined
+      : Math.max(0, Math.floor((now - latestConsensusMs) / 1000));
 
   function categoryState(category: Category): MarketVisualState {
     if (live.lostCategories.includes(category)) return "lost";
@@ -771,6 +853,84 @@ function MarketBidStage({
           </div>
         </dl>
       </div>
+
+      <section
+        className={styles.marketEventTape}
+        aria-label="Live activity across every Hedera auction topic"
+      >
+        <header>
+          <div>
+            <Activity size={12} aria-hidden="true" />
+            <strong>ALL AUCTIONS · LIVE HCS EVENTS</strong>
+          </div>
+          <span>
+            {secondsSinceActivity === undefined
+              ? "Reading Mirror Node now"
+              : `Last consensus event ${secondsSinceActivity}s ago`}
+            <i />
+            refreshes every 1.5s
+          </span>
+        </header>
+        {recentMarketActivity.length > 0 ? (
+          <ol>
+            {recentMarketActivity.map((entry, index) => {
+              const { event } = entry;
+              const yours = "yours" in event && event.yours;
+              const amount =
+                "amountCents" in event ? event.amountCents : undefined;
+              return (
+                <li
+                  key={`${entry.itemId}:${event.type}:${event.sequenceNumber}`}
+                  className={yours ? styles.yourTapeEvent : ""}
+                  data-kind={event.type.toLowerCase()}
+                  data-newest={index === 0 || undefined}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinnedCategory(entry.category as Category);
+                      setSelectedItemId(entry.itemId);
+                    }}
+                    title={`Focus ${entry.offering}`}
+                  >
+                    <span>
+                      <MarketEventIcon event={event} />
+                    </span>
+                    <div>
+                      <small>
+                        {entry.category} · HCS #{event.sequenceNumber}
+                      </small>
+                      <strong>{marketEventTitle(event)}</strong>
+                      <em>
+                        {entry.sellerName}
+                        {amount === undefined ? "" : ` · ${formatUsd(amount)}`}
+                      </em>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <div className={styles.marketEventTapeEmpty}>
+            <Radio size={14} aria-hidden="true" />
+            <div>
+              <strong>
+                {visible.length > 0
+                  ? `${visible.length} auction topic${
+                      visible.length === 1 ? " is" : "s are"
+                    }`
+                  : "Auction topics are"}{" "}
+                coming online.
+              </strong>
+              <span>
+                Listings, identity authorizations, bids, closes, and swaps
+                appear here as soon as Hedera reaches consensus.
+              </span>
+            </div>
+          </div>
+        )}
+      </section>
 
       <nav
         className={styles.marketAgentRail}
@@ -1124,34 +1284,6 @@ function MarketBidStage({
                     "amountCents" in event
                       ? event.amountCents
                       : undefined;
-                  const title =
-                    event.type === "LISTED"
-                      ? "Clearing opened the listing"
-                      : event.type === "AUTHORIZED"
-                        ? yours
-                          ? "Your World credential was accepted"
-                          : `Bidder ${shortAccount(event.bidder)} is human-backed`
-                      : event.type === "CLOSED"
-                        ? "Clearing closed bidding"
-                        : event.type === "FORFEITED"
-                          ? yours
-                            ? "Your claim window expired"
-                            : `Bidder ${shortAccount(event.bidder)} forfeited`
-                          : event.type === "SETTLED"
-                            ? yours
-                              ? "Your atomic swap settled"
-                              : `Bidder ${shortAccount(event.bidder)} settled`
-                            : yours
-                              ? "Your agent placed a bid"
-                              : `Rival ${shortAccount(event.bidder)} raised`;
-                  const detail =
-                    event.type === "SETTLED"
-                      ? event.transactionId
-                      : event.type === "AUTHORIZED"
-                        ? `nullifier ${event.nullifier}`
-                      : "bidder" in event
-                        ? event.bidder
-                        : event.payerAccountId;
 
                   return (
                     <li
@@ -1163,28 +1295,14 @@ function MarketBidStage({
                       data-newest={index === 0 || undefined}
                     >
                       <span>
-                        {event.type === "SETTLED" ? (
-                          <CheckCircle2 size={11} aria-hidden="true" />
-                        ) : event.type === "AUTHORIZED" ? (
-                          <ShieldCheck size={11} aria-hidden="true" />
-                        ) : event.type === "FORFEITED" ? (
-                          <X size={11} aria-hidden="true" />
-                        ) : event.type === "CLOSED" ? (
-                          <Gavel size={11} aria-hidden="true" />
-                        ) : event.type === "LISTED" ? (
-                          <Radio size={11} aria-hidden="true" />
-                        ) : yours ? (
-                          <Check size={11} aria-hidden="true" />
-                        ) : (
-                          <Store size={11} aria-hidden="true" />
-                        )}
+                        <MarketEventIcon event={event} />
                       </span>
                       <div>
                         <small>
                           HCS {event.type} #{event.sequenceNumber}
                         </small>
-                        <strong>{title}</strong>
-                        <code>{detail}</code>
+                        <strong>{marketEventTitle(event)}</strong>
+                        <code>{marketEventDetail(event)}</code>
                       </div>
                       {amount !== undefined && (
                         <b>{formatUsd(amount)}</b>

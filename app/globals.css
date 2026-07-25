@@ -26,6 +26,27 @@ body {
     sans-serif;
 }
 
+/*
+ * The cockpit was designed at a very dense desktop scale. Match Chrome's
+ * second zoom-in step (125%) by default on wide screens while keeping the
+ * rendered page inside the viewport. Tablet and mobile layouts stay native.
+ */
+@media (min-width: 1200px) {
+  body {
+    width: 80%;
+    min-height: 80vh;
+    zoom: 1.25;
+  }
+
+  body .app-shell {
+    min-height: 80vh;
+  }
+
+  body main {
+    min-height: calc(80vh - 68px);
+  }
+}
+
 button,
 input,
 textarea {

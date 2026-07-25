@@ -23,7 +23,11 @@ import {
   type AuctionPass,
 } from "../server/world-gateway";
 import { hashscanTopicUrl, hashscanTxUrl, parsePrivateKey } from "./client";
-import { createAccount, type StoredAccount } from "./infra";
+import {
+  createAccount,
+  reserveMarketTopics,
+  type StoredAccount,
+} from "./infra";
 import type {
   ContestedListing,
   LeafResult,
@@ -51,7 +55,7 @@ import { mintClaimTo } from "./claim";
 import { persistLeafWallet } from "./walletVault";
 
 const LEAF_AGENT_PATH = leafAgentPath();
-const LEAF_TIMEOUT_MS = 90_000;
+const LEAF_TIMEOUT_MS = 120_000;
 const LEAF_FEE_HBAR = 5;
 const SELLER_POLICY_POLL_MS = 500;
 const LIVE_SELLERS_PER_CATEGORY = 2;
@@ -92,6 +96,8 @@ function liveInventoryForSeller(seller: Seller): SellerInventoryItem[] {
 export interface MarketBuyer {
   name: string;
   plan: PrivatePlan;
+  /** Mock strategy: false means this buyer wants one preferred listing only. */
+  retargetOnLoss?: boolean;
 }
 
 export type MarketEvent =
@@ -328,78 +334,83 @@ export async function runMarket(
     ),
     options,
   );
+  const listingSeeds = activeSellers.flatMap((seller) =>
+    liveInventoryForSeller(seller).map((item) => ({ seller, item })),
+  );
+  const preparedTopics = reserveMarketTopics(
+    ctx.infra,
+    listingSeeds.length,
+  );
 
   const listings = (
     await Promise.all(
-      activeSellers.flatMap(
-        (seller) =>
-          // One live item per seller keeps the judge run fast while preserving
-          // seller diversity. The complete inventory remains visible in the
-          // catalog and can participate in later runs.
-          liveInventoryForSeller(seller).map(
-            async (item): Promise<MarketListing> => {
-              const account = ctx.infra.sellers[seller.id];
-              if (!account) {
-                throw new Error(`No Hedera account for seller ${seller.id}.`);
-              }
-              const log = await AuctionLog.create(ctx.client);
-              const itemId = marketItemId(runSalt, seller.id, item.id);
-              await log.publish({
-                type: "LISTED",
-                itemId,
-                listingId: item.id,
-                sellerId: seller.id,
-                sellerName: seller.name,
-                offering: item.offering,
-                category: seller.category,
-                floorCents: item.floorPriceCents,
-                quantity: 1,
-                humanPolicy: seller.humanPolicy ?? "open",
-                ...((seller.humanPolicy ?? "open") !== "open"
-                  ? {
-                      authorizationIssuerPublicKey:
-                        options.authorizationIssuerPublicKey,
-                    }
-                  : {}),
-              });
-              onEvent({
-                type: "LISTING_OPEN",
-                itemId,
-                topicId: log.topicId,
-                category: seller.category,
-                sellerId: seller.id,
-                sellerName: seller.name,
-                offering: item.offering,
-                floorCents: item.floorPriceCents,
-                humanPolicy: seller.humanPolicy ?? "open",
-              });
-              return {
-                itemId,
-                humanPolicy: seller.humanPolicy ?? "open",
-                ...((seller.humanPolicy ?? "open") !== "open"
-                  ? {
-                      authorizationIssuerPublicKey:
-                        options.authorizationIssuerPublicKey,
-                    }
-                  : {}),
-                listingId: item.id,
-                topicId: log.topicId,
-                topicSubmitKey: log.submitKeyDer,
-                sellerId: seller.id,
-                sellerAccountId: account.accountId,
-                sellerName: seller.name,
-                offering: item.offering,
-                floorCents: item.floorPriceCents,
-                quality: item.quality,
-                tags: [...item.tags],
-                attributes: structuredClone(item.attributes),
-                category: seller.category,
-                seller,
-                item,
-                log,
-              };
-            },
-          ),
+      listingSeeds.map(
+        async ({ seller, item }, index): Promise<MarketListing> => {
+          const account = ctx.infra.sellers[seller.id];
+          if (!account) {
+            throw new Error(`No Hedera account for seller ${seller.id}.`);
+          }
+          const preparedTopic = preparedTopics[index];
+          if (!preparedTopic) {
+            throw new Error("Prepared HCS topic assignment is missing.");
+          }
+          const log = AuctionLog.fromStored(ctx.client, preparedTopic);
+          const itemId = marketItemId(runSalt, seller.id, item.id);
+          await log.publish({
+            type: "LISTED",
+            itemId,
+            listingId: item.id,
+            sellerId: seller.id,
+            sellerName: seller.name,
+            offering: item.offering,
+            category: seller.category,
+            floorCents: item.floorPriceCents,
+            quantity: 1,
+            humanPolicy: seller.humanPolicy ?? "open",
+            ...((seller.humanPolicy ?? "open") !== "open"
+              ? {
+                  authorizationIssuerPublicKey:
+                    options.authorizationIssuerPublicKey,
+                }
+              : {}),
+          });
+          onEvent({
+            type: "LISTING_OPEN",
+            itemId,
+            topicId: log.topicId,
+            category: seller.category,
+            sellerId: seller.id,
+            sellerName: seller.name,
+            offering: item.offering,
+            floorCents: item.floorPriceCents,
+            humanPolicy: seller.humanPolicy ?? "open",
+          });
+          return {
+            itemId,
+            humanPolicy: seller.humanPolicy ?? "open",
+            ...((seller.humanPolicy ?? "open") !== "open"
+              ? {
+                  authorizationIssuerPublicKey:
+                    options.authorizationIssuerPublicKey,
+                }
+              : {}),
+            listingId: item.id,
+            topicId: log.topicId,
+            topicSubmitKey: log.submitKeyDer,
+            sellerId: seller.id,
+            sellerAccountId: account.accountId,
+            sellerName: seller.name,
+            offering: item.offering,
+            floorCents: item.floorPriceCents,
+            quality: item.quality,
+            tags: [...item.tags],
+            attributes: structuredClone(item.attributes),
+            category: seller.category,
+            seller,
+            item,
+            log,
+          };
+        },
       ),
     )
   ).sort((left, right) => left.itemId.localeCompare(right.itemId));
@@ -423,25 +434,45 @@ export async function runMarket(
   const buyerWallets: StoredAccount[] = await Promise.all(
     buyers.map(async (_, index) => pool[index] ?? (await createAccount(ctx))),
   );
-  await Promise.all(
-    buyerWallets.map(async (wallet) => {
-      const balance = await new AccountBalanceQuery()
-        .setAccountId(wallet.accountId)
-        .execute(ctx.client);
-      const leftover = balance.tokens?.get(ctx.infra.paymentTokenId);
-      if (!leftover || leftover.isZero()) return;
-      const sweep = new TransferTransaction()
+  const buyerLeftovers = (
+    await Promise.all(
+      buyerWallets.map(async (wallet) => {
+        const balance = await new AccountBalanceQuery()
+          .setAccountId(wallet.accountId)
+          .execute(ctx.client);
+        const leftover = balance.tokens?.get(ctx.infra.paymentTokenId);
+        return leftover && !leftover.isZero()
+          ? { wallet, leftover }
+          : undefined;
+      }),
+    )
+  ).filter((entry) => entry !== undefined);
+  if (buyerLeftovers.length > 0) {
+    const sweep = new TransferTransaction();
+    for (const { wallet, leftover } of buyerLeftovers) {
+      sweep
         .addTokenTransfer(
           ctx.infra.paymentTokenId,
           wallet.accountId,
           leftover.negate(),
         )
-        .addTokenTransfer(ctx.infra.paymentTokenId, ctx.operatorId, leftover)
-        .freezeWith(ctx.client);
+        .addTokenTransfer(ctx.infra.paymentTokenId, ctx.operatorId, leftover);
+    }
+    sweep.freezeWith(ctx.client);
+    for (const { wallet } of buyerLeftovers) {
       await sweep.sign(parsePrivateKey(wallet.privateKey));
+    }
+    try {
       await (await sweep.execute(ctx.client)).getReceipt(ctx.client);
-    }),
-  );
+    } catch (error) {
+      const remaining = await Promise.all(
+        buyerLeftovers.map(({ wallet }) =>
+          tokenBalanceCents(ctx, wallet.accountId),
+        ),
+      );
+      if (remaining.some((balance) => balance !== 0)) throw error;
+    }
+  }
   const distribute = new TransferTransaction();
   buyers.forEach((buyer, index) => {
     const wallet = buyerWallets[index];
@@ -466,25 +497,47 @@ export async function runMarket(
     );
     return caps + buyer.plan.unallocatedBudgetCents;
   });
-  await Promise.all(
-    buyers.map(async (_buyer, index) => {
-      const wallet = buyerWallets[index];
-      const amount = spendable[index];
-      if (!wallet || amount === undefined) {
-        throw new Error("Funding misaligned.");
-      }
-      const toClearing = new TransferTransaction()
-        .addTokenTransfer(
-          ctx.infra.paymentTokenId,
-          wallet.accountId,
-          -amount,
-        )
-        .addTokenTransfer(ctx.infra.paymentTokenId, ctx.operatorId, amount)
-        .freezeWith(ctx.client);
-      await toClearing.sign(parsePrivateKey(wallet.privateKey));
-      await (await toClearing.execute(ctx.client)).getReceipt(ctx.client);
-    }),
+  const returnToClearing = new TransferTransaction();
+  const totalSpendable = spendable.reduce((sum, amount) => sum + amount, 0);
+  returnToClearing.addTokenTransfer(
+    ctx.infra.paymentTokenId,
+    ctx.operatorId,
+    totalSpendable,
   );
+  buyers.forEach((_buyer, index) => {
+    const wallet = buyerWallets[index];
+    const amount = spendable[index];
+    if (!wallet || amount === undefined) {
+      throw new Error("Funding misaligned.");
+    }
+    returnToClearing.addTokenTransfer(
+      ctx.infra.paymentTokenId,
+      wallet.accountId,
+      -amount,
+    );
+  });
+  returnToClearing.freezeWith(ctx.client);
+  for (const wallet of buyerWallets) {
+    await returnToClearing.sign(parsePrivateKey(wallet.privateKey));
+  }
+  try {
+    await (await returnToClearing.execute(ctx.client)).getReceipt(ctx.client);
+  } catch (error) {
+    const remaining = await Promise.all(
+      buyerWallets.map((wallet) =>
+        tokenBalanceCents(ctx, wallet.accountId),
+      ),
+    );
+    if (
+      remaining.some(
+        (balance, index) =>
+          balance !==
+          buyers[index]!.plan.totalBudgetCents - (spendable[index] ?? 0),
+      )
+    ) {
+      throw error;
+    }
+  }
 
   const shared: SharedMarketState = {
     sold: new Set(),
@@ -503,13 +556,69 @@ export async function runMarket(
       buyerIndex,
       allocation,
     })),
-  ).map((task, agentIndex) => ({
-    ...task,
-    prewarmedWallet: ctx.infra.marketAgents?.[agentIndex],
-  }));
+  );
+  const fundedTasks = await Promise.all(
+    tasks.map(async (task, agentIndex) => ({
+      ...task,
+      wallet:
+        ctx.infra.marketAgents?.[agentIndex] ?? (await createAccount(ctx)),
+    })),
+  );
+
+  // Fund every bidding wallet in one atomic Hedera transaction. Previously
+  // nine independent funding transactions could finalize tens of seconds
+  // apart on a loaded testnet, giving early agents a head start and leaving
+  // the UI quiet while later rivals waited. One consensus event starts every
+  // auction clock together and removes that liveness race.
+  const totalLeafFunding = fundedTasks.reduce(
+    (sum, task) => sum + task.allocation.maxBudgetCents,
+    0,
+  );
+  const fundLeaves = new TransferTransaction()
+    .addTokenTransfer(
+      ctx.infra.paymentTokenId,
+      ctx.operatorId,
+      -totalLeafFunding,
+    )
+    .addHbarTransfer(
+      ctx.operatorId,
+      new Hbar(-LEAF_FEE_HBAR * fundedTasks.length),
+    );
+  for (const task of fundedTasks) {
+    fundLeaves
+      .addTokenTransfer(
+        ctx.infra.paymentTokenId,
+        task.wallet.accountId,
+        task.allocation.maxBudgetCents,
+      )
+      .addHbarTransfer(
+        task.wallet.accountId,
+        new Hbar(LEAF_FEE_HBAR),
+      );
+  }
+  try {
+    await (await fundLeaves.execute(ctx.client)).getReceipt(ctx.client);
+  } catch (error) {
+    // A client timeout can happen after consensus. Continue only when the
+    // atomic transfer is independently visible for every scoped wallet.
+    const balances = await Promise.all(
+      fundedTasks.map((task) =>
+        tokenBalanceCents(ctx, task.wallet.accountId),
+      ),
+    );
+    if (
+      balances.some(
+        (balance, index) =>
+          balance !== fundedTasks[index]?.allocation.maxBudgetCents,
+      )
+    ) {
+      throw error;
+    }
+  }
+
   onEvent({ type: "MARKET_PHASE", phase: "running-auctions" });
   const settled = await Promise.allSettled(
-    tasks.map(({ buyer, buyerIndex, allocation, prewarmedWallet }) =>
+    fundedTasks.map(({ buyer, buyerIndex, allocation, wallet }) =>
       runMarketLeaf(
         buyer,
         buyerIndex,
@@ -519,7 +628,8 @@ export async function runMarket(
         ),
         ctx,
         shared,
-        prewarmedWallet,
+        wallet,
+        true,
       ),
     ),
   );
@@ -757,6 +867,7 @@ async function runMarketLeaf(
   ctx: HederaSettlementContext,
   shared: SharedMarketState,
   prewarmedWallet?: StoredAccount,
+  prefunded = false,
 ): Promise<MarketLeafRun> {
   const mandateId = marketMandateId(
     buyer.plan.planId,
@@ -779,8 +890,11 @@ async function runMarketLeaf(
   shared.runtimes.push(runtime);
 
   const initialFunding = allocation.maxBudgetCents;
-  try {
-    const funding = new TransferTransaction()
+  if (prefunded) {
+    runtime.fundedCents = initialFunding;
+  } else {
+    try {
+      const funding = new TransferTransaction()
         .addTokenTransfer(
           ctx.infra.paymentTokenId,
           ctx.operatorId,
@@ -793,11 +907,12 @@ async function runMarketLeaf(
         )
         .addHbarTransfer(ctx.operatorId, new Hbar(-LEAF_FEE_HBAR))
         .addHbarTransfer(wallet.accountId, new Hbar(LEAF_FEE_HBAR));
-    await (await funding.execute(ctx.client)).getReceipt(ctx.client);
-    runtime.fundedCents = initialFunding;
-  } catch (error) {
-    runtime.fundedCents = await tokenBalanceCents(ctx, wallet.accountId);
-    throw error;
+      await (await funding.execute(ctx.client)).getReceipt(ctx.client);
+      runtime.fundedCents = initialFunding;
+    } catch (error) {
+      runtime.fundedCents = await tokenBalanceCents(ctx, wallet.accountId);
+      throw error;
+    }
   }
   shared.onEvent({
     type: "AGENT_FUNDED",
@@ -1452,6 +1567,7 @@ async function runMarketLeaf(
       buyerLabel: buyer.name,
       contested: {
         mirrorBaseUrl: TESTNET_MIRROR_BASE,
+        retargetOnLoss: buyer.retargetOnLoss ?? true,
         listings: eligibleListings.map(
           ({
             itemId,

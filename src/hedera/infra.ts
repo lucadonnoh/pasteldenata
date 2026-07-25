@@ -17,6 +17,7 @@ import {
 import type { Seller } from "../domain";
 import { runtimeDataDirectory } from "../server/runtime-data";
 import type { HederaContext } from "./client";
+import { AuctionLog, type StoredAuctionTopic } from "./log";
 
 export interface StoredAccount {
   accountId: string;
@@ -42,10 +43,18 @@ export interface HederaInfra {
    * safe; each run still gives every account a fresh mandate and HCS topics.
    */
   marketAgents?: StoredAccount[];
+  /**
+   * Fresh one-use HCS topics prepared between demos. Reserving removes topics
+   * from this pool before any listing is published, so histories and submit
+   * keys are never reused across market runs.
+   */
+  marketTopics?: StoredAuctionTopic[];
 }
 
-const MARKET_BUYER_POOL = 4;
-export const MARKET_AGENT_POOL = 8;
+export const MARKET_BUYER_POOL = 5;
+export const MARKET_AGENT_POOL = 10;
+/** Two live sellers for every one of the five supported categories. */
+export const MARKET_TOPIC_POOL = 10;
 /** Contains generated testnet private keys; kept out of git. */
 function infraPath(): string {
   return resolve(runtimeDataDirectory(), "hedera-infra.json");
@@ -66,7 +75,63 @@ function persistInfra(infra: HederaInfra): void {
 
 export interface InfraProvisioningHooks {
   createStoredAccount: (ctx: HederaContext) => Promise<StoredAccount>;
+  createStoredTopic?: (
+    ctx: HederaContext,
+  ) => Promise<StoredAuctionTopic>;
   persist: (infra: HederaInfra) => void;
+}
+
+async function createStoredTopic(
+  ctx: HederaContext,
+): Promise<StoredAuctionTopic> {
+  return (await AuctionLog.create(ctx.client)).stored;
+}
+
+/**
+ * Refill the one-use topic pool. This normally runs after the preceding
+ * market, while upgradeInfra provides a restart-safe fallback for an
+ * interrupted refill and seeds the first deployment.
+ */
+export async function replenishMarketTopics(
+  ctx: HederaContext,
+  infra: HederaInfra,
+  hooks: Pick<
+    InfraProvisioningHooks,
+    "createStoredTopic" | "persist"
+  > = {
+    createStoredTopic,
+    persist: persistInfra,
+  },
+): Promise<void> {
+  const topics = (infra.marketTopics ??= []);
+  const provision = hooks.createStoredTopic ?? createStoredTopic;
+  while (topics.length < MARKET_TOPIC_POOL) {
+    topics.push(await provision(ctx));
+    hooks.persist(infra);
+  }
+}
+
+/**
+ * Atomically consume fresh topic credentials before opening listings.
+ * Persistence prevents a process restart from ever reusing the same topics.
+ */
+export function reserveMarketTopics(
+  infra: HederaInfra,
+  count: number,
+  persist: (infra: HederaInfra) => void = persistInfra,
+): StoredAuctionTopic[] {
+  const topics = (infra.marketTopics ??= []);
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error(`Invalid market topic reservation: ${count}.`);
+  }
+  if (topics.length < count) {
+    throw new Error(
+      `Market preparation is incomplete: ${topics.length}/${count} fresh HCS topics are ready.`,
+    );
+  }
+  const reserved = topics.splice(0, count);
+  persist(infra);
+  return reserved;
 }
 
 /**
@@ -100,6 +165,7 @@ export async function upgradeInfra(
     agents.push(await hooks.createStoredAccount(ctx));
     hooks.persist(infra);
   }
+  await replenishMarketTopics(ctx, infra, hooks);
 }
 
 export async function createAccount(
