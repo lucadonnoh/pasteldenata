@@ -83,6 +83,25 @@ date" — reliably becomes **on the order of 150 Hedera transactions**, all
 of them meaningful protocol usage (HTS, HCS, scheduled atomic settlement,
 Mirror Node reads on both server and browser), none of them padding.
 
+## External feedback
+
+Beyond our own testing, we walked the full flow with an experienced
+builder from the ecosystem (outside the team) during the hackathon. The
+reactions worth recording:
+
+- the **core idea resonated** — private intent driving compartmentalized
+  buyer agents was immediately understood as a real gap in agent commerce,
+  not a demo gimmick;
+- the **UI was called out as polished** — the intent box, live auction
+  view, and verification receipts read as a product, not a prototype;
+- surprise at the **scope achieved in the time available** — a TEE-planned,
+  ledger-settled, human-gated marketplace across three sponsor stacks in
+  one weekend.
+
+Qualitative, sample size of one — but it was our first cold exposure to
+someone who hadn't watched it being built, and nothing in the flow needed
+explaining twice.
+
 ## Demo day
 
 We will provide, ready to use:
