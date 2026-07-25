@@ -251,7 +251,8 @@ main {
 .credential-sidebar {
   position: sticky;
   width: 220px;
-  height: 286px;
+  height: auto;
+  min-height: 286px;
   top: 84px;
   overflow: hidden;
   padding: 18px;
@@ -330,6 +331,7 @@ main {
 .credential-sidebar.credential-sidebar-collapsed {
   width: 56px;
   height: 56px;
+  min-height: 56px;
   padding: 5px;
   border-radius: 19px;
 }
@@ -2705,12 +2707,13 @@ a.readiness-item:hover {
 @media (max-width: 520px) {
   .credential-sidebar {
     display: block;
-    height: 286px;
+    height: auto;
     padding: 16px;
   }
 
   .credential-sidebar.credential-sidebar-collapsed {
     height: 56px;
+    min-height: 56px;
     padding: 5px;
   }
 
