@@ -16,10 +16,7 @@ import {
   useState,
 } from "react";
 import type { DemoResult } from "@/src/domain";
-import {
-  organizeVerifiedPrivatePurchase,
-  type SettlementResult,
-} from "@/src/orchestrator";
+import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
 import { PrivacyDetails } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
@@ -36,7 +33,7 @@ function isUsableZeroGKey(value: string): boolean {
 
 export function IntentBox() {
   const router = useRouter();
-  const { setResult, setSettlement, setSettlementError } =
+  const { setResult, setSettlement, setSettlementError, setJobId } =
     usePurchaseSession();
   const [intent, setIntent] = useState(examples[0] ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -91,47 +88,39 @@ export function IntentBox() {
   }
 
   /**
-   * Fire-and-forget: while the market animation plays, the server settles
-   * the bundle for real on Hedera testnet. Only public data leaves the
-   * browser — the plan and auction results, never the intent or the 0G key.
-   * The session context outlives this component, so the update lands after
-   * navigation.
+   * Start real settlement on the server: live reverse auctions on HCS. Only
+   * public data leaves the browser — the plan and auction results, never the
+   * intent or the 0G key. The market page polls the job and streams the real
+   * bids straight from Mirror Node while the agents work.
    */
   function settleOnHedera(purchase: DemoResult) {
     setSettlement("pending");
     setSettlementError("");
-    fetch("/api/hedera/settle", {
+    setJobId(null);
+    fetch("/api/hedera/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         plan: purchase.plan,
         auctions: purchase.auctions,
+        live: true,
       }),
     })
       .then(async (response) => {
-        const body = (await response.json()) as SettlementResult & {
+        const body = (await response.json()) as {
+          jobId?: string;
           error?: string;
         };
-        if (!response.ok || !body.receipts) {
-          throw new Error(body.error ?? "Settlement failed.");
+        if (!response.ok || !body.jobId) {
+          throw new Error(body.error ?? "Settlement failed to start.");
         }
-        const totalSpentCents = body.receipts.reduce(
-          (sum, receipt) => sum + receipt.amountCents,
-          0,
-        );
-        setResult({
-          ...purchase,
-          receipts: body.receipts,
-          totalSpentCents,
-          ...(body.hedera ? { hedera: body.hedera } : {}),
-        });
-        setSettlement("settled");
+        setJobId(body.jobId);
       })
       .catch((settleError: unknown) => {
         setSettlementError(
           settleError instanceof Error
             ? settleError.message
-            : "Settlement failed.",
+            : "Settlement failed to start.",
         );
         setSettlement("failed");
       });

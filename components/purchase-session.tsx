@@ -19,6 +19,8 @@ interface PurchaseSessionValue {
   setSettlement: (status: HederaSettlementStatus) => void;
   settlementError: string;
   setSettlementError: (message: string) => void;
+  jobId: string | null;
+  setJobId: (jobId: string | null) => void;
 }
 
 const PurchaseSessionContext =
@@ -33,6 +35,7 @@ export function PurchaseSessionProvider({
   const [settlement, setSettlement] =
     useState<HederaSettlementStatus>("idle");
   const [settlementError, setSettlementError] = useState("");
+  const [jobId, setJobId] = useState<string | null>(null);
   const value = useMemo(
     () => ({
       result,
@@ -41,8 +44,10 @@ export function PurchaseSessionProvider({
       setSettlement,
       settlementError,
       setSettlementError,
+      jobId,
+      setJobId,
     }),
-    [result, settlement, settlementError],
+    [result, settlement, settlementError, jobId],
   );
 
   return (

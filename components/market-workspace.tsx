@@ -9,11 +9,13 @@ import {
   ZeroGVerificationReceipt,
 } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
+import { useSettlementJob } from "@/components/use-settlement-job";
 
 import styles from "@/app/market/market.module.css";
 
 export function MarketWorkspace() {
   const { result, settlement, settlementError } = usePurchaseSession();
+  const live = useSettlementJob();
 
   if (!result) {
     return (
@@ -79,7 +81,7 @@ export function MarketWorkspace() {
         </div>
       )}
 
-      <AgentSearchExperience result={result} />
+      <AgentSearchExperience result={result} {...(live ? { live } : {})} />
       <ZeroGVerificationReceipt result={result} />
       <MockExecutionDetails result={result} />
     </section>

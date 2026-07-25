@@ -30,6 +30,7 @@ import {
   type MockAgentSearch,
   type MockAuctionReplay,
 } from "@/src/mock-agent-search";
+import type { LiveAuctionView } from "@/components/use-settlement-job";
 
 import styles from "./agent-search-experience.module.css";
 
@@ -71,7 +72,13 @@ function statusLabel(replay: MockAuctionReplay): string {
   return "floor not met";
 }
 
-export function AgentSearchExperience({ result }: { result: DemoResult }) {
+export function AgentSearchExperience({
+  result,
+  live,
+}: {
+  result: DemoResult;
+  live?: LiveAuctionView;
+}) {
   // Settlement replaces the session result with on-chain receipts. Keep the
   // already-recorded mock trace stable while those receipts arrive.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,6 +93,12 @@ export function AgentSearchExperience({ result }: { result: DemoResult }) {
   const frames = useMemo(() => buildFrames(replays), [replays]);
   const [run, setRun] = useState(0);
 
+  if (live) {
+    return (
+      <LiveAgentSearchRun result={result} searches={searches} live={live} />
+    );
+  }
+
   return (
     <AgentSearchRun
       key={`${result.plan.planId}:${run}`}
@@ -95,6 +108,204 @@ export function AgentSearchExperience({ result }: { result: DemoResult }) {
       frames={frames}
       onReplay={() => setRun((current) => current + 1)}
     />
+  );
+}
+
+/**
+ * The real thing: phases driven by the settlement job instead of timers.
+ * Wallets appear as the swarm funds them, the bidding stage streams actual
+ * HCS bids read from Mirror Node, and the result cards carry the on-chain
+ * receipts.
+ */
+function LiveAgentSearchRun({
+  result,
+  searches,
+  live,
+}: {
+  result: DemoResult;
+  searches: MockAgentSearch[];
+  live: LiveAuctionView;
+}) {
+  const totalBids = Object.values(live.bidsByCategory).reduce(
+    (sum, bids) => sum + bids.length,
+    0,
+  );
+  const phase: "searching" | "bidding" | "complete" = live.done
+    ? "complete"
+    : live.auctions.length > 0
+      ? "bidding"
+      : "searching";
+
+  const phaseCopy = {
+    searching: {
+      eyebrow: `${searches.length} AGENT WALLETS FUNDING ON HEDERA`,
+      title: "Agents are entering the market.",
+      description:
+        "Each agent gets a fresh on-chain wallet holding exactly its mandate cap — it cannot overspend.",
+      status: `${live.agents.length}/${searches.length} wallets live`,
+    },
+    bidding: {
+      eyebrow: "LIVE REVERSE AUCTIONS · ON-CHAIN",
+      title: "Sellers are undercutting each other.",
+      description:
+        "Every bid is a real HCS message signed by the seller's own account. Each agent closes its auction when bidding goes quiet.",
+      status: `${totalBids} bids on-chain`,
+    },
+    complete: {
+      eyebrow: "BUNDLE SETTLED ON HEDERA",
+      title: result.plan.occasionTitle,
+      description: `${result.plan.location} · ${result.plan.scheduledFor}`,
+      status: "On-chain",
+    },
+  }[phase];
+
+  return (
+    <section className={styles.experience} aria-live="polite">
+      <header className={styles.heading}>
+        <div>
+          <span>{phaseCopy.eyebrow}</span>
+          <h2>{phaseCopy.title}</h2>
+          <p>{phaseCopy.description}</p>
+        </div>
+        <div className={styles.phasePill}>
+          <i
+            className={
+              phase === "complete"
+                ? styles.completeDot
+                : phase === "bidding"
+                  ? styles.auctionDot
+                  : ""
+            }
+          />
+          {phaseCopy.status}
+        </div>
+      </header>
+
+      {phase === "searching" ? (
+        <ActivityDiscovery
+          searches={searches}
+          resolvedCount={live.agents.length}
+        />
+      ) : phase === "bidding" ? (
+        <LiveBidStage searches={searches} live={live} />
+      ) : (
+        <div className={styles.bundleGrid}>
+          {searches.map((search, index) => (
+            <ResultCard
+              key={search.id}
+              search={search}
+              index={index}
+              receipt={result.receipts.find(
+                (receipt) => receipt.category === search.allocation.category,
+              )}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LiveBidStage({
+  searches,
+  live,
+}: {
+  searches: MockAgentSearch[];
+  live: LiveAuctionView;
+}) {
+  return (
+    <div className={styles.liveGrid}>
+      {searches.map((search) => {
+        const category = search.allocation.category;
+        const bids = live.bidsByCategory[category] ?? [];
+        const agent = live.agents.find((item) => item.category === category);
+        const auction = live.auctions.find(
+          (item) => item.category === category,
+        );
+        const settled = live.settledCategories.includes(category);
+        const best = bids.reduce<
+          (typeof bids)[number] | undefined
+        >(
+          (lowest, bid) =>
+            lowest === undefined || bid.amountCents < lowest.amountCents
+              ? bid
+              : lowest,
+          undefined,
+        );
+        const recent = [...bids]
+          .sort((left, right) => right.sequenceNumber - left.sequenceNumber)
+          .slice(0, 5);
+        const CategoryIcon = categoryIcons[category];
+
+        return (
+          <article
+            key={search.id}
+            className={styles.livePanel}
+            data-settled={settled || undefined}
+          >
+            <header>
+              <span>
+                <CategoryIcon size={13} aria-hidden="true" />
+                {category}
+              </span>
+              <b>{settled ? "Settled" : "Live"}</b>
+            </header>
+
+            <div className={styles.liveBest}>
+              <span>Best offer</span>
+              <strong>
+                {best ? formatUsd(best.amountCents) : "—"}
+              </strong>
+              <small>{best?.sellerName ?? "Waiting for sellers…"}</small>
+            </div>
+
+            <ul className={styles.liveFeed}>
+              {recent.map((bid, index) => (
+                <li
+                  key={bid.sequenceNumber}
+                  className={index === 0 ? styles.liveNewest : undefined}
+                >
+                  <span>{bid.sellerName}</span>
+                  <b>{formatUsd(bid.amountCents)}</b>
+                </li>
+              ))}
+              {recent.length === 0 && (
+                <li>
+                  <span>Sellers reviewing the mandate…</span>
+                </li>
+              )}
+            </ul>
+
+            <footer>
+              <span>
+                agent{" "}
+                {agent ? (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${agent.accountId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {agent.accountId}
+                  </a>
+                ) : (
+                  "…"
+                )}
+              </span>
+              {auction && (
+                <a
+                  href={`https://hashscan.io/testnet/topic/${auction.topicId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  HCS topic
+                  <ExternalLink size={9} aria-hidden="true" />
+                </a>
+              )}
+            </footer>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 

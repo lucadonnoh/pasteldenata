@@ -1314,3 +1314,123 @@
 .onchainLinks a:hover {
   text-decoration: underline;
 }
+
+.liveGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.livePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(14px);
+}
+
+.livePanel[data-settled] {
+  border-color: rgba(86, 135, 56, 0.4);
+}
+
+.livePanel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(36, 39, 44, 0.55);
+  font-size: 9px;
+  font-weight: 640;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.livePanel > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.livePanel > header > b {
+  color: #b96e2f;
+  font-weight: 660;
+}
+
+.livePanel[data-settled] > header > b {
+  color: #568738;
+}
+
+.liveBest {
+  display: grid;
+  gap: 2px;
+}
+
+.liveBest span {
+  color: rgba(36, 39, 44, 0.42);
+  font-size: 8px;
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.liveBest strong {
+  font-size: 21px;
+  font-weight: 590;
+  letter-spacing: -0.03em;
+}
+
+.liveBest small {
+  color: rgba(36, 39, 44, 0.55);
+  font-size: 10px;
+}
+
+.liveFeed {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 9px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.48);
+  list-style: none;
+}
+
+.liveFeed li {
+  display: flex;
+  justify-content: space-between;
+  color: rgba(36, 39, 44, 0.5);
+  font-size: 10px;
+}
+
+.liveFeed li b {
+  font-weight: 600;
+}
+
+.liveFeed li.liveNewest {
+  color: rgba(36, 39, 44, 0.86);
+}
+
+.livePanel > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.48);
+  color: rgba(36, 39, 44, 0.42);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.livePanel > footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #568738;
+  font-weight: 640;
+  text-decoration: none;
+}
+
+.livePanel > footer a:hover {
+  text-decoration: underline;
+}

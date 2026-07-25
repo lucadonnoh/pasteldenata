@@ -44,9 +44,21 @@ const LEAF_TIMEOUT_MS = 240_000;
 // NFT auto-association charged to the leaf as payer.
 const LEAF_FEE_HBAR = 5;
 
+export type SwarmEvent =
+  | { type: "WALLET_CREATED"; category: string; accountId: string }
+  | {
+      type: "AUCTION_OPEN";
+      category: string;
+      auctionId: string;
+      topicId: string;
+    }
+  | { type: "CATEGORY_SETTLED"; category: string };
+
 export interface SwarmOptions {
   /** Live reverse auction over HCS instead of the recorded mock English winner. */
   live?: boolean;
+  /** Progress callback, e.g. for streaming auction topics to a UI. */
+  onEvent?: (event: SwarmEvent) => void;
 }
 
 interface LeafRuntime {
@@ -69,6 +81,7 @@ interface SwarmShared {
   /** Contingency granted per auction id, for post-settlement validation. */
   grantsCents: Map<string, number>;
   runtimes: Map<string, LeafRuntime>;
+  onEvent: (event: SwarmEvent) => void;
 }
 
 function offerFromWinner(winner: AuctionWin): HederaOffer {
@@ -140,6 +153,7 @@ export async function settleWithSwarm(
     contingencyRemainingCents: live ? plan.unallocatedBudgetCents : 0,
     grantsCents: new Map(),
     runtimes: new Map(),
+    onEvent: options.onEvent ?? (() => {}),
   };
 
   const settled = await Promise.allSettled(
@@ -321,6 +335,12 @@ async function runLeaf(
     requirements,
     mechanism: shared.live ? "live-reverse-english" : "recorded-english-winner",
   });
+  shared.onEvent({
+    type: "AUCTION_OPEN",
+    category: auction.category,
+    auctionId: auction.auctionId,
+    topicId: log.topicId,
+  });
 
   const wallet = await createAccount(ctx, LEAF_FEE_HBAR);
   const recoveryPath = persistLeafWallet(wallet, {
@@ -335,6 +355,11 @@ async function runLeaf(
     fundedCents: 0,
   };
   shared.runtimes.set(auction.auctionId, runtime);
+  shared.onEvent({
+    type: "WALLET_CREATED",
+    category: auction.category,
+    accountId: wallet.accountId,
+  });
 
   const initialFunding = auction.mandate.maxAmountCents;
   try {
@@ -557,7 +582,6 @@ async function runLeaf(
           });
           break;
         }
-
         case "SETTLEMENT_CONFIRMED":
           assertLeafResult(message.result, runtime);
           confirmedResult = message.result;
@@ -570,6 +594,10 @@ async function runLeaf(
             amountCents: message.result.amountCents,
             claimNftSerial: message.result.claimNftSerial,
             transactionId: message.result.transactionId,
+          });
+          shared.onEvent({
+            type: "CATEGORY_SETTLED",
+            category: auction.category,
           });
           sendToLeaf({ type: "SETTLEMENT_RECORDED" });
           break;
