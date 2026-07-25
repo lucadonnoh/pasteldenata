@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, FlaskConical, Landmark } from "lucide-react";
+import { ArrowLeft, Landmark } from "lucide-react";
 import Link from "next/link";
 
 import { AgentSearchExperience } from "@/components/agent-search-experience";
@@ -35,21 +35,6 @@ export function MarketWorkspace() {
 
   return (
     <section className={styles.marketWorkspace}>
-      <div className={styles.boundary}>
-        <span>
-          <FlaskConical size={15} aria-hidden="true" />
-        </span>
-        <div>
-          <strong>Trust boundary: private plan, mock market, live ledger</strong>
-          <p>
-            The prompt and 0G key stay in this tab. The derived plan drives
-            mocked sellers and rivals; the active bids and payments are read
-            from Hedera testnet when settlement is live.
-          </p>
-        </div>
-        <b>{settlement === "idle" ? "MOCK EXECUTION" : "HEDERA TESTNET"}</b>
-      </div>
-
       {settlement !== "idle" && (
         <div
           className={`${styles.settlementStrip} ${
