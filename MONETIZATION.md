@@ -8,6 +8,42 @@ touches — and the parties who see your reservation price will use it.
 Sellers face the mirror problem: bots and scalpers hoarding scarce
 inventory faster than humans can click.
 
+## Market size and tailwinds
+
+The problem is measured, growing, and already legislated against:
+
+- **Scalping is industrial.** Automated bots account for roughly a third
+  of all internet traffic (Imperva *Bad Bot Report*, 2024), and ticketing
+  vendors report bot shares around **40% of ticket-purchase traffic**
+  during high-demand onsales (Queue-it industry data). The global
+  secondary ticketing market alone is estimated in the **$15B+** range
+  (Statista / industry analyses), built almost entirely on inventory
+  hoarded faster than humans can buy it.
+- **It has spread to restaurants.** Reservation bots resell tables for
+  hundreds of dollars (New York Times coverage of Appointment Trader,
+  2024), and New York responded with the **Restaurant Reservation
+  Anti-Piracy Act (signed December 2024)** — lawmakers are now regulating
+  exactly the problem our per-human gating solves at the protocol layer.
+- **Incumbent fees set the price umbrella.** Ticketing platforms routinely
+  take **20–30%** of face value in fees; reservation platforms charge
+  per-cover and SaaS fees. A 1–2.5% take with provable fairness is not a
+  discount strategy — it is a different product at a tenth of the price.
+- **Privacy is a rising constraint, not a preference.** The FTC opened a
+  **surveillance-pricing inquiry (2024)** into companies using personal
+  data — budgets, behavior, intent — to set individualized prices: precisely
+  the leakage agent commerce multiplies, since an assistant that shops with
+  your full context exposes it to every counterparty. Large majorities of
+  consumers tell surveys (Cisco Consumer Privacy, Pew) they distrust how
+  their data is used in exactly these ways. Regulation and sentiment both
+  point toward intent-private purchasing as the default, and TEE-planned,
+  scoped-mandate agents are that default implemented.
+- **Agentic commerce is arriving with no procurement layer.** Every major
+  assistant vendor shipped or announced purchasing agents in the last
+  year; analyst projections put agent-mediated commerce in the tens of
+  billions within the decade. Those agents currently shop by pretending to
+  be browsers. A marketplace built *for* agents — capped wallets,
+  auditable auctions, human-gating — is infrastructure the wave is missing.
+
 ## Customer segments
 
 - **Buy side**: users of agentic assistants making multi-vendor purchases
@@ -30,15 +66,31 @@ wallets → payer-authenticated HCS auctions → atomic HTS
 settlement (NATA-for-claim-NFT, co-signed) → per-listing human gating
 (World AgentKit, seller's choice).
 
-## Channels
+## Go-to-market
 
-- **Agentic assistant integrations** — the planner is an API; any
-  assistant can hand a mandate to the market instead of scraping
-  storefronts.
-- **Seller self-onboarding** — already prototyped: the seller studio
-  (`components/seller-studio.tsx`) lets a seller pick a city, list
-  seat-level inventory, and choose its buyer policy ("1 per human" vs
-  open) in one form.
+**Wedge: high-demand restaurant reservations, one city first (Lisbon).**
+Why this vertical: scarcity is acute and recurring (the same 20 tables
+every Saturday), the scalping pain is documented and now legislated
+(NYC's anti-piracy act), integration cost is near zero (a table is a
+listing, not a ticketing-stack migration — our seat/table-level inventory
+already models it), and human-gating is the exact feature reservation
+platforms cannot offer.
+
+- **First sellers to sign**: 5–10 lighthouse restaurants with multi-week
+  waitlists — the "Prado" archetype from our catalog. The pitch is one
+  sentence: *"your Saturday tables, auctioned to verified humans, one per
+  person, with a public transcript proving you didn't play favorites — and
+  you keep the clearing price upside scalpers currently capture."*
+  Onboarding is the seller studio (`components/seller-studio.tsx`): city,
+  inventory, buyer policy, done.
+- **Expansion order**: independent cinemas (identical mechanics, higher
+  volume) → live events and venues (highest scalper pressure, highest
+  take) → additional cities, each opened by its first seller, exactly as
+  the product already works (a city exists when its first seller lists).
+- **Buy-side channel**: agentic assistant integrations — the planner is an
+  API; any assistant can hand a private mandate to the market instead of
+  scraping storefronts. Buy-side demand compounds the sell-side pitch:
+  sellers list where the agents shop.
 
 ## Revenue streams
 
