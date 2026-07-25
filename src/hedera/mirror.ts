@@ -24,6 +24,96 @@ export interface AuthorizedSeller {
   accountId: string;
 }
 
+const MIRROR_FETCH_ATTEMPTS = 5;
+const MIRROR_FETCH_TIMEOUT_MS = 5_000;
+const MIRROR_RETRY_BASE_MS = 250;
+const MIRROR_RETRY_MAX_MS = 2_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryableMirrorStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+function retryDelayMs(response: Response | undefined, attempt: number): number {
+  const retryAfter = response?.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1_000, MIRROR_RETRY_MAX_MS);
+    }
+    const dateMs = Date.parse(retryAfter);
+    if (Number.isFinite(dateMs)) {
+      return Math.min(
+        Math.max(0, dateMs - Date.now()),
+        MIRROR_RETRY_MAX_MS,
+      );
+    }
+  }
+  return Math.min(
+    MIRROR_RETRY_BASE_MS * 2 ** attempt,
+    MIRROR_RETRY_MAX_MS,
+  );
+}
+
+async function fetchMirrorPage(
+  url: string,
+  topicId: string,
+): Promise<{
+  messages: MirrorMessage[];
+  links?: { next?: string | null };
+}> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MIRROR_FETCH_ATTEMPTS; attempt += 1) {
+    let response: Response | undefined;
+    try {
+      response = await fetch(url, {
+        signal: AbortSignal.timeout(MIRROR_FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        const error = new Error(
+          `Mirror Node returned ${response.status} for ${topicId}.`,
+        );
+        if (!retryableMirrorStatus(response.status)) throw error;
+        lastError = error;
+      } else {
+        const data = (await response.json()) as {
+          messages?: MirrorMessage[];
+          links?: { next?: string | null };
+        };
+        if (!Array.isArray(data.messages)) {
+          lastError = new Error(
+            `Mirror Node returned malformed messages for ${topicId}.`,
+          );
+        } else {
+          return {
+            messages: data.messages,
+            ...(data.links ? { links: data.links } : {}),
+          };
+        }
+      }
+    } catch (error) {
+      if (
+        response &&
+        !response.ok &&
+        !retryableMirrorStatus(response.status)
+      ) {
+        throw error;
+      }
+      lastError = error;
+    }
+    if (attempt + 1 < MIRROR_FETCH_ATTEMPTS) {
+      await sleep(retryDelayMs(response, attempt));
+    }
+  }
+  throw (
+    lastError ??
+    new Error(`Mirror Node did not return messages for ${topicId}.`)
+  );
+}
+
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -68,17 +158,7 @@ async function allTopicMessages(
   const messages: MirrorMessage[] = [];
   let url = `${mirrorBaseUrl}/api/v1/topics/${topicId}/messages?limit=100&order=asc`;
   while (url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Mirror Node returned ${response.status} for ${topicId}.`);
-    }
-    const data = (await response.json()) as {
-      messages?: MirrorMessage[];
-      links?: { next?: string | null };
-    };
-    if (!Array.isArray(data.messages)) {
-      throw new Error(`Mirror Node returned malformed messages for ${topicId}.`);
-    }
+    const data = await fetchMirrorPage(url, topicId);
     messages.push(...data.messages);
     const next = data.links?.next;
     url = next ? new URL(next, mirrorBaseUrl).toString() : "";

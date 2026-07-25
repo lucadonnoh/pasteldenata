@@ -607,6 +607,14 @@ async function execute(
     job.status = "done";
   } catch (error) {
     if (error instanceof HederaPartialSettlementError && infra && ctx) {
+      console.error(
+        "Hedera market completed with classified failures:",
+        JSON.stringify({
+          jobId: job.id,
+          confirmedSettlements: error.receipts.length,
+          failures: error.failures,
+        }),
+      );
       const receipts = error.receipts.filter(
         (receipt) => receipt.planId === plan.planId,
       );

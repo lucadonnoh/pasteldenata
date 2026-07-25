@@ -1,17 +1,19 @@
 import "dotenv/config";
-import { sellersForLocation } from "../catalog";
+import { CITY_LABELS, sellersForLocation } from "../catalog";
 import { connectHedera } from "./client";
 import { ensureInfra } from "./infra";
 import { runtimeDataDirectory } from "../server/runtime-data";
 
 async function main() {
-  const requestedMarket = process.argv.slice(2).join(" ").trim() || "Lisbon";
-  const sellers = sellersForLocation(requestedMarket);
+  const requested = process.argv.slice(2).join(" ").trim() || "Lisbon";
+  const requestedMarkets =
+    requested === "--all" ? Object.values(CITY_LABELS) : [requested];
+  const sellers = requestedMarkets.flatMap(sellersForLocation);
   const ctx = connectHedera();
   try {
     const infra = await ensureInfra(ctx, sellers);
     console.log("\nHedera testnet infrastructure ready\n");
-    console.log(`Prepared market      ${requestedMarket}`);
+    console.log(`Prepared market(s)   ${requestedMarkets.join(", ")}`);
     console.log(`NATA payment token   ${infra.paymentTokenId}`);
     console.log(`Claim NFT collection ${infra.claimTokenId}`);
     console.log(`Buyer account        ${infra.buyer.accountId}`);

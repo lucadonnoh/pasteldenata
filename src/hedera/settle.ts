@@ -66,6 +66,13 @@ export async function sweepLeafBalance(
     .addTokenTransfer(ctx.infra.paymentTokenId, ctx.operatorId, balance)
     .freezeWith(ctx.client);
   await sweep.sign(parsePrivateKey(wallet.privateKey));
-  await (await sweep.execute(ctx.client)).getReceipt(ctx.client);
+  try {
+    await (await sweep.execute(ctx.client)).getReceipt(ctx.client);
+  } catch (error) {
+    // An SDK timeout is not evidence that consensus failed. Accept the sweep
+    // only when an independent balance query proves the exact postcondition.
+    const remaining = await tokenBalanceCents(ctx, wallet.accountId);
+    if (remaining !== 0) throw error;
+  }
   return balance;
 }
