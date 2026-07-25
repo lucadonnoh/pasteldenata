@@ -94,12 +94,22 @@ export interface SellerInventoryItem {
   attributes: InventoryAttributes;
 }
 
+/**
+ * Seller-chosen access policy for scarce listings. `one-per-human` requires
+ * bidders to be backed by verified humans (World AgentKit) and collapses all
+ * of one human's agents into a single allocation. `open` involves no
+ * identity check at all — human gating is the seller's choice, not
+ * marketplace-wide ceremony.
+ */
+export type HumanPolicy = "open" | "one-per-human";
+
 export interface Seller {
   id: string;
   name: string;
   category: Category;
   city: City;
   privateSalt: string;
+  humanPolicy?: HumanPolicy;
   inventory: SellerInventoryItem[];
 }
 

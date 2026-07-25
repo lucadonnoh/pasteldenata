@@ -11,6 +11,7 @@ const identifier = z.string().trim().min(1).max(160);
 const shortText = z.string().trim().min(1).max(300);
 const cents = z.number().int().safe().positive().max(1_000_000);
 const category = z.enum(CATEGORIES);
+const evmAddress = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
 
 const AllocationSchema = z
   .object({
@@ -109,7 +110,16 @@ const SettlementRequestSchema = z
     plan: PlanSchema,
     auctions: z.array(AuctionSchema).min(1).max(CATEGORIES.length),
     mode: z.enum(["live", "market"]).default("market"),
+    worldDemo: z.enum(["scalper"]).optional(),
+    identityProof: z
+      .object({
+        identityAgent: evmAddress,
+        challengeId: z.string().uuid(),
+        signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/),
+      })
+      .optional(),
   })
+  .strict()
   .superRefine(({ plan, auctions }, context) => {
     const roster = sellersForLocation(plan.location);
     if (auctions.length !== plan.allocations.length) {
@@ -167,6 +177,12 @@ export interface ParsedSettlementRequest {
   plan: PrivatePlan;
   auctions: AuctionResult[];
   mode: SettlementMode;
+  worldDemo?: "scalper";
+  identityProof?: {
+    identityAgent: `0x${string}`;
+    challengeId: string;
+    signature: `0x${string}`;
+  };
 }
 
 export function parseSettlementRequest(input: unknown): ParsedSettlementRequest {

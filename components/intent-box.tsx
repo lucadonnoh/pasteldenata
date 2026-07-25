@@ -5,8 +5,10 @@ import {
   ChevronLeft,
   KeyRound,
   ShieldCheck,
+  UserCheck,
   Sparkles,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   FormEvent,
@@ -18,6 +20,7 @@ import {
 import type { DemoResult } from "@/src/domain";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
+import { privateKeyToAccount } from "viem/accounts";
 import { PrivacyDetails } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
 
@@ -35,6 +38,34 @@ function isUsableZeroGKey(value: string): boolean {
 
 type CredentialPanelState = "open" | "closing" | "collapsed";
 
+interface StoredWorldIdentity {
+  address?: `0x${string}`;
+  privateKey?: `0x${string}`;
+  humanId?: string;
+}
+
+interface DemoReadiness {
+  hedera: {
+    network: "testnet";
+    operatorIdConfigured: boolean;
+    operatorKeyConfigured: boolean;
+    ready: boolean;
+  };
+}
+
+function storedWorldIdentityIsReady(stored: StoredWorldIdentity | null): boolean {
+  if (!stored?.humanId || !stored.address || !stored.privateKey) return false;
+
+  try {
+    return (
+      privateKeyToAccount(stored.privateKey).address.toLowerCase() ===
+      stored.address.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function IntentBox() {
   const router = useRouter();
   const { setResult, setSettlement, setSettlementError, setJobId } =
@@ -44,6 +75,46 @@ export function IntentBox() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
+  const [worldVerified, setWorldVerified] = useState(false);
+  const [demoReadiness, setDemoReadiness] = useState<DemoReadiness | null>(
+    null,
+  );
+  const [readinessUnavailable, setReadinessUnavailable] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const raw = window.localStorage.getItem("pastel-world-identity");
+        const stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
+        setWorldVerified(storedWorldIdentityIsReady(stored));
+      } catch {
+        setWorldVerified(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void fetch("/api/readiness", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Readiness check failed.");
+        setDemoReadiness((await response.json()) as DemoReadiness);
+      })
+      .catch((readinessError: unknown) => {
+        if (
+          !(readinessError instanceof DOMException) ||
+          readinessError.name !== "AbortError"
+        ) {
+          setReadinessUnavailable(true);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
   const [credentialPanelState, setCredentialPanelState] =
     useState<CredentialPanelState>("open");
   const hasUsableKey = isUsableZeroGKey(apiKey);
@@ -51,6 +122,24 @@ export function IntentBox() {
     hasUsableKey && credentialPanelState === "closing";
   const credentialsCollapsed =
     hasUsableKey && credentialPanelState === "collapsed";
+  const hederaStatus = demoReadiness?.hedera;
+  const presentPrerequisites =
+    Number(hasUsableKey) +
+    Number(worldVerified) +
+    Number(hederaStatus?.ready ?? false);
+  const allPrerequisitesPresent = presentPrerequisites === 3;
+  const hederaStatusLabel = readinessUnavailable
+    ? "Check unavailable"
+    : !hederaStatus
+      ? "Checking…"
+      : hederaStatus.ready
+        ? "Present"
+        : !hederaStatus.operatorIdConfigured &&
+            !hederaStatus.operatorKeyConfigured
+          ? "ID + key missing"
+          : !hederaStatus.operatorIdConfigured
+            ? "ID missing"
+            : "Key missing";
 
   useEffect(() => {
     if (
@@ -94,7 +183,7 @@ export function IntentBox() {
         intent.trim(),
       );
       setResult(purchase);
-      settleOnHedera(purchase);
+      void settleOnHedera(purchase);
       setDeparting(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         await new Promise((resolve) => window.setTimeout(resolve, 520));
@@ -117,40 +206,93 @@ export function IntentBox() {
    * derived plan and mock auction trace leave browser memory; the original
    * prompt and 0G key do not. The market page streams the ledger activity.
    */
-  function settleOnHedera(purchase: DemoResult) {
+  async function settleOnHedera(purchase: DemoResult) {
     setSettlement("pending");
     setSettlementError("");
     setJobId(null);
-    fetch("/api/hedera/jobs", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Pastel-Local-Demo": "1",
-      },
-      body: JSON.stringify({
-        plan: purchase.plan,
-        auctions: purchase.auctions,
-        mode: "market",
-      }),
-    })
-      .then(async (response) => {
-        const body = (await response.json()) as {
-          jobId?: string;
+    try {
+      let identityProof:
+        | {
+            identityAgent: `0x${string}`;
+            challengeId: string;
+            signature: `0x${string}`;
+          }
+        | undefined;
+      let stored: StoredWorldIdentity | null = null;
+      try {
+        const raw = window.localStorage.getItem("pastel-world-identity");
+        stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
+      } catch {
+        // Corrupt optional identity state must not block open listings.
+      }
+      if (stored?.humanId && stored.address && stored.privateKey) {
+        const account = privateKeyToAccount(stored.privateKey);
+        if (account.address.toLowerCase() !== stored.address.toLowerCase()) {
+          throw new Error("Stored World identity key does not match its address.");
+        }
+        const challengeResponse = await fetch("/api/world/challenge", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Pastel-Local-Demo": "1",
+          },
+          body: JSON.stringify({
+            identityAgent: account.address,
+            planId: purchase.plan.planId,
+          }),
+        });
+        const challenge = (await challengeResponse.json()) as {
+          challengeId?: string;
+          message?: string;
           error?: string;
         };
-        if (!response.ok || !body.jobId) {
-          throw new Error(body.error ?? "Settlement failed to start.");
+        if (
+          !challengeResponse.ok ||
+          !challenge.challengeId ||
+          !challenge.message
+        ) {
+          throw new Error(
+            challenge.error ?? "Could not obtain a World identity challenge.",
+          );
         }
-        setJobId(body.jobId);
-      })
-      .catch((settleError: unknown) => {
-        setSettlementError(
-          settleError instanceof Error
-            ? settleError.message
-            : "Settlement failed to start.",
-        );
-        setSettlement("failed");
+        identityProof = {
+          identityAgent: account.address,
+          challengeId: challenge.challengeId,
+          signature: await account.signMessage({
+            message: challenge.message,
+          }),
+        };
+      }
+
+      const response = await fetch("/api/hedera/jobs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pastel-Local-Demo": "1",
+        },
+        body: JSON.stringify({
+          plan: purchase.plan,
+          auctions: purchase.auctions,
+          mode: "market",
+          ...(identityProof ? { identityProof } : {}),
+        }),
       });
+      const body = (await response.json()) as {
+        jobId?: string;
+        error?: string;
+      };
+      if (!response.ok || !body.jobId) {
+        throw new Error(body.error ?? "Settlement failed to start.");
+      }
+      setJobId(body.jobId);
+    } catch (settleError) {
+      setSettlementError(
+        settleError instanceof Error
+          ? settleError.message
+          : "Settlement failed to start.",
+      );
+      setSettlement("failed");
+    }
   }
 
   function handleShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -319,12 +461,89 @@ export function IntentBox() {
                 <ShieldCheck size={13} />
                 Direct to 0G · verified TEE required
               </div>
+              <Link
+                className={worldVerified ? "world-note world-note-ok" : "world-note"}
+                href="/world"
+                title={
+                  worldVerified
+                    ? "Your agents are backed by your World ID"
+                    : "Scarce listings are one-per-human — verify to bid on them"
+                }
+              >
+                <UserCheck size={13} />
+                {worldVerified ? "Human-backed · World ID" : "Not verified · scarce listings locked"}
+              </Link>
               <div className="character-count">
                 <span>⌘ ENTER</span>
                 <b>{intent.length.toString().padStart(4, "0")}</b>
               </div>
             </div>
           </form>
+
+          <section
+            className={`demo-readiness ${
+              allPrerequisitesPresent ? "demo-readiness-complete" : ""
+            }`}
+            aria-label="Local demo prerequisites"
+          >
+            <header>
+              <div>
+                <span>LOCAL DEMO PREFLIGHT</span>
+                <strong>{presentPrerequisites}/3 present</strong>
+              </div>
+              <small>
+                {allPrerequisitesPresent
+                  ? "Ready for the full demo"
+                  : "See exactly what still needs setup"}
+              </small>
+            </header>
+            <div className="readiness-items">
+              <div
+                className={`readiness-item ${
+                  hasUsableKey ? "readiness-item-ready" : ""
+                }`}
+                title="Checks that a 0G Router-shaped key is present in this browser tab. 0G validates it during inference."
+              >
+                <i />
+                <span>
+                  <b>0G Router key</b>
+                  <small>Browser tab only</small>
+                </span>
+                <em>{hasUsableKey ? "Present" : "Missing"}</em>
+              </div>
+              <Link
+                className={`readiness-item ${
+                  worldVerified ? "readiness-item-ready" : ""
+                }`}
+                href="/world"
+                title="A complete locally stored World identity is required for scarce listings. Its proof is verified during settlement."
+              >
+                <i />
+                <span>
+                  <b>World identity</b>
+                  <small>Scarce listings</small>
+                </span>
+                <em>{worldVerified ? "Present" : "Set up"}</em>
+              </Link>
+              <div
+                className={`readiness-item ${
+                  hederaStatus?.ready ? "readiness-item-ready" : ""
+                } ${readinessUnavailable ? "readiness-item-unavailable" : ""}`}
+                title="Checks only that HEDERA_OPERATOR_ID and HEDERA_OPERATOR_KEY are loaded by this local server. Hedera validates the signature during settlement."
+              >
+                <i />
+                <span>
+                  <b>Hedera testnet</b>
+                  <small>Local coordinator</small>
+                </span>
+                <em>{hederaStatusLabel}</em>
+              </div>
+            </div>
+            <p>
+              Presence only. 0G TEE proof and Hedera signatures are verified
+              live when the run executes.
+            </p>
+          </section>
 
           {!loading && !error && (
             <div className="suggestions">

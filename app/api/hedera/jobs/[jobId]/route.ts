@@ -33,6 +33,7 @@ export async function GET(
     agents: job.agents,
     auctions: job.auctions,
     listings: job.listings,
+    ...(job.world ? { world: job.world } : {}),
     rivals: job.rivals,
     settledCategories: job.settledCategories,
     lostCategories: job.lostCategories,

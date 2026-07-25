@@ -63,6 +63,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinema-ideal",
     name: "Cinema Ideal",
     category: "cinema",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "ideal-v2",
     inventory: [
@@ -102,6 +103,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinema-sao-jorge",
     name: "Cinema São Jorge",
     category: "cinema",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "jorge-v2",
     inventory: [
@@ -141,6 +143,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinemateca",
     name: "Cinemateca Portuguesa",
     category: "cinema",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "cinemateca-v2",
     inventory: [
@@ -180,6 +183,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "prado",
     name: "Prado",
     category: "dinner",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "prado-v2",
     inventory: [
@@ -209,6 +213,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "taberna-lx",
     name: "Taberna LX",
     category: "dinner",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "taberna-v2",
     inventory: [
@@ -228,6 +233,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "miradouro-table",
     name: "Miradouro Table",
     category: "dinner",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "miradouro-v2",
     inventory: [
@@ -285,6 +291,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "tejo-sunset",
     name: "Tejo Sunset",
     category: "experience",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "tejo-v2",
     inventory: [
@@ -304,6 +311,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "tile-workshop",
     name: "Azulejo Atelier",
     category: "experience",
+    humanPolicy: "one-per-human",
     city: "lisbon",
     privateSalt: "azulejo-v2",
     inventory: [
@@ -323,6 +331,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "san-siro",
     name: "San Siro Stadium",
     category: "experience",
+    humanPolicy: "one-per-human",
     city: "milan",
     privateSalt: "sansiro-v2",
     inventory: [
@@ -342,6 +351,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "duomo-rooftop",
     name: "Duomo Rooftop Tour",
     category: "experience",
+    humanPolicy: "one-per-human",
     city: "milan",
     privateSalt: "duomo-v2",
     inventory: [
@@ -361,6 +371,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "osteria-brera",
     name: "Osteria di Brera",
     category: "dinner",
+    humanPolicy: "one-per-human",
     city: "milan",
     privateSalt: "brera-v2",
     inventory: [
@@ -380,6 +391,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "trattoria-navigli",
     name: "Trattoria dei Navigli",
     category: "dinner",
+    humanPolicy: "one-per-human",
     city: "milan",
     privateSalt: "navigli-v2",
     inventory: [
@@ -399,6 +411,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "risotteria-monza",
     name: "Risotteria Monza",
     category: "dinner",
+    humanPolicy: "one-per-human",
     city: "milan",
     privateSalt: "monza-v2",
     inventory: [
@@ -456,6 +469,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinema-anteo",
     name: "Cinema Anteo",
     category: "cinema",
+    humanPolicy: "one-per-human",
     city: "milan",
     privateSalt: "anteo-v2",
     inventory: [

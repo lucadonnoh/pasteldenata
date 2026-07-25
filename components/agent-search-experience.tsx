@@ -13,6 +13,7 @@ import {
   Palette,
   RotateCcw,
   Radio,
+  ShieldCheck,
   Store,
   Trophy,
   Users,
@@ -885,6 +886,10 @@ function MarketBidStage({
                   const title =
                     event.type === "LISTED"
                       ? "Clearing opened the listing"
+                      : event.type === "AUTHORIZED"
+                        ? yours
+                          ? "Your World credential was accepted"
+                          : `Bidder ${shortAccount(event.bidder)} is human-backed`
                       : event.type === "CLOSED"
                         ? "Clearing closed bidding"
                         : event.type === "FORFEITED"
@@ -901,6 +906,8 @@ function MarketBidStage({
                   const detail =
                     event.type === "SETTLED"
                       ? event.transactionId
+                      : event.type === "AUTHORIZED"
+                        ? `nullifier ${event.nullifier}`
                       : "bidder" in event
                         ? event.bidder
                         : event.payerAccountId;
@@ -917,6 +924,8 @@ function MarketBidStage({
                       <span>
                         {event.type === "SETTLED" ? (
                           <CheckCircle2 size={11} aria-hidden="true" />
+                        ) : event.type === "AUTHORIZED" ? (
+                          <ShieldCheck size={11} aria-hidden="true" />
                         ) : event.type === "FORFEITED" ? (
                           <X size={11} aria-hidden="true" />
                         ) : event.type === "CLOSED" ? (
@@ -1010,7 +1019,14 @@ function MarketBidStage({
                       <Store size={12} aria-hidden="true" />
                     </span>
                     <div>
-                      <small>{listing.sellerName}</small>
+                      <small>
+                        {listing.sellerName}
+                        {listing.humanPolicy === "one-per-human" && (
+                          <i className={styles.humanGate} title="One allocation per verified human (World ID)">
+                            1/human
+                          </i>
+                        )}
+                      </small>
                       <strong>{listing.offering}</strong>
                     </div>
                     <div>

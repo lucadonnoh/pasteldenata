@@ -15,6 +15,11 @@ import {
   ZeroGPrivatePlanner,
   type PrivatePlanner,
 } from "./planner";
+import {
+  MockAgentBook,
+  WorldGateway,
+  type AuctionPass,
+} from "./server/world-gateway";
 
 const argv = process.argv.slice(2);
 const useMock = argv.includes("--mock");
@@ -53,11 +58,13 @@ function line(label: string, value: string): void {
 const MARKET_PERSONAS = [
   {
     name: "Ana",
+    mockHumanSeed: "ana",
     intent:
       "Plan a romantic anniversary evening tomorrow in Lisbon with dinner and a film. My budget is $200.",
   },
   {
     name: "Bruno",
+    mockHumanSeed: "bruno",
     intent:
       "Organize a fun first date tomorrow evening in Lisbon. My budget is $180.",
   },
@@ -68,6 +75,7 @@ const MARKET_PERSONAS = [
   },
   {
     name: "Dario",
+    mockHumanSeed: "dario",
     intent:
       "Plan a cozy evening for two tomorrow in Lisbon. My budget is $160.",
   },
@@ -100,7 +108,49 @@ async function marketMain(): Promise<void> {
     );
     console.log();
 
-    const market = await runMarket(buyers, { ...ctx, infra });
+    // Explicit demo identities: Ana, Bruno, and Dario are mock World-backed;
+    // Chiara and Emma are deliberately unverified and fail protected policy.
+    const demoBook = new MockAgentBook();
+    const demoIdentityByBuyer = new Map<string, string>();
+    MARKET_PERSONAS.forEach((persona, index) => {
+      const address = `0x${String(index + 1).padStart(40, "0")}`;
+      demoIdentityByBuyer.set(persona.name, address);
+      if ("mockHumanSeed" in persona) {
+        demoBook.registerAgent(address, persona.mockHumanSeed);
+      }
+      console.log(
+        `${persona.name.padEnd(8)} World · ${
+          "mockHumanSeed" in persona ? "mock human-backed" : "unverified"
+        }`,
+      );
+    });
+    const gateway = new WorldGateway(demoBook);
+    const passByAuctionAndWallet = new Map<string, AuctionPass>();
+    const market = await runMarket(buyers, { ...ctx, infra }, {
+      authorizationIssuerPublicKey: gateway.issuerPublicKey,
+      authorizePurchase: async ({ itemId, buyerName, leafWallet }) => {
+        const key = `${itemId}|${leafWallet}`;
+        const existing = passByAuctionAndWallet.get(key);
+        if (existing) return { ok: true, pass: existing };
+        const identityAgent = demoIdentityByBuyer.get(buyerName);
+        if (!identityAgent) {
+          return { ok: false, reason: "No demo World identity." };
+        }
+        const enrollment = await gateway.enroll({
+          auctionId: itemId,
+          identityAgent,
+          leafWallet,
+        });
+        if (!enrollment.ok || !enrollment.pass) {
+          return {
+            ok: false,
+            reason: enrollment.reason ?? "Demo World enrollment was refused.",
+          };
+        }
+        passByAuctionAndWallet.set(key, enrollment.pass);
+        return { ok: true, pass: enrollment.pass };
+      },
+    });
     for (const buyer of market.buyers) {
       const spent = buyer.outcomes.reduce(
         (sum, outcome) => sum + outcome.result.amountCents,
