@@ -56,6 +56,9 @@ interface DemoReadiness {
     network: "testnet";
     operatorIdConfigured: boolean;
     operatorKeyConfigured: boolean;
+    operatorBalanceHbar: number | null;
+    requiredHbar: number;
+    balanceOk: boolean;
     ready: boolean;
   };
 }
@@ -87,6 +90,10 @@ export function IntentBox() {
     null,
   );
   const [readinessUnavailable, setReadinessUnavailable] = useState(false);
+  const [zerogStatus, setZerogStatus] = useState<
+    "idle" | "checking" | "ok" | "failed"
+  >("idle");
+  const [zerogReason, setZerogReason] = useState("");
   const [cityMiss, setCityMiss] = useState<{
     location: string;
     available: string[];
@@ -135,8 +142,68 @@ export function IntentBox() {
   const credentialsCollapsed =
     hasUsableKey && credentialPanelState === "collapsed";
   const hederaStatus = demoReadiness?.hedera;
+
+  // Live 0G probe: a one-token inference proves the key is valid AND the
+  // router account is funded — the two ways a run would otherwise die after
+  // the user already typed their intent.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!hasUsableKey) {
+        setZerogStatus("idle");
+        setZerogReason("");
+        return;
+      }
+      setZerogStatus("checking");
+      void (async () => {
+        try {
+          const response = await fetch(
+            "https://router-api.0g.ai/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey.trim()}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "0gm-1.0-35b-a3b",
+                max_tokens: 1,
+                messages: [{ role: "user", content: "ok" }],
+              }),
+              signal: AbortSignal.timeout(20_000),
+            },
+          );
+          if (cancelled) return;
+          if (response.ok) {
+            setZerogStatus("ok");
+            setZerogReason("");
+            return;
+          }
+          const body = (await response.json().catch(() => ({}))) as {
+            error?: { message?: string };
+          };
+          setZerogStatus("failed");
+          setZerogReason(
+            response.status === 402
+              ? "Router balance empty — top up at pc.0g.ai"
+              : response.status === 401
+                ? "Key rejected by the 0G Router"
+                : (body.error?.message ?? `Router returned ${response.status}`),
+          );
+        } catch {
+          if (cancelled) return;
+          setZerogStatus("failed");
+          setZerogReason("Could not reach the 0G Router.");
+        }
+      })();
+    }, hasUsableKey ? 900 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [apiKey, hasUsableKey]);
   const presentPrerequisites =
-    Number(hasUsableKey) +
+    Number(zerogStatus === "ok") +
     Number(worldVerified) +
     Number(hederaStatus?.ready ?? false);
   const allPrerequisitesPresent = presentPrerequisites === 3;
@@ -145,8 +212,14 @@ export function IntentBox() {
     : !hederaStatus
       ? "Checking…"
       : hederaStatus.ready
-        ? "Present"
-        : !hederaStatus.operatorIdConfigured &&
+        ? `Funded · ${Math.round(hederaStatus.operatorBalanceHbar ?? 0).toLocaleString()} ℏ`
+        : hederaStatus.operatorIdConfigured &&
+            hederaStatus.operatorKeyConfigured &&
+            !hederaStatus.balanceOk
+          ? hederaStatus.operatorBalanceHbar === null
+            ? "Balance unknown"
+            : `Balance low · ${Math.round(hederaStatus.operatorBalanceHbar)} ℏ < ${hederaStatus.requiredHbar}`
+          : !hederaStatus.operatorIdConfigured &&
             !hederaStatus.operatorKeyConfigured
           ? "ID + key missing"
           : !hederaStatus.operatorIdConfigured
@@ -511,7 +584,10 @@ export function IntentBox() {
                 className="launch-button"
                 type="submit"
                 disabled={
-                  loading || intent.trim().length < 3 || !hasUsableKey
+                  loading ||
+                  intent.trim().length < 3 ||
+                  zerogStatus !== "ok" ||
+                  !hederaStatus?.ready
                 }
                 aria-label="Send intent"
               >
@@ -567,16 +643,30 @@ export function IntentBox() {
             <div className="readiness-items">
               <div
                 className={`readiness-item ${
-                  hasUsableKey ? "readiness-item-ready" : ""
+                  zerogStatus === "ok" ? "readiness-item-ready" : ""
                 }`}
-                title="Checks that a 0G Router-shaped key is present in this browser tab. 0G validates it during inference."
+                title={
+                  zerogStatus === "failed"
+                    ? zerogReason
+                    : "A one-token live inference verifies the key and the router balance before you can prompt."
+                }
               >
                 <i />
                 <span>
                   <b>0G Router key</b>
-                  <small>Browser tab only</small>
+                  <small>
+                    {zerogStatus === "failed" ? zerogReason : "Verified live"}
+                  </small>
                 </span>
-                <em>{hasUsableKey ? "Present" : "Missing"}</em>
+                <em>
+                  {zerogStatus === "ok"
+                    ? "Verified"
+                    : zerogStatus === "checking"
+                      ? "Checking…"
+                      : zerogStatus === "failed"
+                        ? "Failed"
+                        : "Missing"}
+                </em>
               </div>
               <Link
                 className={`readiness-item ${
