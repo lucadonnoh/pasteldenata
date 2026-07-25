@@ -250,6 +250,7 @@ main {
 
 .credential-sidebar {
   position: sticky;
+  width: 220px;
   height: 286px;
   top: 84px;
   overflow: hidden;
@@ -333,6 +334,10 @@ main {
   border-radius: 19px;
 }
 
+.credential-sidebar.credential-sidebar-closing > header,
+.credential-sidebar.credential-sidebar-closing > .sidebar-key-field,
+.credential-sidebar.credential-sidebar-closing > .credential-status,
+.credential-sidebar.credential-sidebar-closing > footer,
 .credential-sidebar.credential-sidebar-collapsed > header,
 .credential-sidebar.credential-sidebar-collapsed > .sidebar-key-field,
 .credential-sidebar.credential-sidebar-collapsed > .credential-status,
@@ -2256,6 +2261,7 @@ main {
   .credential-sidebar {
     position: relative;
     display: grid;
+    width: 100%;
     height: auto;
     top: auto;
     align-items: center;
@@ -2289,10 +2295,10 @@ main {
   }
 
   .credential-sidebar.credential-sidebar-collapsed {
-    display: block;
     width: 56px;
     height: 56px;
     padding: 5px;
+    grid-template-columns: 1fr;
     justify-self: start;
   }
 
