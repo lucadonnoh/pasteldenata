@@ -8,7 +8,7 @@ import { sha256Hex } from "./hash";
 
 export interface MockAgentSearch {
   id: string;
-  wallet: `0x${string}`;
+  agentId: string;
   allocation: PlanAllocation;
   auction: AuctionResult;
   matchedTags: string[];
@@ -18,13 +18,13 @@ function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function walletFor(
+function agentIdFor(
   planId: string,
   category: Category,
   index: number,
-): `0x${string}` {
+): string {
   const hash = sha256Hex(`pastel-agent:${planId}:${category}:${index}`);
-  return `0x${hash.slice(0, 40)}`;
+  return `buyer_${category}_${hash.slice(0, 12)}`;
 }
 
 export function createMockAgentSearches(
@@ -53,7 +53,7 @@ export function createMockAgentSearches(
 
     return {
       id: `agent_${allocation.category}_${index + 1}`,
-      wallet: walletFor(
+      agentId: agentIdFor(
         result.plan.planId,
         allocation.category,
         index,

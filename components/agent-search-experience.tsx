@@ -8,8 +8,8 @@ import {
   Palette,
   RotateCcw,
   Sparkles,
+  Store,
   UtensilsCrossed,
-  WalletCards,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -38,10 +38,6 @@ const categoryIcons: Record<Category, LucideIcon> = {
   experience: Palette,
 };
 
-function shortWallet(wallet: string): string {
-  return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
-}
-
 export function AgentSearchExperience({ result }: { result: DemoResult }) {
   const searches = useMemo(() => createMockAgentSearches(result), [result]);
   const [run, setRun] = useState(0);
@@ -65,10 +61,18 @@ function AgentSearchRun({
   searches: MockAgentSearch[];
   onReplay: () => void;
 }) {
-  const [phase, setPhase] = useState<"searching" | "complete">("searching");
+  const [phase, setPhase] = useState<"replaying" | "complete">("replaying");
   const [resolvedCount, setResolvedCount] = useState(0);
 
   useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const completionTimer = window.setTimeout(() => {
+        setResolvedCount(searches.length);
+        setPhase("complete");
+      }, 0);
+      return () => window.clearTimeout(completionTimer);
+    }
+
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
@@ -91,29 +95,30 @@ function AgentSearchRun({
       <header className={styles.heading}>
         <div>
           <span>
-            {phase === "searching"
-              ? `${searches.length} AGENT WALLETS ACTIVE`
-              : "BUNDLE ASSEMBLED"}
+            {phase === "replaying"
+              ? `${searches.length} MOCK BUYER AGENTS · REPLAY`
+              : "MOCK BUNDLE ASSEMBLED"}
           </span>
           <h2>
-            {phase === "searching"
-              ? "Searching the market in parallel."
+            {phase === "replaying"
+              ? "Replaying the finalized auction trace."
               : result.plan.occasionTitle}
           </h2>
           <p>
-            {phase === "searching"
-              ? "Each agent sees one activity, one budget and nothing else."
+            {phase === "replaying"
+              ? "The verified 0G plan is complete; this playback shows one " +
+                "scoped buyer per allocation."
               : `${result.plan.location} · ${result.plan.scheduledFor}`}
           </p>
         </div>
         <div className={styles.phasePill}>
           <i className={phase === "complete" ? styles.completeDot : ""} />
-          {phase === "searching" ? "Dreaming" : "Ready"}
+          {phase === "replaying" ? "Mock replay" : "Replay complete"}
         </div>
       </header>
 
-      {phase === "searching" ? (
-        <DreamOrbit searches={searches} resolvedCount={resolvedCount} />
+      {phase === "replaying" ? (
+        <ReplayOrbit searches={searches} resolvedCount={resolvedCount} />
       ) : (
         <>
           <div className={styles.bundleGrid}>
@@ -131,7 +136,7 @@ function AgentSearchRun({
             onClick={onReplay}
           >
             <RotateCcw size={13} />
-            Replay agent search
+            Replay mock auction trace
           </button>
         </>
       )}
@@ -139,7 +144,7 @@ function AgentSearchRun({
   );
 }
 
-function DreamOrbit({
+function ReplayOrbit({
   searches,
   resolvedCount,
 }: {
@@ -148,13 +153,13 @@ function DreamOrbit({
 }) {
   return (
     <>
-      <div className={styles.orbitScene} aria-label="Agent market search">
+      <div className={styles.orbitScene} aria-label="Mock auction replay">
         <div className={styles.dreamWash} />
         <div className={styles.orbitLine} />
         <div className={styles.core}>
           <Sparkles size={18} />
           <strong>{searches.length}</strong>
-          <span>scoped agents</span>
+          <span>mock buyers</span>
         </div>
 
         {searches.map((search, index) => {
@@ -187,15 +192,15 @@ function DreamOrbit({
                           Match
                         </>
                       ) : (
-                        "Searching"
+                        "Replay"
                       )}
                     </b>
                   </header>
                   <h3>{search.allocation.category}</h3>
-                  <code>{shortWallet(search.wallet)}</code>
+                  <code>{search.agentId}</code>
                   <footer>
-                    <WalletCards size={11} />
-                    {search.auction.bids.length} sellers · cap{" "}
+                    <Store size={11} />
+                    {search.auction.listingAuctions.length} mock listings · cap{" "}
                     {formatUsd(search.allocation.maxBudgetCents)}
                   </footer>
                 </article>
@@ -213,12 +218,12 @@ function DreamOrbit({
             </span>
             <div>
               <strong>{search.allocation.category} agent</strong>
-              <code>{shortWallet(search.wallet)}</code>
+              <code>{search.agentId}</code>
             </div>
             <b>
               {index < resolvedCount
-                ? `${search.auction.winner.sellerName} found`
-                : "scanning"}
+                ? `${search.auction.winner.sellerName} matched`
+                : "replaying"}
             </b>
           </div>
         ))}
@@ -271,8 +276,8 @@ function ResultCard({
 
         <div className={styles.resultFooter}>
           <div>
-            <span>Agent wallet</span>
-            <code>{shortWallet(search.wallet)}</code>
+            <span>Mock buyer ID</span>
+            <code>{search.agentId}</code>
           </div>
           <strong>{formatUsd(search.auction.winner.amountCents)}</strong>
         </div>
