@@ -27,9 +27,13 @@ const examples = [
   "Arrange a romantic evening tomorrow. I can spend $180.",
 ];
 
+const CREDENTIAL_FADE_MS = 340;
+
 function isUsableZeroGKey(value: string): boolean {
   return value.trim().startsWith("sk-") && value.trim().length >= 12;
 }
+
+type CredentialPanelState = "open" | "closing" | "collapsed";
 
 export function IntentBox() {
   const router = useRouter();
@@ -40,9 +44,13 @@ export function IntentBox() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
-  const [credentialPanelOpen, setCredentialPanelOpen] = useState(true);
+  const [credentialPanelState, setCredentialPanelState] =
+    useState<CredentialPanelState>("open");
   const hasUsableKey = isUsableZeroGKey(apiKey);
-  const credentialsCollapsed = hasUsableKey && !credentialPanelOpen;
+  const credentialsClosing =
+    hasUsableKey && credentialPanelState === "closing";
+  const credentialsCollapsed =
+    hasUsableKey && credentialPanelState === "collapsed";
 
   useEffect(() => {
     if (
@@ -52,6 +60,23 @@ export function IntentBox() {
       window.location.replace("http://localhost:3000/");
     }
   }, []);
+
+  useEffect(() => {
+    if (credentialPanelState !== "closing") return;
+
+    const settleTimer = window.setTimeout(
+      () => setCredentialPanelState("collapsed"),
+      CREDENTIAL_FADE_MS,
+    );
+    return () => window.clearTimeout(settleTimer);
+  }, [credentialPanelState]);
+
+  function closeCredentialPanel() {
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    setCredentialPanelState(reducedMotion ? "collapsed" : "closing");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -155,6 +180,8 @@ export function IntentBox() {
       >
         <aside
           className={`credential-sidebar ${
+            credentialsClosing ? "credential-sidebar-closing" : ""
+          } ${
             credentialsCollapsed ? "credential-sidebar-collapsed" : ""
           }`}
           id="zerog-credentials-panel"
@@ -164,7 +191,7 @@ export function IntentBox() {
             <button
               className="credential-sidebar-toggle"
               type="button"
-              onClick={() => setCredentialPanelOpen(true)}
+              onClick={() => setCredentialPanelState("open")}
               aria-controls="zerog-credentials-panel"
               aria-expanded={false}
               aria-label="Open 0G key settings"
@@ -187,7 +214,7 @@ export function IntentBox() {
               <button
                 className="credential-sidebar-close"
                 type="button"
-                onClick={() => setCredentialPanelOpen(false)}
+                onClick={closeCredentialPanel}
                 aria-label="Collapse 0G key settings"
               >
                 <ChevronLeft size={15} />
@@ -209,12 +236,12 @@ export function IntentBox() {
                   const nextKey = event.target.value;
                   setApiKey(nextKey);
                   if (!isUsableZeroGKey(nextKey)) {
-                    setCredentialPanelOpen(true);
+                    setCredentialPanelState("open");
                   }
                 }}
                 onBlur={(event) => {
                   if (isUsableZeroGKey(event.currentTarget.value)) {
-                    setCredentialPanelOpen(false);
+                    closeCredentialPanel();
                   }
                 }}
                 placeholder="sk-…"
