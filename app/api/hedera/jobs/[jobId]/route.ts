@@ -26,12 +26,10 @@ export async function GET(
   }
   return NextResponse.json({
     status: job.status,
-    mode: job.mode,
     ...(job.clearingAccountId
       ? { clearingAccountId: job.clearingAccountId }
       : {}),
     agents: job.agents,
-    auctions: job.auctions,
     listings: job.listings,
     ...(job.world ? { world: job.world } : {}),
     rivals: job.rivals,

@@ -49,18 +49,24 @@ physical delivery of dinner, flowers, or another off-chain service.
 
 ## What runs today
 
-The repository contains several progressively more realistic modes:
+The web product has one fail-closed path:
 
-| Layer | Local/default flow | Hedera market flow |
-| --- | --- | --- |
-| Planning | Real 0G private TeeML call, or deterministic mock planner | Uses the already accepted plan; no second 0G call |
-| Seller catalog | Mocked Lisbon or Milan inventory | Same mocked inventory |
-| Rival demand | Deterministic mock rivals | Mock rival personas using real testnet accounts |
-| World identity | Optional real browser registration | Explicit mix of mock human-backed and unverified rivals |
-| Auction | In-process English-auction trace | Real HCS messages and Mirror Node replay |
-| Payment | Simulated receipt | Real HTS transfer of test token `NATA` |
-| Product claim | Simulated receipt metadata | Real testnet `NATAC` NFT |
-| Fulfillment | Not implemented | Not implemented |
+| Layer | Web product |
+| --- | --- |
+| Planning | Real 0G private TeeML call with independent proof verification |
+| Seller catalog | Mocked multi-city inventory and floor prices |
+| Rival demand | Demo rival personas using real testnet accounts |
+| World identity | Real browser registration plus an explicit mix of mock human-backed and unverified rivals |
+| Auction | Real HCS messages and payer-bound Mirror Node replay |
+| Payment | Real HTS transfer of test token `NATA` |
+| Product claim | Real testnet `NATAC` NFT delivered atomically with payment |
+| Fulfillment | Not implemented |
+
+The homepage requires an explicitly verified private 0G route and a
+conservative live Hedera balance estimate before it enables the intent. Once
+launched, the verified plan goes directly to the Hedera market. If the live
+job fails, the interface reports failure or confirmed partial receipts; it
+never substitutes an in-process auction or simulated purchase.
 
 No real merchant is paid. `NATA` has no economic value and all Hedera activity
 uses testnet. A real 0G inference request may still consume credit associated
@@ -199,27 +205,12 @@ allocation per protected auction.
 
 ## Auction protocol
 
-### Local English-auction simulation
-
-Mock sellers own heterogeneous inventory rather than publishing one flat
-offer. A cinema listing identifies a screen, row, and exact pair of seats.
-Central seats generally have higher quality, estimated value, demand, and
-floor prices than side or rear seats.
-
-The local simulation:
-
-1. opens at the seller's floor;
-2. lets the scoped buyer and mock rivals respond to ascending prices;
-3. drops a bidder when the price exceeds its private valuation;
-4. awards the item to the last active bidder;
-5. prevents the same inventory from being sold twice.
-
-The UI replays the actual recorded simulation trace. It does not invent bids
-for display.
-
 ### HCS shared market
 
-The Hedera market gives each scarce listing a fresh HCS topic:
+Mock sellers own heterogeneous inventory rather than publishing one flat
+offer. A cinema listing identifies a screen, row, and exact pair of seats;
+central seats generally have higher floors. The Hedera market gives each
+scarce listing a fresh HCS topic:
 
 1. `LISTED` records the inventory and seller floor.
 2. `BID` records a bidder account and amount. A bid is valid only when Mirror
@@ -297,9 +288,10 @@ other venue.
 | Off-chain fulfillment details | Not implemented |
 
 The application server does not receive the original prompt or 0G key. After
-planning, the browser deliberately sends the derived plan and mock auction
-shape to the localhost coordinator so it can create mandates and settle them.
-The derived plan is therefore not private from that trusted local process.
+planning, the browser sends only the verified derived plan to the localhost
+coordinator. The coordinator creates the buyer mandates and all auction state
+inside the live Hedera job. The derived plan is therefore not private from
+that trusted local process.
 
 HCS is a public audit log, not a privacy system. Anyone can inspect bid amounts,
 Hedera accounts, auction timing, claim NFTs, and transaction IDs. The original
@@ -468,23 +460,6 @@ npm install
 cp .env.example .env
 ```
 
-### Local flow without 0G or Hedera
-
-```bash
-npm run demo:mock
-```
-
-This uses the deterministic planner, mock auctions, and simulated receipts.
-
-### CLI with real 0G private inference
-
-Set `ZEROG_KEY` in `.env`, then run:
-
-```bash
-npm run demo -- \
-  "Organize me a date tomorrow in Lisbon. My budget is $200."
-```
-
 ### Web flow
 
 ```bash
@@ -520,21 +495,20 @@ one at a time, and another city is added lazily when first used. The operator
 needs enough faucet HBAR to create and fund the selected sellers, buyer, and
 scoped agent accounts.
 
-### Hedera CLI modes
+### Hedera market CLI
 
 ```bash
-# Recorded local winners, atomic Hedera testnet settlement
-npm run demo:hedera:mock
+# Five private 0G plans compete in shared HCS English auctions
+npm run demo
 
-# Mock sellers bid through authenticated HCS reverse auctions
-npm run demo:live:mock
-
-# Multiple buyer plans compete in shared HCS ascending auctions
+# Same real Hedera market with deterministic plans for the demo buyers
 npm run demo:market:mock
 ```
 
-All three commands use mock planning. Remove `:mock` where a corresponding
-script exists to use `ZEROG_KEY` for the user's plan.
+Both commands require the Hedera testnet environment. The mock variant replaces
+only 0G planning for the fixed demo buyers; it does not replace the HCS
+auctions, agent wallets, ranking, timeouts, or atomic HTS settlement. There is
+no in-process auction or simulated-payment mode.
 
 ### Validate
 
@@ -553,7 +527,6 @@ the primary interaction:
 - provider service-contract and signer addresses;
 - the signed provider proof, raw signature, expected signer, and recovered
   signer;
-- the complete local auction playback and debug drawer;
 - real Hedera agent accounts and HCS bid streams;
 - HashScan links for auction topics, atomic transactions, accounts, and claim
   NFTs.
@@ -567,8 +540,6 @@ mocked marketplace actors.
 src/planner.ts                 0G request, plan parsing, local budget policy
 src/zerog-private.ts           private Router request and fail-closed handling
 src/tee-verifier.ts            on-chain service and EIP-191 signer verification
-src/auction.ts                 local scoped-agent auction orchestration
-src/sellers.ts                 mocked seller English-auction behavior
 src/hedera/market.ts           shared HCS market and coordinator settlement
 src/hedera/marketPolicy.ts     close, ranking, timeout, and exact-swap policy
 src/hedera/mirror.ts           payer-bound HCS replay

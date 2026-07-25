@@ -95,20 +95,6 @@ export interface PrivatePlanner {
   plan(intent: string, now?: Date): Promise<PlannerResult>;
 }
 
-export function resolveProofChatId(
-  response: Response,
-  responseId?: string,
-): string | undefined {
-  const responseKey =
-    response.headers.get("ZG-Res-Key") ??
-    response.headers.get("zg-res-key");
-  if (responseKey) return responseKey;
-
-  return responseId?.startsWith("chatcmpl-")
-    ? responseId.slice("chatcmpl-".length)
-    : responseId;
-}
-
 export function requireVerifiedPrivateTee(
   attestation: PlannerAttestation,
 ): asserts attestation is PlannerAttestation & {

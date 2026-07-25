@@ -15,15 +15,24 @@ import {
   KeyboardEvent,
   PointerEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
-import type { DemoResult, PlannerAttestation } from "@/src/domain";
+import type {
+  PlannerAttestation,
+  PrivatePlan,
+  PurchaseSessionResult,
+} from "@/src/domain";
 import { UnknownCityError } from "@/src/catalog";
-import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import {
+  requireVerifiedPrivateTee,
   VerifiedUnknownCityError,
   ZeroGPrivatePlanner,
 } from "@/src/planner";
+import {
+  verifyZeroGPrivateReadiness,
+  zeroGReadinessErrorMessage,
+} from "@/src/zerog-readiness";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   PrivacyDetails,
@@ -94,6 +103,7 @@ export function IntentBox() {
     "idle" | "checking" | "ok" | "failed"
   >("idle");
   const [zerogReason, setZerogReason] = useState("");
+  const zerogProbeId = useRef(0);
   const [cityMiss, setCityMiss] = useState<{
     location: string;
     available: string[];
@@ -142,66 +152,12 @@ export function IntentBox() {
   const credentialsCollapsed =
     hasUsableKey && credentialPanelState === "collapsed";
   const hederaStatus = demoReadiness?.hedera;
-
-  // Live 0G probe: a one-token inference proves the key is valid AND the
-  // router account is funded — the two ways a run would otherwise die after
-  // the user already typed their intent.
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      if (!hasUsableKey) {
-        setZerogStatus("idle");
-        setZerogReason("");
-        return;
-      }
-      setZerogStatus("checking");
-      void (async () => {
-        try {
-          const response = await fetch(
-            "https://router-api.0g.ai/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey.trim()}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: "0gm-1.0-35b-a3b",
-                max_tokens: 1,
-                messages: [{ role: "user", content: "ok" }],
-              }),
-              signal: AbortSignal.timeout(20_000),
-            },
-          );
-          if (cancelled) return;
-          if (response.ok) {
-            setZerogStatus("ok");
-            setZerogReason("");
-            return;
-          }
-          const body = (await response.json().catch(() => ({}))) as {
-            error?: { message?: string };
-          };
-          setZerogStatus("failed");
-          setZerogReason(
-            response.status === 402
-              ? "Router balance empty — top up at pc.0g.ai"
-              : response.status === 401
-                ? "Key rejected by the 0G Router"
-                : (body.error?.message ?? `Router returned ${response.status}`),
-          );
-        } catch {
-          if (cancelled) return;
-          setZerogStatus("failed");
-          setZerogReason("Could not reach the 0G Router.");
-        }
-      })();
-    }, hasUsableKey ? 900 : 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [apiKey, hasUsableKey]);
+  const canSubmit =
+    !loading &&
+    intent.trim().length >= 3 &&
+    hasUsableKey &&
+    zerogStatus === "ok" &&
+    Boolean(hederaStatus?.ready);
   const presentPrerequisites =
     Number(zerogStatus === "ok") +
     Number(worldVerified) +
@@ -252,23 +208,51 @@ export function IntentBox() {
     setCredentialPanelState(reducedMotion ? "collapsed" : "closing");
   }
 
+  async function verifyZeroGKey() {
+    if (!hasUsableKey || zerogStatus === "checking") return;
+    const probeId = ++zerogProbeId.current;
+    const key = apiKey.trim();
+    setZerogStatus("checking");
+    setZerogReason("");
+    try {
+      await verifyZeroGPrivateReadiness(key);
+      if (probeId !== zerogProbeId.current) return;
+      setZerogStatus("ok");
+      closeCredentialPanel();
+    } catch (probeError) {
+      if (probeId !== zerogProbeId.current) return;
+      setZerogStatus("failed");
+      setZerogReason(zeroGReadinessErrorMessage(probeError));
+      setCredentialPanelState("open");
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (intent.trim().length < 3 || !hasUsableKey || loading) return;
+    if (!canSubmit) return;
 
     setLoading(true);
     setError("");
     setResult(null);
+    setSettlement("idle");
+    setSettlementError("");
+    setJobId(null);
     setDeparting(false);
 
     try {
       const planner = new ZeroGPrivatePlanner(apiKey.trim());
-      const purchase = await organizeVerifiedPrivatePurchase(
-        planner,
-        intent.trim(),
-      );
+      const planned = await planner.plan(intent.trim());
+      requireVerifiedPrivateTee(planned.attestation);
+      const jobId = await startHederaMarket(planned.plan);
+      const purchase: PurchaseSessionResult = {
+        ...planned,
+        receipts: [],
+        totalSpentCents: 0,
+      };
       setResult(purchase);
-      void settleOnHedera(purchase);
+      setSettlementError("");
+      setSettlement("pending");
+      setJobId(jobId);
       setDeparting(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         await new Promise((resolve) => window.setTimeout(resolve, 520));
@@ -300,15 +284,11 @@ export function IntentBox() {
   }
 
   /**
-   * Start real testnet settlement in the trusted local coordinator. The
-   * derived plan and mock auction trace leave browser memory; the original
-   * prompt and 0G key do not. The market page streams the ledger activity.
+   * Start the real testnet market in the trusted local coordinator. Only the
+   * derived verified plan leaves browser memory; the original prompt and 0G
+   * key do not. No local auction or simulated receipt is created.
    */
-  async function settleOnHedera(purchase: DemoResult) {
-    setSettlement("pending");
-    setSettlementError("");
-    setJobId(null);
-    try {
+  async function startHederaMarket(plan: PrivatePlan): Promise<string> {
       let identityProof:
         | {
             identityAgent: `0x${string}`;
@@ -336,7 +316,7 @@ export function IntentBox() {
           },
           body: JSON.stringify({
             identityAgent: account.address,
-            planId: purchase.plan.planId,
+            planId: plan.planId,
           }),
         });
         const challenge = (await challengeResponse.json()) as {
@@ -369,9 +349,7 @@ export function IntentBox() {
           "X-Pastel-Local-Demo": "1",
         },
         body: JSON.stringify({
-          plan: purchase.plan,
-          auctions: purchase.auctions,
-          mode: "market",
+          plan,
           ...(identityProof ? { identityProof } : {}),
         }),
       });
@@ -382,21 +360,13 @@ export function IntentBox() {
       if (!response.ok || !body.jobId) {
         throw new Error(body.error ?? "Settlement failed to start.");
       }
-      setJobId(body.jobId);
-    } catch (settleError) {
-      setSettlementError(
-        settleError instanceof Error
-          ? settleError.message
-          : "Settlement failed to start.",
-      );
-      setSettlement("failed");
-    }
+      return body.jobId;
   }
 
   function handleShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      event.currentTarget.form?.requestSubmit();
+      if (canSubmit) event.currentTarget.form?.requestSubmit();
     }
   }
 
@@ -450,7 +420,7 @@ export function IntentBox() {
               <small>0G CONNECTION</small>
               <strong>Private compute</strong>
             </div>
-            {hasUsableKey && (
+            {zerogStatus === "ok" && (
               <button
                 className="credential-sidebar-close"
                 type="button"
@@ -474,13 +444,17 @@ export function IntentBox() {
                 spellCheck={false}
                 onChange={(event) => {
                   const nextKey = event.target.value;
+                  zerogProbeId.current += 1;
                   setApiKey(nextKey);
-                  if (!isUsableZeroGKey(nextKey)) {
-                    setCredentialPanelState("open");
-                  }
+                  setZerogStatus("idle");
+                  setZerogReason("");
+                  setCredentialPanelState("open");
                 }}
                 onBlur={(event) => {
-                  if (isUsableZeroGKey(event.currentTarget.value)) {
+                  if (
+                    isUsableZeroGKey(event.currentTarget.value) &&
+                    zerogStatus === "ok"
+                  ) {
                     closeCredentialPanel();
                   }
                 }}
@@ -492,20 +466,47 @@ export function IntentBox() {
 
           <div
             className={`credential-status ${
-              hasUsableKey ? "credential-ready" : ""
+              zerogStatus === "ok" ? "credential-ready" : ""
             }`}
             aria-live="polite"
           >
             <i />
             <div>
-              <strong>{hasUsableKey ? "Key ready" : "Key required"}</strong>
+              <strong>
+                {zerogStatus === "ok"
+                  ? "Private route verified"
+                  : zerogStatus === "checking"
+                    ? "Checking TeeML…"
+                    : zerogStatus === "failed"
+                      ? "Private check failed"
+                      : hasUsableKey
+                        ? "Verification required"
+                        : "Key required"}
+              </strong>
               <span>
-                {hasUsableKey
+                {zerogStatus === "ok"
                   ? "Ready for private inference"
-                  : "Add a valid 0G Router key"}
+                  : zerogStatus === "failed"
+                    ? zerogReason
+                    : hasUsableKey
+                      ? "One token will be billed only when you verify"
+                      : "Add a valid 0G Router key"}
               </span>
             </div>
           </div>
+
+          <button
+            className="zerog-verify-button"
+            type="button"
+            disabled={!hasUsableKey || zerogStatus === "checking"}
+            onClick={() => void verifyZeroGKey()}
+          >
+            {zerogStatus === "checking"
+              ? "Checking private route…"
+              : zerogStatus === "ok"
+                ? "Verify again"
+                : "Verify private route"}
+          </button>
 
           <footer id="zerog-key-help">
             <ShieldCheck size={13} />
@@ -583,12 +584,7 @@ export function IntentBox() {
               <button
                 className="launch-button"
                 type="submit"
-                disabled={
-                  loading ||
-                  intent.trim().length < 3 ||
-                  zerogStatus !== "ok" ||
-                  !hederaStatus?.ready
-                }
+                disabled={!canSubmit}
                 aria-label="Send intent"
               >
                 {loading ? (
@@ -655,7 +651,13 @@ export function IntentBox() {
                 <span>
                   <b>0G Router key</b>
                   <small>
-                    {zerogStatus === "failed" ? zerogReason : "Verified live"}
+                    {zerogStatus === "ok"
+                      ? "Private TeeML verified live"
+                      : zerogStatus === "failed"
+                        ? zerogReason
+                        : zerogStatus === "checking"
+                          ? "Billing one readiness token"
+                          : "Explicit verification required"}
                   </small>
                 </span>
                 <em>
@@ -686,7 +688,7 @@ export function IntentBox() {
                 className={`readiness-item ${
                   hederaStatus?.ready ? "readiness-item-ready" : ""
                 } ${readinessUnavailable ? "readiness-item-unavailable" : ""}`}
-                title="Checks only that HEDERA_OPERATOR_ID and HEDERA_OPERATOR_KEY are loaded by this local server. Hedera validates the signature during settlement."
+                title="Checks local Hedera credentials and a conservative live Mirror Node balance estimate before the private query can run."
               >
                 <i />
                 <span>
@@ -697,8 +699,9 @@ export function IntentBox() {
               </div>
             </div>
             <p>
-              Presence only. 0G TEE proof and Hedera signatures are verified
-              live when the run executes.
+              0G private routing and Hedera testnet runway are checked live.
+              The full TEE proof, signatures, auctions, and atomic swaps are
+              still independently verified during execution.
             </p>
           </section>
 

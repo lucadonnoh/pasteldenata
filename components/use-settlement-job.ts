@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { SettlementResult } from "@/src/orchestrator";
+import type { SettlementResult } from "@/src/domain";
 import {
-  decodeMirrorMessageBody,
   fetchAllMirrorTopicMessages,
   marketBidsFromEvents,
   parseMarketLedgerEvents,
@@ -14,14 +13,6 @@ import {
 import { usePurchaseSession } from "@/components/purchase-session";
 
 export type { MarketBid, MarketLedgerEvent };
-
-export interface LiveSellerBid {
-  sellerId: string;
-  sellerName: string;
-  offering: string;
-  amountCents: number;
-  sequenceNumber: number;
-}
 
 export interface LiveAgentView {
   category: string;
@@ -49,25 +40,11 @@ export interface MarketListingView {
 }
 
 export interface LiveAuctionView {
-  mode: "live" | "market";
   /** Local coordinator account that authenticates lifecycle HCS messages. */
   clearingAccountId?: string;
   /** Real leaf wallets, as the coordinators create them. */
   agents: LiveAgentView[];
-  /** Live mode: one HCS topic per category auction. */
-  auctions: Array<{
-    category: string;
-    auctionId: string;
-    topicId: string;
-    authorizedListings: Array<{
-      listingId: string;
-      sellerId: string;
-      accountId: string;
-    }>;
-  }>;
-  /** Live mode: real seller bids per category. */
-  bidsByCategory: Record<string, LiveSellerBid[]>;
-  /** Market mode: scarce listings and the ascending bids on each. */
+  /** Scarce listings and the ascending bids on each. */
   listings: MarketListingView[];
   bidsByItem: Record<string, MarketBid[]>;
   ledgerEventsByItem: Record<string, MarketLedgerEvent[]>;
@@ -76,6 +53,8 @@ export interface LiveAuctionView {
   lostCategories: string[];
   active: boolean;
   done: boolean;
+  failed: boolean;
+  failure?: string;
 }
 
 const MIRROR_BASE = "https://testnet.mirrornode.hedera.com";
@@ -87,10 +66,8 @@ const USER_BUYER_NAME = "You";
 
 interface JobSnapshot {
   status: "running" | "done" | "failed";
-  mode?: "live" | "market";
   clearingAccountId?: string;
   agents?: LiveAuctionView["agents"];
-  auctions?: LiveAuctionView["auctions"];
   listings?: MarketListingView[];
   rivals?: string[];
   settledCategories?: string[];
@@ -110,6 +87,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     result,
     setResult,
     settlement,
+    settlementError,
     setSettlement,
     setSettlementError,
     jobId,
@@ -119,19 +97,14 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     resultRef.current = result;
   }, [result]);
 
-  const [mode, setMode] = useState<"live" | "market">("market");
   const [clearingAccountId, setClearingAccountId] = useState<
     string | undefined
   >();
   const [agents, setAgents] = useState<LiveAuctionView["agents"]>([]);
-  const [auctions, setAuctions] = useState<LiveAuctionView["auctions"]>([]);
   const [listings, setListings] = useState<MarketListingView[]>([]);
   const [rivals, setRivals] = useState<string[]>([]);
   const [settledCategories, setSettledCategories] = useState<string[]>([]);
   const [lostCategories, setLostCategories] = useState<string[]>([]);
-  const [bidsByCategory, setBidsByCategory] = useState<
-    Record<string, LiveSellerBid[]>
-  >({});
   const [bidsByItem, setBidsByItem] = useState<Record<string, MarketBid[]>>(
     {},
   );
@@ -200,12 +173,10 @@ export function useSettlementJob(): LiveAuctionView | undefined {
         statusFailures = 0;
         const job = (await response.json()) as JobSnapshot;
         if (cancelled) return;
-        if (job.mode) setMode(job.mode);
         if (job.clearingAccountId) {
           setClearingAccountId(job.clearingAccountId);
         }
         setAgents(job.agents ?? []);
-        setAuctions(job.auctions ?? []);
         setListings(job.listings ?? []);
         setRivals(job.rivals ?? []);
         setSettledCategories(job.settledCategories ?? []);
@@ -245,12 +216,9 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     .filter((agent) => agent.buyerName === USER_BUYER_NAME)
     .map((agent) => agent.accountId)
     .join(",");
-  const topicsKey =
-    mode === "market"
-      ? listings.map((listing) => `${listing.itemId}:${listing.topicId}`).join(",")
-      : auctions
-          .map((auction) => `${auction.category}:${auction.topicId}`)
-          .join(",");
+  const topicsKey = listings
+    .map((listing) => `${listing.itemId}:${listing.topicId}`)
+    .join(",");
 
   useEffect(() => {
     if (!topicsKey || settlement !== "pending") return;
@@ -262,107 +230,35 @@ export function useSettlementJob(): LiveAuctionView | undefined {
       if (reading) return;
       reading = true;
       try {
-        if (mode === "market") {
-          if (!clearingAccountId) return;
-          const nextBids: Record<string, MarketBid[]> = {};
-          const nextEvents: Record<string, MarketLedgerEvent[]> = {};
-          await Promise.all(
-            listings.map(async ({ itemId, topicId }) => {
-              try {
-                const messages = await fetchAllMirrorTopicMessages(
-                  MIRROR_BASE,
-                  topicId,
-                );
-                const events = parseMarketLedgerEvents(
-                  messages,
-                  itemId,
-                  clearingAccountId,
-                  mine,
-                );
-                nextEvents[itemId] = events;
-                nextBids[itemId] = marketBidsFromEvents(events);
-              } catch {
-                // Mirror hiccup; keep the previous view for this item.
-              }
-            }),
-          );
-          if (!cancelled && Object.keys(nextEvents).length > 0) {
-            setLedgerEventsByItem((previous) => ({
-              ...previous,
-              ...nextEvents,
-            }));
-            setBidsByItem((previous) => ({ ...previous, ...nextBids }));
-          }
-          return;
-        }
-
-        const next: Record<string, LiveSellerBid[]> = {};
+        if (!clearingAccountId) return;
+        const nextBids: Record<string, MarketBid[]> = {};
+        const nextEvents: Record<string, MarketLedgerEvent[]> = {};
         await Promise.all(
-          auctions.map(async ({
-            category,
-            auctionId,
-            topicId,
-            authorizedListings,
-          }) => {
+          listings.map(async ({ itemId, topicId }) => {
             try {
               const messages = await fetchAllMirrorTopicMessages(
                 MIRROR_BASE,
                 topicId,
               );
-              const authorized = new Map(
-                authorizedListings.map((listing) => [
-                  listing.listingId,
-                  listing,
-                ]),
+              const events = parseMarketLedgerEvents(
+                messages,
+                itemId,
+                clearingAccountId,
+                mine,
               );
-              next[category] = messages
-                .flatMap((item) => {
-                  const body = decodeMirrorMessageBody(item.message);
-                  return body
-                    ? [
-                        {
-                          body,
-                          payer: item.payer_account_id,
-                          sequence: item.sequence_number,
-                        },
-                      ]
-                    : [];
-                })
-                .filter(
-                  ({ body, payer }) => {
-                    if (
-                      body.type !== "BID" ||
-                      body.auctionId !== auctionId ||
-                      typeof body.listingId !== "string" ||
-                      typeof body.sellerId !== "string" ||
-                      typeof body.sellerName !== "string" ||
-                      typeof body.offering !== "string" ||
-                      !Number.isSafeInteger(body.amountCents) ||
-                      Number(body.amountCents) <= 0
-                    ) {
-                      return false;
-                    }
-                    const listing = authorized.get(body.listingId);
-                    return (
-                      listing?.sellerId === body.sellerId &&
-                      listing.accountId === payer
-                    );
-                  },
-                )
-                .map(({ body, sequence }) => ({
-                  sellerId: String(body.sellerId),
-                  sellerName: String(body.sellerName),
-                  offering: String(body.offering),
-                  amountCents: Number(body.amountCents),
-                  sequenceNumber: sequence,
-                }));
+              nextEvents[itemId] = events;
+              nextBids[itemId] = marketBidsFromEvents(events);
             } catch {
-              // Mirror hiccup; keep the previous view for this topic.
+              // Mirror hiccup; keep the previous view for this item.
             }
           }),
         );
-        if (!cancelled && Object.keys(next).length > 0) {
-          setBidsByCategory((previous) => ({ ...previous, ...next }));
+        if (!cancelled && Object.keys(nextEvents).length > 0) {
+          setLedgerEventsByItem((previous) => ({
+            ...previous,
+            ...nextEvents,
+          }));
+          setBidsByItem((previous) => ({ ...previous, ...nextBids }));
         }
       } finally {
         reading = false;
@@ -380,19 +276,15 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     topicsKey,
     yourAgentIds,
     clearingAccountId,
-    mode,
     settlement,
   ]);
 
-  if (!jobId || settlement === "idle" || settlement === "failed") {
+  if (!jobId || settlement === "idle") {
     return undefined;
   }
   return {
-    mode,
     ...(clearingAccountId ? { clearingAccountId } : {}),
     agents,
-    auctions,
-    bidsByCategory,
     listings,
     bidsByItem,
     ledgerEventsByItem,
@@ -401,5 +293,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     lostCategories,
     active: settlement === "pending",
     done: settlement === "settled",
+    failed: settlement === "failed",
+    ...(settlementError ? { failure: settlementError } : {}),
   };
 }

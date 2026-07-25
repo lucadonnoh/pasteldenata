@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ZeroGPrivateRouterClient } from "../src/zerog-private";
+import { verifyZeroGPrivateReadiness } from "../src/zerog-readiness";
 
 test("private Router client sends the documented TeeML controls", async () => {
   const originalFetch = globalThis.fetch;
@@ -48,7 +49,7 @@ test("private Router client sends the documented TeeML controls", async () => {
       },
     });
 
-    assert.equal(completion.chatId, "header-proof-key");
+    assert.equal(completion.chatId, "body-proof-key");
     assert.match(completion.responseText, /tee_verified/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -105,4 +106,37 @@ test("private Router client derives the provider proof key from the response ID"
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("readiness accepts only a verified private TeeML trace", async () => {
+  await verifyZeroGPrivateReadiness("sk-test", {
+    complete: async () => ({
+      response: {
+        x_0g_trace: {
+          request_id: "request-1",
+          provider: "0x0000000000000000000000000000000000000001",
+          tee_verified: true,
+        },
+      },
+      responseText: "{}",
+      chatId: "proof-1",
+    }),
+  });
+
+  await assert.rejects(
+    verifyZeroGPrivateReadiness("sk-test", {
+      complete: async () => ({
+        response: {
+          x_0g_trace: {
+            request_id: "request-1",
+            provider: "0x0000000000000000000000000000000000000001",
+            tee_verified: false,
+          },
+        },
+        responseText: "{}",
+        chatId: "proof-1",
+      }),
+    }),
+    /no verified TeeML trace/,
+  );
 });

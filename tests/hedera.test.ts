@@ -10,11 +10,7 @@ import {
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import type {
-  AuctionResult,
-  PrivatePlan,
-  Seller,
-} from "../src/domain";
+import type { Seller } from "../src/domain";
 import {
   parsePrivateKey,
   type HederaContext,
@@ -48,8 +44,6 @@ import {
   persistLeafWallet,
   readLeafWallet,
 } from "../src/hedera/walletVault";
-import { organizePrivatePurchase } from "../src/orchestrator";
-import { validateSettlement } from "../src/payments";
 import { MockPrivatePlanner } from "../src/planner";
 import { assertLocalDemoRequest } from "../src/server/local-demo-request";
 import { parseSettlementRequest } from "../src/server/settlement-request";
@@ -797,33 +791,6 @@ test("leaf wallet recovery records are local and owner-only", () => {
   assert.equal(statSync(join(directory, ".pasteldenata", "hedera-wallets")).mode & 0o777, 0o700);
 });
 
-test("settlement policy rejects zero and negative winner amounts", () => {
-  const plan = {
-    planId: "plan-1",
-    totalBudgetCents: 10_000,
-  } as PrivatePlan;
-  const auction = {
-    category: "cinema",
-    mandate: {
-      id: "mandate-1",
-      planId: "plan-1",
-      category: "cinema",
-      maxAmountCents: 5000,
-    },
-    winner: { amountCents: -100 },
-  } as AuctionResult;
-
-  assert.throws(
-    () => validateSettlement(plan, [auction]),
-    /positive integer/,
-  );
-  auction.winner.amountCents = 0;
-  assert.throws(
-    () => validateSettlement(plan, [auction]),
-    /positive integer/,
-  );
-});
-
 test("market item ids are namespaced per run", () => {
   const first = marketItemId("run-a", "cinema", "seat-e6-e7");
   const retry = marketItemId("run-b", "cinema", "seat-e6-e7");
@@ -855,41 +822,35 @@ test("protected markets fail closed without a credential verifier", () => {
   );
 });
 
-test("settlement API validates the complete plan and auction relationship", async () => {
-  const purchase = await organizePrivatePurchase(
-    new MockPrivatePlanner(),
+test("settlement API accepts only a complete plan, never a mock auction trace", async () => {
+  const purchase = await new MockPrivatePlanner().plan(
     "Organize me a date tomorrow in Lisbon. My budget is $200.",
     new Date("2026-07-25T10:00:00Z"),
   );
   const parsed = parseSettlementRequest({
     plan: purchase.plan,
-    auctions: purchase.auctions,
-    mode: "market",
   });
-  assert.equal(parsed.auctions.length, parsed.plan.allocations.length);
+  assert.deepEqual(parsed.plan, purchase.plan);
   assert.throws(
     () =>
       parseSettlementRequest({
         plan: purchase.plan,
-        auctions: purchase.auctions,
+        auctions: [],
         mode: "market",
-        identityAgent: "0x0000000000000000000000000000000000000001",
       }),
     /Unrecognized key/,
   );
 
-  const tampered = structuredClone(purchase);
-  const firstAuction = tampered.auctions[0];
-  assert.ok(firstAuction);
-  firstAuction.mandate.maxAmountCents += 1;
+  const tampered = structuredClone(purchase.plan);
+  const firstAllocation = tampered.allocations[0];
+  assert.ok(firstAllocation);
+  firstAllocation.maxBudgetCents += 1;
   assert.throws(
     () =>
       parseSettlementRequest({
-        plan: tampered.plan,
-        auctions: tampered.auctions,
-        mode: "market",
+        plan: tampered,
       }),
-    /does not match its scoped allocation/,
+    /allocations and contingency must equal the total budget/,
   );
 });
 

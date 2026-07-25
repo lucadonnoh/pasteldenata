@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { sellersForLocation } from "../catalog";
-import type { AuctionResult, PrivatePlan } from "../domain";
+import type { PrivatePlan, SettlementResult } from "../domain";
 import { connectHedera } from "../hedera/client";
 import { ensureInfra, type HederaInfra } from "../hedera/infra";
-import { runMarket, type MarketBuyer } from "../hedera/market";
+import {
+  marketMandateId,
+  runMarket,
+  type MarketBuyer,
+} from "../hedera/market";
 import { HederaPartialSettlementError } from "../hedera/settle";
-import { settleWithSwarm } from "../hedera/swarm";
-import type { SettlementResult } from "../orchestrator";
 import { MockPrivatePlanner } from "../planner";
+import { marketAgentRunwayHbar } from "./market-runway";
 import {
   createHumanResolver,
   createDemoAwareHumanResolver,
@@ -16,8 +19,6 @@ import {
   type AuctionPass,
   type HumanResolver,
 } from "./world-gateway";
-
-export type SettlementMode = "live" | "market";
 
 export interface JobAgent {
   category: string;
@@ -69,30 +70,18 @@ export interface JobWorld {
 export interface SettlementJob {
   id: string;
   status: "running" | "done" | "failed";
-  mode: SettlementMode;
   /** Browser-registered identity agent backing the user, when provided. */
   identityAgent?: string;
   /** Clearing payer used to authenticate HCS lifecycle messages. */
   clearingAccountId?: string;
   /** Real leaf wallets, streamed as they are created and funded. */
   agents: JobAgent[];
-  /** Live mode: one auction topic per category. */
-  auctions: Array<{
-    category: string;
-    auctionId: string;
-    topicId: string;
-    authorizedListings: Array<{
-      listingId: string;
-      sellerId: string;
-      accountId: string;
-    }>;
-  }>;
-  /** Market mode: scarce listings, floor = the seller's price. */
+  /** Scarce listings, where the seller's price is the auction floor. */
   listings: JobListing[];
-  /** Rival buyer personas competing against the user (market mode). */
+  /** Demo rival buyers competing against the user. */
   rivals: string[];
   settledCategories: string[];
-  /** Market mode: categories where the user's agent was outbid everywhere. */
+  /** Categories where the user's agent was outbid everywhere. */
   lostCategories: string[];
   world?: JobWorld;
   result?: SettlementResult;
@@ -149,98 +138,115 @@ export interface SettlementJobOptions {
   identityAgent?: string;
 }
 
-export function startSettlementJob(
-  plan: PrivatePlan,
-  auctions: AuctionResult[],
-  mode: SettlementMode,
-  options: SettlementJobOptions = {},
-): SettlementJob {
-  prune();
+function assertNoActiveJob(): void {
   const active = [...jobs.values()].find((job) => job.status === "running");
   if (active) {
     throw new SettlementJobBusyError(
       `Settlement job ${active.id} is still running. Wait for it to finish before starting another.`,
     );
   }
+}
+
+async function createMarketBuyers(
+  plan: PrivatePlan,
+): Promise<MarketBuyer[]> {
+  const planner = new MockPrivatePlanner();
+  const rivals = await Promise.all(
+    RIVAL_PERSONAS.map(async (persona) => ({
+      name: persona.name,
+      plan: {
+        ...(await planner.plan(persona.intent, new Date())).plan,
+        location: plan.location,
+      },
+    })),
+  );
+  return [{ name: USER_BUYER_NAME, plan }, ...rivals];
+}
+
+/**
+ * Refuse to launch a run whose agent wallets cannot be funded. The homepage
+ * uses a conservative worst-case estimate; this second check uses the exact
+ * verified plan and therefore must agree before any job or ledger mutation is
+ * created.
+ */
+async function assertOperatorRunway(leafCount: number): Promise<void> {
+  const operatorId = process.env.HEDERA_OPERATOR_ID?.trim();
+  if (!operatorId) {
+    throw new Error("HEDERA_OPERATOR_ID is missing.");
+  }
+  const needed = marketAgentRunwayHbar(leafCount);
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://testnet.mirrornode.hedera.com/api/v1/accounts/${operatorId}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+  } catch {
+    throw new Error(
+      "Could not confirm the Hedera operator balance from Mirror Node.",
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Could not confirm the Hedera operator balance (HTTP ${response.status}).`,
+    );
+  }
+  const data = (await response.json()) as { balance?: { balance?: number } };
+  const tinybars = data.balance?.balance;
+  if (typeof tinybars !== "number" || !Number.isFinite(tinybars)) {
+    throw new Error("Mirror Node returned no Hedera operator balance.");
+  }
+  const hbar = tinybars / 1e8;
+  if (hbar < needed) {
+    throw new Error(
+      `Operator has ${hbar.toFixed(1)} HBAR but this market needs ~${needed}. ` +
+        "Refill the Hedera testnet account before running.",
+    );
+  }
+}
+
+export async function startSettlementJob(
+  plan: PrivatePlan,
+  options: SettlementJobOptions = {},
+): Promise<SettlementJob> {
+  prune();
+  assertNoActiveJob();
+  const buyers = await createMarketBuyers(plan);
+  await assertOperatorRunway(
+    buyers.reduce((sum, buyer) => sum + buyer.plan.allocations.length, 0),
+  );
+  // The awaits above allow another local request to start first.
+  assertNoActiveJob();
   const job: SettlementJob = {
     id: randomUUID(),
     status: "running",
-    mode,
     ...(options.identityAgent ? { identityAgent: options.identityAgent } : {}),
     agents: [],
-    auctions: [],
     listings: [],
-    rivals: mode === "market" ? RIVAL_PERSONAS.map((p) => p.name) : [],
+    rivals: RIVAL_PERSONAS.map((persona) => persona.name),
     settledCategories: [],
     lostCategories: [],
-    ...(mode === "market"
-      ? {
-          world: {
-            enabled: true,
-            scalperMode: options.scalperMode === true,
-            userIdentityProved: Boolean(options.identityAgent),
-            mockBuyers: [],
-            passesIssued: 0,
-            sybilRejections: 0,
-            notHumanBacked: 0,
-            blocked: [],
-          },
-        }
-      : {}),
+    world: {
+      enabled: true,
+      scalperMode: options.scalperMode === true,
+      userIdentityProved: Boolean(options.identityAgent),
+      mockBuyers: [],
+      passesIssued: 0,
+      sybilRejections: 0,
+      notHumanBacked: 0,
+      blocked: [],
+    },
     createdAt: Date.now(),
   };
   jobs.set(job.id, job);
-  void execute(job, plan, auctions);
+  void execute(job, plan, buyers);
   return job;
-}
-
-const ACCOUNT_CREATION_HBAR = 1.5;
-const LIVE_LEAF_FLOAT_HBAR = 2;
-const MARKET_LEAF_FLOAT_HBAR = 5;
-const RUN_MARGIN_HBAR = 6;
-
-/**
- * Refuse to start a run the operator cannot afford: a mid-run failure kills
- * agents before they can return their fee float, stranding it in dead
- * wallets forever. Failing here costs nothing.
- */
-async function assertOperatorRunway(
-  leafCount: number,
-  feeFloatHbar: number,
-): Promise<void> {
-  try {
-    const response = await fetch(
-      "https://testnet.mirrornode.hedera.com/api/v1/accounts/" +
-        process.env.HEDERA_OPERATOR_ID,
-      { signal: AbortSignal.timeout(10_000) },
-    );
-    if (!response.ok) return;
-    const data = (await response.json()) as { balance?: { balance?: number } };
-    const hbar = (data.balance?.balance ?? 0) / 1e8;
-    const needed = Math.ceil(
-      leafCount * (ACCOUNT_CREATION_HBAR + feeFloatHbar) + RUN_MARGIN_HBAR,
-    );
-    if (hbar < needed) {
-      throw new Error(
-        `Operator has ${hbar.toFixed(1)} HBAR but this run needs ~${needed}. ` +
-          "Refill at portal.hedera.com/faucet (100 HBAR daily) before running.",
-      );
-    }
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith("Operator has ")
-    ) {
-      throw error;
-    }
-    // Mirror availability must not become a new dependency for settlement.
-  }
 }
 
 async function execute(
   job: SettlementJob,
   plan: PrivatePlan,
-  auctions: AuctionResult[],
+  buyers: MarketBuyer[],
 ): Promise<void> {
   let ctx: ReturnType<typeof connectHedera> | undefined;
   let infra: HederaInfra | undefined;
@@ -250,66 +256,8 @@ async function execute(
     const roster = sellersForLocation(plan.location);
     infra = await ensureInfra(ctx, roster);
 
-    if (job.mode === "live") {
-      await assertOperatorRunway(auctions.length, LIVE_LEAF_FLOAT_HBAR);
-      const result = await settleWithSwarm(plan, auctions, { ...ctx, infra }, {
-        live: true,
-        onEvent: (event) => {
-          switch (event.type) {
-            case "WALLET_CREATED": {
-              const allocation = plan.allocations.find(
-                (item) => item.category === event.category,
-              );
-              job.agents.push({
-                category: event.category,
-                accountId: event.accountId,
-                buyerName: USER_BUYER_NAME,
-                initialCapCents: allocation?.maxBudgetCents ?? 0,
-                grantedCents: 0,
-                effectiveCapCents: allocation?.maxBudgetCents ?? 0,
-                grantTransactions: [],
-              });
-              break;
-            }
-            case "AUCTION_OPEN":
-              job.auctions.push({
-                category: event.category,
-                auctionId: event.auctionId,
-                topicId: event.topicId,
-                authorizedListings: event.authorizedListings,
-              });
-              break;
-            case "CATEGORY_SETTLED":
-              job.settledCategories.push(event.category);
-              break;
-          }
-        },
-      });
-      job.result = result;
-      job.status = "done";
-      return;
-    }
-
-    // Market mode: the user's private plan competes against rival buyers'
-    // mandates in ascending auctions where the seller's price is the floor.
-    const planner = new MockPrivatePlanner();
-    const rivals: MarketBuyer[] = await Promise.all(
-      RIVAL_PERSONAS.map(async (persona) => ({
-        name: persona.name,
-        plan: {
-          ...(await planner.plan(persona.intent, new Date())).plan,
-          location: plan.location,
-        },
-      })),
-    );
-    const buyers: MarketBuyer[] = [
-      { name: USER_BUYER_NAME, plan },
-      ...rivals,
-    ];
-    await assertOperatorRunway(
-      buyers.reduce((sum, buyer) => sum + buyer.plan.allocations.length, 0),
-      MARKET_LEAF_FLOAT_HBAR,
-    );
+    // The verified private plan now enters the Hedera market directly. There
+    // is no browser-created auction winner or simulated receipt to reconcile.
 
     // World AgentKit: one-per-human listings require an auction-scoped pass.
     // The user's proved identity agent resolves through the canonical
@@ -488,18 +436,13 @@ async function execute(
 
     const user = market.buyers[0];
     if (!user) throw new Error("Market run returned no user outcomes.");
-    const mandates = new Map(
-      auctions.map((auction) => [auction.category, auction.mandate.id]),
-    );
     job.result = {
       receipts: user.outcomes
         .filter((outcome) => outcome.result.lost !== true)
         .map((outcome) => ({
           id: outcome.result.transactionId,
           planId: plan.planId,
-          mandateId:
-            mandates.get(outcome.category) ??
-            `mandate_${outcome.category}`,
+          mandateId: marketMandateId(plan.planId, outcome.category),
           sellerId: outcome.result.sellerId,
           sellerName: outcome.result.sellerName,
           listingId: outcome.result.listingId,
@@ -538,9 +481,7 @@ async function execute(
           paymentTokenId: infra.paymentTokenId,
           claimTokenId: infra.claimTokenId,
           buyerAccountId:
-            job.mode === "market"
-              ? (infra.marketBuyers?.[0]?.accountId ?? infra.buyer.accountId)
-              : infra.buyer.accountId,
+            infra.marketBuyers?.[0]?.accountId ?? infra.buyer.accountId,
           clearingAccountId: ctx.operatorId.toString(),
         },
       };

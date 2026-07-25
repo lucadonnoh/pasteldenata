@@ -45,7 +45,7 @@ import {
   type HederaSettlementContext,
   type SettlementFailure,
 } from "./settle";
-import { mintClaimTo } from "./swarm";
+import { mintClaimTo } from "./claim";
 import { persistLeafWallet } from "./walletVault";
 
 const LEAF_AGENT_PATH = leafAgentPath();
@@ -225,6 +225,13 @@ async function withItemAction<T>(
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function marketMandateId(
+  planId: string,
+  category: Category,
+): string {
+  return `mandate_${hash(`${planId}|${category}`).slice(0, 16)}`;
 }
 
 export function marketItemId(
@@ -683,9 +690,10 @@ async function runMarketLeaf(
   ctx: HederaSettlementContext,
   shared: SharedMarketState,
 ): Promise<MarketLeafRun> {
-  const mandateId = `mandate_${hash(
-    `${buyer.plan.planId}|${allocation.category}`,
-  ).slice(0, 16)}`;
+  const mandateId = marketMandateId(
+    buyer.plan.planId,
+    allocation.category,
+  );
   const wallet = await createAccount(ctx, LEAF_FEE_HBAR);
   const recoveryPath = persistLeafWallet(wallet, {
     planId: buyer.plan.planId,

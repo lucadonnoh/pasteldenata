@@ -4,10 +4,7 @@ import { ArrowLeft, Landmark } from "lucide-react";
 import Link from "next/link";
 
 import { AgentSearchExperience } from "@/components/agent-search-experience";
-import {
-  MockExecutionDetails,
-  ZeroGVerificationReceipt,
-} from "@/components/execution-details";
+import { ZeroGVerificationReceipt } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
 import { useSettlementJob } from "@/components/use-settlement-job";
 
@@ -16,7 +13,7 @@ import styles from "@/app/market/market.module.css";
 export function MarketWorkspace() {
   const { result, settlement, settlementError } = usePurchaseSession();
   const onChainReceipts =
-    usePurchaseSession().result?.receipts.filter(
+    result?.receipts.filter(
       (receipt) => receipt.status === "hedera-settled",
     ).length ?? 0;
   const partial = settlement === "failed" && onChainReceipts > 0;
@@ -44,7 +41,9 @@ export function MarketWorkspace() {
         <div
           className={`${styles.settlementStrip} ${
             settlement === "settled" || partial
-              ? styles.settlementOk
+              ? partial
+                ? styles.settlementFailed
+                : styles.settlementOk
               : settlement === "failed"
                 ? styles.settlementFailed
                 : ""
@@ -59,8 +58,8 @@ export function MarketWorkspace() {
               {settlement === "settled" && "Settled on Hedera testnet"}
               {settlement === "failed" &&
                 (partial
-                  ? `Your bundle settled on-chain — ${onChainReceipts} purchase${onChainReceipts === 1 ? "" : "s"} confirmed`
-                  : "Hedera settlement unavailable — showing the simulation")}
+                  ? `Partially settled on Hedera — ${onChainReceipts} purchase${onChainReceipts === 1 ? "" : "s"} confirmed`
+                  : "Hedera market failed closed — no purchase completed")}
             </strong>
             <p>
               {settlement === "settled" &&
@@ -69,20 +68,22 @@ export function MarketWorkspace() {
                   : "Receipts link to HashScan below.")}
               {settlement === "failed" &&
                 (partial
-                  ? `Reconciliation flagged issues elsewhere in the market: ${settlementError || "see the coordinator log."}`
-                  : settlementError ||
-                    "The local coordinator could not settle on testnet; the mock trace below is unaffected.")}
+                  ? `${settlementError || "The remaining mandates did not settle."} No simulated purchases were substituted.`
+                  : `${settlementError || "The local coordinator could not settle on testnet."} No simulated result was created.`)}
             </p>
           </div>
           <b>
-            {settlement === "settled" || partial ? "ON-CHAIN" : "SIMULATED"}
+            {settlement === "settled"
+              ? "ON-CHAIN"
+              : partial
+                ? "PARTIAL"
+                : "FAILED CLOSED"}
           </b>
         </div>
       )}
 
       <AgentSearchExperience result={result} {...(live ? { live } : {})} />
       <ZeroGVerificationReceipt result={result} />
-      <MockExecutionDetails result={result} />
     </section>
   );
 }
