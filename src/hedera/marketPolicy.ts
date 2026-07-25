@@ -8,9 +8,12 @@ import {
   type ItemState,
 } from "./mirror";
 
-export const MARKET_MIN_AUCTION_MS = 30_000;
-export const MARKET_QUIET_CLOSE_MS = 14_000;
-export const MARKET_HARD_CLOSE_MS = 180_000;
+// Judge mode targets a complete market in roughly 45 seconds. These windows
+// remain consensus-time rules enforced independently by seller policy; they
+// are shorter, not simulated or bypassed.
+export const MARKET_MIN_AUCTION_MS = 4_000;
+export const MARKET_QUIET_CLOSE_MS = 2_000;
+export const MARKET_HARD_CLOSE_MS = 25_000;
 export const MARKET_CLAIM_WINDOW_MS = 30_000;
 
 export interface MarketWinnerExpectation {

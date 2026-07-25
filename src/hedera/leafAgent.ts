@@ -39,11 +39,11 @@ import {
  * mandate cap (plus any contingency the root explicitly grants on-chain).
  */
 
-const POLL_MS = 2500;
-const MIN_AUCTION_MS = 15_000;
-const QUIET_CLOSE_MS = 8_000;
-const TOP_UP_AFTER_QUIET_MS = 10_000;
-const HARD_CLOSE_MS = 120_000;
+const POLL_MS = 750;
+const MIN_AUCTION_MS = 4_000;
+const QUIET_CLOSE_MS = 2_000;
+const TOP_UP_AFTER_QUIET_MS = 5_000;
+const HARD_CLOSE_MS = 25_000;
 // Contested (multi-buyer) auctions wait longer so rivals get to counter-bid
 // before a leader can close — otherwise the first floor bid snipes the item.
 
@@ -314,7 +314,7 @@ async function contestedRun(
   const pending = new Map<string, number>();
 
   const increment = (floorCents: number) =>
-    Math.max(25, Math.round(floorCents * 0.02));
+    Math.max(100, Math.round(floorCents * 0.05));
 
   const report = async (outcome: {
     listing?: ContestedListing;

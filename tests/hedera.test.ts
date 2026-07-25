@@ -102,6 +102,10 @@ test("Hedera seller provisioning checkpoints progress and resumes", async () => 
       { accountId: "0.0.12", privateKey: "pool-3" },
       { accountId: "0.0.13", privateKey: "pool-4" },
     ],
+    marketAgents: Array.from({ length: 8 }, (_, index) => ({
+      accountId: `0.0.${20 + index}`,
+      privateKey: `agent-pool-${index + 1}`,
+    })),
   };
   const checkpoints: HederaInfra[] = [];
   let attempts = 0;
@@ -593,16 +597,16 @@ test("seller policy independently derives the winner before signing", () => {
     marketCloseDelayMs(
       open,
       { buyerAccountId: "0.0.202", amountCents: 2600 },
-      1_020_000,
+      1_013_000,
     ),
-    6_000,
+    1_000,
   );
   assert.throws(
     () =>
       marketCloseDelayMs(
         open,
         { buyerAccountId: "0.0.201", amountCents: 2500 },
-        1_030_000,
+        1_014_000,
       ),
     /not the current highest bidder/,
   );
@@ -611,7 +615,7 @@ test("seller policy independently derives the winner before signing", () => {
     marketCloseDelayMs(
       open,
       { buyerAccountId: "0.0.201", amountCents: 2500 },
-      1_170_000,
+      1_015_000,
     ),
     0,
   );
@@ -630,7 +634,7 @@ test("seller policy independently derives the winner before signing", () => {
         buyerAccountId: "0.0.202",
         amountCents: 2600,
       },
-      1_040_000,
+      1_039_000,
     ),
   );
   assert.throws(
@@ -641,7 +645,7 @@ test("seller policy independently derives the winner before signing", () => {
           buyerAccountId: "0.0.201",
           amountCents: 2500,
         },
-        1_040_000,
+        1_039_000,
       ),
     /does not match the current claim/,
   );
@@ -684,7 +688,7 @@ test("seller policy independently derives the winner before signing", () => {
         buyerAccountId: "0.0.201",
         amountCents: 2500,
       },
-      1_070_000,
+      1_089_000,
     ),
   );
   assert.throws(

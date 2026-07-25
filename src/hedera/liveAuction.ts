@@ -11,8 +11,8 @@ import {
   type AuthorizedSeller,
 } from "./mirror";
 
-const POLL_MS = 2500;
-const MAX_RUNTIME_MS = 150_000;
+const POLL_MS = 1_000;
+const MAX_RUNTIME_MS = 25_000;
 
 interface LiveSellerListing {
   seller: Seller;

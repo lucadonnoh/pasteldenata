@@ -18,7 +18,7 @@ import {
  *
  * The gateway consumes the sensitive fact once and emits only scoped,
  * minimal credentials. A buyer's registered identity agent proves
- * human-backing a single time; each fresh leaf wallet then receives an
+ * human-backing a single time; each scoped leaf wallet then receives an
  * AuctionPass for one specific auction. The pass carries an
  * auction-scoped nullifier:
  *
@@ -174,7 +174,7 @@ export class WorldGateway {
   }
 
   /**
-   * Enroll one fresh leaf wallet into one auction on behalf of a registered
+   * Enroll one scoped leaf wallet into one auction on behalf of a registered
    * identity agent. The identity agent's address is resolved through the
    * AgentBook; the humanId never leaves this method.
    */
