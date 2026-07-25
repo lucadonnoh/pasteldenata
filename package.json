@@ -21,11 +21,13 @@
     "hedera:setup": "tsx src/hedera/setup.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test && npm run lint"
+    "check": "npm run typecheck && npm test && npm run lint",
+    "demo:scalper": "tsx src/server/scalper-demo.ts"
   },
   "dependencies": {
     "@hashgraph/sdk": "^2.81.0",
     "@noble/hashes": "^2.2.0",
+    "@worldcoin/agentkit": "^0.2.0",
     "dotenv": "^16.6.1",
     "ethers": "^6.17.0",
     "lucide-react": "^1.26.0",
