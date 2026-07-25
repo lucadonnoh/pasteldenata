@@ -77,6 +77,28 @@ single-process escrow fallback. In every mode the policy checks run in code
 first, and the token balances enforce the hard budget even against a
 malicious planner output.
 
+## Multi-buyer open market (`--market`)
+
+Five buyers, five private mandates, one public market. Each persona's intent
+goes to its own private planner call; nobody — including the other buyers —
+sees anyone else's budget or priorities. Every seller lists one scarce item
+at its price, which is the **auction floor**: competition between strangers'
+agents is the only thing that pushes prices up. Agents bid ascending on
+their best-scored affordable listing, raise when outbid, ask their own root
+for contingency when priced out (granted as a real on-chain transfer
+mid-war), retarget when their item sells to someone else, and walk away when
+outbid beyond their mandate. First settlement wins the item; one table can
+never sell twice.
+
+A single run produces genuine market behavior: bid wars 20–30 messages deep
+on popular items, prices settling 20%+ above floor, and scarcity allocated
+by willingness to pay — all replayable per item on HashScan.
+
+```bash
+npm run demo:market         # five 0G-planned buyers compete
+npm run demo:market:mock    # five mock-planned buyers compete
+```
+
 ## What is missing
 
 - **Independent seller agents.** Sellers bid from their own Hedera accounts,

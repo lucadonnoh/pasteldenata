@@ -349,7 +349,7 @@ async function runLeaf(
             );
           }
           const seller = requireSeller(message.sellerId);
-          const serial = await mintClaimTo(ctx, seller, auction);
+          const serial = await mintClaimTo(ctx, seller, auction.category);
           sendToLeaf({
             type: "PREPARED",
             sellerAccountId: sellerAccountId(message.sellerId),
@@ -433,15 +433,15 @@ function mandateRequirements(
   return [...allocation.requirements];
 }
 
-async function mintClaimTo(
+export async function mintClaimTo(
   ctx: HederaSettlementContext,
   seller: Seller,
-  auction: AuctionResult,
+  category: string,
 ): Promise<number> {
   const mintReceipt = await (
     await new TokenMintTransaction()
       .setTokenId(ctx.infra.claimTokenId)
-      .setMetadata([Buffer.from(`${auction.category}|${seller.id}`)])
+      .setMetadata([Buffer.from(`${category}|${seller.id}`)])
       .execute(ctx.client)
   ).getReceipt(ctx.client);
   const serial = mintReceipt.serials[0];

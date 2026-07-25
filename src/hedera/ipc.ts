@@ -13,6 +13,18 @@ export interface LeafMandate {
   requirements: string[];
 }
 
+/** A scarce item listed by a seller: bidding starts at the seller's floor. */
+export interface ContestedListing {
+  itemId: string;
+  topicId: string;
+  sellerId: string;
+  sellerName: string;
+  offering: string;
+  floorCents: number;
+  quality: number;
+  tags: string[];
+}
+
 export interface LeafInit {
   type: "MANDATE";
   mandate: LeafMandate;
@@ -23,6 +35,10 @@ export interface LeafInit {
   clearingAccountId: string;
   /** Present in live mode: the leaf reads competing bids from its topic. */
   live?: { mirrorBaseUrl: string };
+  /** Present in market mode: ascending auctions over scarce listings. */
+  contested?: { mirrorBaseUrl: string; listings: ContestedListing[] };
+  /** Display label for multi-buyer runs, e.g. the buyer persona name. */
+  buyerLabel?: string;
 }
 
 export type ParentToLeaf =
@@ -33,6 +49,8 @@ export type ParentToLeaf =
       reveals: Bid[];
     }
   | { type: "PREPARED"; sellerAccountId: string; claimNftSerial: number }
+  /** Market mode: the item was already sold to another agent. */
+  | { type: "PREPARE_REJECTED" }
   | { type: "SIGNED"; txBytesB64: string }
   /** grantedCents = 0 means the root refused the top-up. */
   | { type: "BUDGET_GRANTED"; grantedCents: number };
@@ -53,6 +71,10 @@ export interface LeafResult {
   claimNftSerial: number;
   auctionTopicId: string;
   liveStats?: LiveStats;
+  /** Market mode: the agent was outbid everywhere it could afford. */
+  lost?: boolean;
+  /** Market mode: contingency granted on-chain during the bid war. */
+  grantedCents?: number;
 }
 
 export type LeafToParent =
