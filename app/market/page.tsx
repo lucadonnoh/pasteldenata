@@ -22,6 +22,9 @@ export default function MarketPage() {
         </Link>
 
         <div className="header-actions">
+          <Link className="mode-link" href="/catalog">
+            Catalog
+          </Link>
           <Link className="mode-link" href="/">
             New intent
           </Link>
