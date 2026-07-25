@@ -275,11 +275,24 @@ export function ZeroGVerificationReceipt({
         <div className="zerog-plan-body">
           <div className="trace-heading">
             <div>
-              <span>LIVE MODEL OUTPUT</span>
+              <span>VERIFIED PROPOSAL · LOCAL POLICY ENFORCED</span>
               <h3>Scoped purchasing mandates</h3>
             </div>
             <code>{result.plan.planId}</code>
           </div>
+          {result.attestation.localPolicyAdjustments &&
+            result.attestation.localPolicyAdjustments.length > 0 && (
+              <div className="verification-caveat prominent">
+                <p>
+                  0G proposed allocations outside the hard local policy. The
+                  browser deterministically repaired the cents below after
+                  inference; these changes are not claimed as TEE model output.
+                </p>
+                <pre>
+                  {result.attestation.localPolicyAdjustments.join("\n")}
+                </pre>
+              </div>
+            )}
           <div className="plan-summary">
             <span>
               Global cap <b>{formatUsd(result.plan.totalBudgetCents)}</b>

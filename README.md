@@ -177,13 +177,16 @@ recovered EIP-191 signer, raw signature, and signed proof payload. Provider,
 signer, and service contract addresses link to 0G ChainScan. The Router's exact
 `x_0g_trace` remains visible alongside the independent proof.
 
-The 0G-generated plan stays attached to that live receipt and is never
-normalized or rewritten for the simulation. An explicit trust-boundary banner
-separates it from a visible playback of the recorded mock English-auction
-trace. That playback uses the executed buyer IDs, listing attempts, asking
-prices, leaders, and dropouts; it does not synthesize fake bids or wallet
-addresses. The complete mock transcript, seller floors, debug valuations, and
-simulated receipts remain available in a separate collapsed drawer.
+The accepted plan stays attached to that live receipt. If 0G slightly
+overshoots the hard budget or underfunds a mocked market floor, deterministic
+browser policy repairs the scoped cents before any auction; every adjustment
+is listed in the receipt and is explicitly not represented as TEE model output.
+An explicit trust-boundary banner separates the plan from a visible playback
+of the recorded mock English-auction trace. That playback uses the executed
+buyer IDs, listing attempts, asking prices, leaders, and dropouts; it does not
+synthesize fake bids or wallet addresses. The complete mock transcript, seller
+floors, debug valuations, and simulated receipts remain available in a
+separate collapsed drawer.
 
 Each user enters their own 0G Router key. The key is held only in React memory
 for the current browser tab: it is not persisted in local storage, cookies, or

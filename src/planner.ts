@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { publicCatalogForPlanner } from "./catalog";
+import {
+  publicCatalogForPlanner,
+  sellersForLocation,
+} from "./catalog";
 import {
   CATEGORIES,
   type PlanAllocation,
@@ -135,7 +138,7 @@ function extractJson(content: string): unknown {
   return JSON.parse(unfenced.slice(firstBrace, lastBrace + 1));
 }
 
-function enforcePlan(
+export function enforcePlan(
   modelPlan: ModelPlan,
   totalBudgetCents: number,
   expectedDate: string,
@@ -146,15 +149,68 @@ function enforcePlan(
     throw new Error("The private planner allocated the same category twice.");
   }
 
-  const allocated = modelPlan.allocations.reduce(
+  const rawAllocated = modelPlan.allocations.reduce(
     (sum, allocation) => sum + allocation.maxBudgetCents,
     0,
   );
-  if (allocated > totalBudgetCents) {
+  const rawExcess = rawAllocated - totalBudgetCents;
+  const repairLimit = Math.max(1_000, Math.floor(totalBudgetCents * 0.1));
+  if (rawExcess > repairLimit) {
     throw new Error(
-      `The private planner exceeded the hard budget by ${allocated - totalBudgetCents} cents.`,
+      `The private planner exceeded the hard budget by ${rawExcess} cents.`,
     );
   }
+
+  const roster = sellersForLocation(modelPlan.location);
+  const allocations = modelPlan.allocations.map((allocation) => {
+    const floors = roster
+      .filter((seller) => seller.category === allocation.category)
+      .flatMap((seller) =>
+        seller.inventory.map((item) => item.floorPriceCents),
+      );
+    const minimum = floors.length > 0 ? Math.min(...floors) : 100;
+    return {
+      ...allocation,
+      requirements: [...allocation.requirements],
+      maxBudgetCents: Math.max(allocation.maxBudgetCents, minimum),
+      minimum,
+    };
+  });
+
+  let excess =
+    allocations.reduce(
+      (sum, allocation) => sum + allocation.maxBudgetCents,
+      0,
+    ) - totalBudgetCents;
+  for (const allocation of [...allocations].sort(
+    (left, right) =>
+      left.priority - right.priority ||
+      right.maxBudgetCents - left.maxBudgetCents,
+  )) {
+    if (excess <= 0) break;
+    const cut = Math.min(
+      excess,
+      allocation.maxBudgetCents - allocation.minimum,
+    );
+    allocation.maxBudgetCents -= cut;
+    excess -= cut;
+  }
+  if (excess > 0) {
+    throw new Error(
+      "The requested categories cannot fit their marketplace floors within the hard budget.",
+    );
+  }
+
+  const repairedAllocations = allocations.map((allocation) => ({
+    category: allocation.category,
+    maxBudgetCents: allocation.maxBudgetCents,
+    requirements: allocation.requirements,
+    priority: allocation.priority,
+  }));
+  const allocated = repairedAllocations.reduce(
+    (sum, allocation) => sum + allocation.maxBudgetCents,
+    0,
+  );
 
   return {
     planId: stableId("plan", `${intent}|${expectedDate}|${totalBudgetCents}`),
@@ -163,7 +219,7 @@ function enforcePlan(
     scheduledFor: expectedDate,
     currency: "USD",
     totalBudgetCents,
-    allocations: modelPlan.allocations,
+    allocations: repairedAllocations,
     unallocatedBudgetCents: totalBudgetCents - allocated,
   };
 }
@@ -255,13 +311,28 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
       tee_verified: true,
     };
 
+    const plan = enforcePlan(
+      modelPlan,
+      totalBudgetCents,
+      expectedDate,
+      intent,
+    );
+    const localPolicyAdjustments = modelPlan.allocations.flatMap(
+      (allocation) => {
+        const enforced = plan.allocations.find(
+          (candidate) => candidate.category === allocation.category,
+        );
+        return enforced &&
+          enforced.maxBudgetCents !== allocation.maxBudgetCents
+          ? [
+              `${allocation.category}: ${allocation.maxBudgetCents} proposed cents → ${enforced.maxBudgetCents} policy-enforced cents`,
+            ]
+          : [];
+      },
+    );
+
     return {
-      plan: enforcePlan(
-        modelPlan,
-        totalBudgetCents,
-        expectedDate,
-        intent,
-      ),
+      plan,
       attestation: {
         mode: "0g-private-tee",
         teeVerified: true,
@@ -272,6 +343,9 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         chatId,
         routerTrace,
         independentVerification,
+        ...(localPolicyAdjustments.length > 0
+          ? { localPolicyAdjustments }
+          : {}),
       },
     };
   }

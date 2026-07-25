@@ -74,6 +74,8 @@ export interface PlannerAttestation {
   chatId?: string;
   routerTrace?: ZeroGRouterTrace;
   independentVerification?: IndependentTeeVerification;
+  /** Deterministic post-inference policy repairs, shown for auditability. */
+  localPolicyAdjustments?: string[];
 }
 
 export type InventoryAttributes = Record<
