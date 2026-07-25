@@ -11,11 +11,20 @@
     "lint": "eslint .",
     "demo": "tsx src/cli.ts",
     "demo:mock": "tsx src/cli.ts --mock",
+    "demo:hedera": "tsx src/cli.ts --hedera",
+    "demo:hedera:mock": "tsx src/cli.ts --mock --hedera",
+    "demo:live": "tsx src/cli.ts --hedera-live",
+    "demo:live:mock": "tsx src/cli.ts --mock --hedera-live",
+    "demo:market": "tsx src/cli.ts --market",
+    "demo:market:mock": "tsx src/cli.ts --mock --market",
+    "demo:hedera:simple": "tsx src/cli.ts --mock --hedera-simple",
+    "hedera:setup": "tsx src/hedera/setup.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && npm run lint"
   },
   "dependencies": {
+    "@hashgraph/sdk": "^2.81.0",
     "@noble/hashes": "^2.2.0",
     "dotenv": "^16.6.1",
     "ethers": "^6.17.0",
@@ -35,6 +44,8 @@
     "typescript": "^5.8.3"
   },
   "overrides": {
+    "@grpc/grpc-js": "^1.14.4",
+    "protobufjs": "^8.0.1",
     "postcss": "^8.5.23",
     "sharp": "^0.35.3"
   },

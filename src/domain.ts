@@ -218,7 +218,42 @@ export interface PaymentReceipt {
   category: Category;
   amountCents: number;
   currency: "USD";
-  status: "simulated-settled";
+  status: "simulated-settled" | "hedera-settled";
+  /** Hedera transaction id of the atomic settlement transfer. */
+  transactionId?: string;
+  hashscanUrl?: string;
+  /**
+   * Ledger account that held exactly this mandate's cap and nothing more: an
+   * escrow account in simple mode, the isolated leaf agent wallet in swarm
+   * mode.
+   */
+  escrowAccountId?: string;
+  /** Serial of the HTS claim NFT delivered in the same atomic transaction. */
+  claimNftSerial?: number;
+  /**
+   * Local mode-0600 recovery record for the isolated leaf wallet. This path
+   * is intentionally local-only and never belongs in the public UI.
+   */
+  leafWalletRecoveryPath?: string;
+  /** Per-auction HCS topic (swarm mode: one topic per auction, unlinkable). */
+  auctionTopicUrl?: string;
+  /** Live auction stats: total on-chain bids and the price discovery range. */
+  liveBids?: number;
+  liveOpeningCents?: number;
+  /** Contingency the root granted this agent on-chain mid-auction. */
+  liveGrantedCents?: number;
+}
+
+export interface HederaSummary {
+  network: "testnet";
+  paymentTokenId: string;
+  claimTokenId: string;
+  buyerAccountId: string;
+  /** Marketplace clearing account that funds leaf wallets (swarm mode). */
+  clearingAccountId?: string;
+  /** Single plan-level topic (simple mode only; swarm uses one per auction). */
+  topicId?: string;
+  topicUrl?: string;
 }
 
 export interface DemoResult {
@@ -227,4 +262,5 @@ export interface DemoResult {
   auctions: AuctionResult[];
   receipts: PaymentReceipt[];
   totalSpentCents: number;
+  hedera?: HederaSummary;
 }

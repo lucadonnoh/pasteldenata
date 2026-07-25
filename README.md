@@ -64,6 +64,36 @@ This runs in one process for the hackathon. It demonstrates the protocol and
 economic shape. Sellers are deterministic mocks, not AI agents, and the rival
 buyers and settlement are also simulated.
 
+## Hedera testnet settlement
+
+The CLI can replace simulated payment with HTS transfers on Hedera testnet:
+
+```bash
+npm run hedera:setup
+npm run demo:hedera:mock
+```
+
+`demo:hedera:mock` uses the recorded English-auction winners. `demo:live:mock`
+runs authenticated reverse-auction messages on HCS, while `demo:market:mock`
+starts several private buyer plans in a shared ascending market. These modes
+use testnet assets only.
+
+Each mandate runs in a separate trusted child process with a fresh Hedera
+wallet funded to its scoped cap. The process boundary compartmentalizes buyer
+data; it is not a sandbox for untrusted agent code. Every HCS auction topic has
+a fresh submit key, and readers accept a bid only when its Mirror Node payer
+matches the registered seller or bidder identity.
+
+Leaf keys are written before funding to
+`.pasteldenata/hedera-wallets/<account>.json`. Both the directory and files are
+owner-only (`0700` and `0600`) and ignored by git. The records contain plaintext
+testnet keys and must not be copied into the web application or committed.
+
+Settlement does not fail fast. The root waits for every leaf to exit, compares
+confirmed receipts with actual token balances, sweeps every recoverable
+remainder, refunds buyers, and then reports any partial failure together with
+transactions that already became irreversible.
+
 ## Run
 
 Requires Node.js 22 or newer.
