@@ -40,6 +40,8 @@ import {
   MARKET_MIN_AUCTION_MS,
   MARKET_QUIET_CLOSE_MS,
 } from "@/src/hedera/marketTiming";
+import { latestBidActivity } from "@/src/hedera/marketFocus";
+import { wasPreventedFromBidding } from "@/src/hedera/marketOutcome";
 import { formatUsd } from "@/src/money";
 import { marketSettlementFromEvents } from "@/src/hedera/marketEvidence";
 import type { LiveAuctionView } from "@/components/use-settlement-job";
@@ -374,6 +376,9 @@ function LiveAgentSearchRun({
           result={result}
           lostCategories={live.lostCategories}
           agentAccounts={yourAgents}
+          listings={live.listings}
+          bidsByItem={live.bidsByItem}
+          worldBlocks={live.world?.blocked ?? []}
         />
       )}
     </section>
@@ -657,9 +662,14 @@ function MarketBidStage({
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const latestLiveBid = useMemo(
+    () => latestBidActivity(live.activity, categorySet),
+    [categorySet, live.activity],
+  );
   const followedCategory = useMemo(
-    () =>
-      [...categories].sort((left, right) => {
+    () => {
+      if (latestLiveBid) return latestLiveBid.category as Category;
+      return [...categories].sort((left, right) => {
         const activity = (category: Category) => {
           const listings = visible.filter(
             (listing) => listing.category === category,
@@ -696,9 +706,11 @@ function MarketBidStage({
           rightActivity.latestEventMs - leftActivity.latestEventMs ||
           Number(rightActivity.leading) - Number(leftActivity.leading)
         );
-      })[0],
+      })[0];
+    },
     [
       categories,
+      latestLiveBid,
       live.bidsByItem,
       live.ledgerEventsByItem,
       visible,
@@ -745,6 +757,8 @@ function MarketBidStage({
     (listing) => listing.itemId === selectedItemId,
   );
   const focus = selectedFocus ?? automaticFocus;
+  const manualFocus =
+    pinnedCategory !== null || selectedItemId !== null;
 
   const focusBids = focus
     ? (live.bidsByItem[focus.itemId] ?? [])
@@ -783,6 +797,13 @@ function MarketBidStage({
       focusHigh?.amountCents ??
       focus.floorCents)
     : 0;
+  const latestLiveBidAmount =
+    latestLiveBid?.event.type === "BID" &&
+    "amountCents" in latestLiveBid.event
+      ? latestLiveBid.event.amountCents
+      : undefined;
+  const focusHasLatestBid =
+    focus?.itemId === latestLiveBid?.itemId;
   const priceProgress =
     focus && focusCap > focus.floorCents
       ? Math.max(
@@ -959,14 +980,19 @@ function MarketBidStage({
           <button
             type="button"
             className={styles.compactFollowButton}
-            data-following={!pinnedCategory || undefined}
+            data-following={!manualFocus || undefined}
             onClick={() => {
               setPinnedCategory(null);
               setSelectedItemId(null);
             }}
+            aria-label={
+              manualFocus
+                ? "Resume following the newest authenticated HCS bid"
+                : "Following the newest authenticated HCS bid"
+            }
           >
             <Activity size={12} aria-hidden="true" />
-            {pinnedCategory ? "Follow live" : "Auto"}
+            {manualFocus ? "Resume live" : "Following live bids"}
           </button>
         </div>
         {live.progress.phase !== "running-auctions" && (
@@ -1005,7 +1031,7 @@ function MarketBidStage({
                   className={styles.listingSwitcher}
                   aria-label={`Choose a ${activeCategory} listing`}
                 >
-                  <span>Watching</span>
+                  <span>{manualFocus ? "Inspecting" : "Live focus"}</span>
                   {activeListings.map((listing) => {
                     const bids = live.bidsByItem[listing.itemId] ?? [];
                     const events =
@@ -1018,7 +1044,10 @@ function MarketBidStage({
                         type="button"
                         key={listing.itemId}
                         data-active={active || undefined}
-                        onClick={() => setSelectedItemId(listing.itemId)}
+                        onClick={() => {
+                          setPinnedCategory(activeCategory ?? null);
+                          setSelectedItemId(listing.itemId);
+                        }}
                       >
                         {listing.sellerName}
                         <b>
@@ -1032,14 +1061,17 @@ function MarketBidStage({
                       </button>
                     );
                   })}
-                  {selectedItemId && (
+                  {manualFocus && (
                     <button
                       type="button"
                       className={styles.resumeFocus}
-                      onClick={() => setSelectedItemId(null)}
+                      onClick={() => {
+                        setPinnedCategory(null);
+                        setSelectedItemId(null);
+                      }}
                     >
                       <Activity size={11} aria-hidden="true" />
-                      Resume pulse
+                      Resume live
                     </button>
                   )}
                 </nav>
@@ -1075,14 +1107,46 @@ function MarketBidStage({
                     ? "Final clearing price"
                     : focus.sold
                       ? "Settlement indexing"
-                      : "Highest bid"}
+                      : `Highest bid on ${focus.sellerName}'s HCS topic`}
                 </span>
-                <strong>{formatUsd(currentPrice)}</strong>
+                <strong
+                  key={`${focus.itemId}:${currentPrice}`}
+                  className={styles.livePrice}
+                >
+                  {formatUsd(currentPrice)}
+                </strong>
                 <small>
                   {focusBids.length} authenticated HCS bid
                   {focusBids.length === 1 ? "" : "s"}
+                  {!manualFocus && !focusSettlement
+                    ? " · following the newest live bid"
+                    : ""}
                 </small>
               </div>
+
+              {manualFocus &&
+                latestLiveBid &&
+                !focusHasLatestBid &&
+                latestLiveBidAmount !== undefined && (
+                  <button
+                    type="button"
+                    className={styles.liveBidNudge}
+                    onClick={() => {
+                      setPinnedCategory(null);
+                      setSelectedItemId(null);
+                    }}
+                  >
+                    <Activity size={13} aria-hidden="true" />
+                    <span>
+                      Live market moved
+                      <strong>
+                        {latestLiveBid.sellerName} ·{" "}
+                        {formatUsd(latestLiveBidAmount)}
+                      </strong>
+                    </span>
+                    <b>Follow</b>
+                  </button>
+                )}
 
               {!focusSettlement && !focus.sold && (
                 <div
@@ -1341,11 +1405,17 @@ function BundleGrid({
   result,
   lostCategories = [],
   agentAccounts = [],
+  listings = [],
+  bidsByItem = {},
+  worldBlocks = [],
 }: {
   searches: LiveAgentSearch[];
   result: PurchaseSessionResult;
   lostCategories?: string[];
   agentAccounts?: LiveAuctionView["agents"];
+  listings?: LiveAuctionView["listings"];
+  bidsByItem?: LiveAuctionView["bidsByItem"];
+  worldBlocks?: NonNullable<LiveAuctionView["world"]>["blocked"];
 }) {
   const isLost = (search: LiveAgentSearch) =>
     !result.receipts.some(
@@ -1389,6 +1459,15 @@ function BundleGrid({
         );
         const onChain = receipt?.status === "hedera-settled";
         const lost = isLost(search);
+        const accessBlocked =
+          lost &&
+          wasPreventedFromBidding({
+            buyerName: "You",
+            category: search.allocation.category,
+            listings,
+            bidsByItem,
+            blocks: worldBlocks,
+          });
         const agent = agentAccounts.find(
           (agent) =>
             agent.category === search.allocation.category,
@@ -1415,18 +1494,28 @@ function BundleGrid({
               </div>
               <span className={styles.resultMatched}>
                 {lost ? <X size={11} /> : <Check size={11} />}
-                {lost ? "Outbid" : onChain ? "On-chain" : "Secured"}
+                {accessBlocked
+                  ? "Couldn’t enter"
+                  : lost
+                    ? "Outbid"
+                    : onChain
+                      ? "On-chain"
+                      : "Secured"}
               </span>
             </div>
             <div className={styles.resultBody}>
               <h3>
                 {lost
-                  ? "No purchase"
+                  ? accessBlocked
+                    ? "Could not participate"
+                    : "No purchase"
                   : receipt?.sellerName ?? "Settlement incomplete"}
               </h3>
               <p>
                 {lost
-                  ? "Rivals pushed every listing beyond this mandate. The agent walked away instead of overspending."
+                  ? accessBlocked
+                    ? `Every ${search.allocation.category} listing required a verified World ID. Seller-side authorization rejected this agent before it could place a bid.`
+                    : "Rivals pushed every listing beyond this mandate. The agent walked away instead of overspending."
                   : receipt?.offering ??
                     "The Hedera market did not produce a confirmed atomic swap for this mandate."}
               </p>
