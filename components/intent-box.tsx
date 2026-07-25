@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUp, ShieldCheck, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   FormEvent,
   KeyboardEvent,
@@ -8,15 +9,10 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { DemoResult } from "@/src/domain";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
-import {
-  MockExecutionDetails,
-  PrivacyDetails,
-  ZeroGVerificationReceipt,
-} from "@/components/execution-details";
-import { AgentSearchExperience } from "@/components/agent-search-experience";
+import { PrivacyDetails } from "@/components/execution-details";
+import { usePurchaseSession } from "@/components/purchase-session";
 
 const examples = [
   "Organize me a date tomorrow in Lisbon. My budget is $200.",
@@ -25,11 +21,13 @@ const examples = [
 ];
 
 export function IntentBox() {
+  const router = useRouter();
+  const { setResult } = usePurchaseSession();
   const [intent, setIntent] = useState(examples[0] ?? "");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<DemoResult | null>(null);
+  const [departing, setDeparting] = useState(false);
   const hasUsableKey =
     apiKey.trim().startsWith("sk-") && apiKey.trim().length >= 12;
 
@@ -49,6 +47,7 @@ export function IntentBox() {
     setLoading(true);
     setError("");
     setResult(null);
+    setDeparting(false);
 
     try {
       const planner = new ZeroGPrivatePlanner(apiKey.trim());
@@ -57,7 +56,13 @@ export function IntentBox() {
         intent.trim(),
       );
       setResult(purchase);
+      setDeparting(true);
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        await new Promise((resolve) => window.setTimeout(resolve, 520));
+      }
+      router.push("/market");
     } catch (requestError) {
+      setDeparting(false);
       setError(
         requestError instanceof Error
           ? requestError.message
@@ -84,7 +89,10 @@ export function IntentBox() {
   }
 
   return (
-    <section className="workspace" aria-label="Private intent planner">
+    <section
+      className={`workspace ${departing ? "workspace-departing" : ""}`}
+      aria-label="Private intent planner"
+    >
       <form
         className="composer"
         onSubmit={submit}
@@ -148,7 +156,7 @@ export function IntentBox() {
         </div>
       </form>
 
-      {!loading && !error && !result && (
+      {!loading && !error && (
         <div className="suggestions">
           <span>Examples</span>
           <div>
@@ -187,14 +195,6 @@ export function IntentBox() {
           <strong>We couldn&apos;t process this intent.</strong>
           <span>{error}</span>
         </div>
-      )}
-
-      {result && (
-        <>
-          <ZeroGVerificationReceipt result={result} />
-          <AgentSearchExperience result={result} />
-          <MockExecutionDetails result={result} />
-        </>
       )}
 
       {!loading && <PrivacyDetails />}

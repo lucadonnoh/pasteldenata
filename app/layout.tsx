@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { PurchaseSessionProvider } from "@/components/purchase-session";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +14,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <PurchaseSessionProvider>{children}</PurchaseSessionProvider>
+      </body>
     </html>
   );
 }

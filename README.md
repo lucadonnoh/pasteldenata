@@ -117,16 +117,21 @@ private intent + hard cap
 
 The repository also includes a minimal Next.js interface for the live demo. It
 keeps the primary interaction focused on one Liquid Glass intent box. After a
-successful request, an always-visible 0G verification receipt shows the private
-trust mode, Router TEE result, 0G chain ID, provider service contract, on-chain
-TEE signer, recovered EIP-191 signer, raw signature, and signed proof payload.
-Provider, signer, and service contract addresses link to 0G ChainScan. The
-Router's exact `x_0g_trace` remains visible alongside the independent proof.
+successful request, it navigates to an in-memory market route. The recorded
+local mock-market execution is presented first, with the live 0G verification
+receipt immediately below it. The receipt includes the private trust mode,
+Router TEE result, 0G chain ID, provider service contract, on-chain TEE signer,
+recovered EIP-191 signer, raw signature, and signed proof payload. Provider,
+signer, and service contract addresses link to 0G ChainScan. The Router's exact
+`x_0g_trace` remains visible alongside the independent proof.
 
-The 0G-generated plan stays attached to that live receipt. Mock buyer
-subagents, English-auction transcripts, seller floors, rival valuations, and
-simulated receipts are kept in a separate collapsed drawer so they cannot be
-mistaken for 0G execution.
+The 0G-generated plan stays attached to that live receipt and is never
+normalized or rewritten for the simulation. An explicit trust-boundary banner
+separates it from a visible playback of the recorded mock English-auction
+trace. That playback uses the executed buyer IDs, listing attempts, asking
+prices, leaders, and dropouts; it does not synthesize fake bids or wallet
+addresses. The complete mock transcript, seller floors, debug valuations, and
+simulated receipts remain available in a separate collapsed drawer.
 
 Each user enters their own 0G Router key. The key is held only in React memory
 for the current browser tab: it is not persisted in local storage, cookies, or

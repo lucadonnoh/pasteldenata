@@ -1,10 +1,9 @@
 import type {
   AuctionResult,
-  Category,
   DemoResult,
+  ListingEnglishAuction,
   PlanAllocation,
 } from "./domain";
-import { sha256Hex } from "./hash";
 
 export interface MockAgentSearch {
   id: string;
@@ -14,17 +13,15 @@ export interface MockAgentSearch {
   matchedTags: string[];
 }
 
-function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+export interface MockAuctionReplay {
+  id: string;
+  attemptNumber: number;
+  search: MockAgentSearch;
+  listingAuction: ListingEnglishAuction;
 }
 
-function agentIdFor(
-  planId: string,
-  category: Category,
-  index: number,
-): string {
-  const hash = sha256Hex(`pastel-agent:${planId}:${category}:${index}`);
-  return `buyer_${category}_${hash.slice(0, 12)}`;
+function normalize(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 export function createMockAgentSearches(
@@ -53,14 +50,23 @@ export function createMockAgentSearches(
 
     return {
       id: `agent_${allocation.category}_${index + 1}`,
-      agentId: agentIdFor(
-        result.plan.planId,
-        allocation.category,
-        index,
-      ),
+      agentId: auction.buyerSubagent.id,
       allocation,
       auction,
       matchedTags,
     };
   });
+}
+
+export function createMockAuctionReplays(
+  searches: MockAgentSearch[],
+): MockAuctionReplay[] {
+  return searches.flatMap((search) =>
+    search.auction.listingAuctions.map((listingAuction, index) => ({
+      id: listingAuction.auctionId,
+      attemptNumber: index + 1,
+      search,
+      listingAuction,
+    })),
+  );
 }

@@ -215,6 +215,17 @@ main {
   width: min(780px, calc(100% - 40px));
   margin: auto;
   padding: 74px 0 120px;
+  transition:
+    opacity 500ms ease,
+    filter 500ms ease,
+    transform 500ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.workspace-departing {
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(13px);
+  transform: translateY(-24px) scale(0.955);
 }
 
 .composer {
