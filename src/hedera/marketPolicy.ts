@@ -7,15 +7,22 @@ import {
   ascendingRanking,
   type ItemState,
 } from "./mirror";
+import {
+  expectedMarketCloseAtMs,
+  MARKET_CLAIM_WINDOW_MS,
+  MARKET_HARD_CLOSE_MS,
+} from "./marketTiming";
 
 // Demo mode targets a complete market in roughly 90 seconds. The longer
 // consensus-time window and quiet period let bidders observe Mirror state and
 // counter repeatedly instead of allowing a leader to close between Hedera
 // consensus updates.
-export const MARKET_MIN_AUCTION_MS = 40_000;
-export const MARKET_QUIET_CLOSE_MS = 8_000;
-export const MARKET_HARD_CLOSE_MS = 50_000;
-export const MARKET_CLAIM_WINDOW_MS = 30_000;
+export {
+  MARKET_CLAIM_WINDOW_MS,
+  MARKET_HARD_CLOSE_MS,
+  MARKET_MIN_AUCTION_MS,
+  MARKET_QUIET_CLOSE_MS,
+} from "./marketTiming";
 
 export interface MarketWinnerExpectation {
   buyerAccountId: string;
@@ -71,8 +78,6 @@ export function marketCloseDelayMs(
   if (!state.opening) {
     throw policyError("the auction has no authenticated listing");
   }
-  const closeNotBeforeMs =
-    state.opening.consensusTimestampMs + MARKET_MIN_AUCTION_MS;
   const hardCloseAtMs =
     state.opening.consensusTimestampMs + MARKET_HARD_CLOSE_MS;
   if (nowMs >= hardCloseAtMs) return 0;
@@ -80,9 +85,9 @@ export function marketCloseDelayMs(
     throw policyError("the requester is not the current highest bidder");
   }
 
-  const readyAt = Math.max(
-    closeNotBeforeMs,
-    latestBid.consensusTimestampMs + MARKET_QUIET_CLOSE_MS,
+  const readyAt = expectedMarketCloseAtMs(
+    state.opening.consensusTimestampMs,
+    latestBid.consensusTimestampMs,
   );
   return Math.max(0, readyAt - nowMs);
 }

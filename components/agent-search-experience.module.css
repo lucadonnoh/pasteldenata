@@ -1698,6 +1698,271 @@
   margin-top: 18px;
 }
 
+.marketCommandBar {
+  position: relative;
+  display: grid;
+  min-height: 74px;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(130, 98, 210, 0.18);
+  border-radius: 19px;
+  background:
+    radial-gradient(
+      circle at 8% 0,
+      rgba(172, 146, 236, 0.13),
+      transparent 36%
+    ),
+    rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  grid-template-columns: minmax(230px, 1fr) minmax(360px, 1.35fr) auto;
+}
+
+.marketCommandStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.marketCommandStatus > span {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  background: rgba(127, 91, 207, 0.1);
+  color: #7656c6;
+}
+
+.marketCommandStatus > span::after {
+  position: absolute;
+  border: 1px solid rgba(133, 94, 222, 0.3);
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  animation: chainPing 1.8s ease-out infinite;
+}
+
+.marketCommandStatus div {
+  min-width: 0;
+}
+
+.marketCommandStatus small,
+.marketCommandStatus strong,
+.marketCommandStatus em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketCommandStatus small {
+  color: #7050bf;
+  font-size: 7px;
+  font-weight: 760;
+  letter-spacing: 0.09em;
+}
+
+.marketCommandStatus strong {
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.marketCommandStatus em {
+  margin-top: 2px;
+  color: rgba(34, 38, 44, 0.38);
+  font-size: 6px;
+  font-style: normal;
+}
+
+.marketCategoryTabs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.marketCategoryTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.marketCategoryTabs button {
+  display: flex;
+  min-width: 0;
+  height: 39px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.63);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.19);
+  color: rgba(34, 38, 44, 0.53);
+  cursor: pointer;
+}
+
+.marketCategoryTabs button[data-active] {
+  border-color: rgba(111, 78, 193, 0.26);
+  background: rgba(123, 87, 207, 0.1);
+  color: #6949b7;
+}
+
+.marketCategoryTabs button[data-state="leading"],
+.marketCategoryTabs button[data-state="won"] {
+  color: #568738;
+}
+
+.marketCategoryTabs button span {
+  min-width: 0;
+}
+
+.marketCategoryTabs strong,
+.marketCategoryTabs small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketCategoryTabs strong {
+  font-size: 8px;
+  text-transform: capitalize;
+}
+
+.marketCategoryTabs small {
+  margin-top: 2px;
+  font-size: 6px;
+}
+
+.marketCommandMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: rgba(34, 38, 44, 0.42);
+  white-space: nowrap;
+}
+
+.marketCommandMeta > span {
+  font-size: 7px;
+}
+
+.marketCommandMeta > span b {
+  color: rgba(34, 38, 44, 0.78);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.compactFollowButton,
+.worldCompact summary {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid rgba(118, 86, 199, 0.17);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #6f50bc;
+  font-size: 7px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.compactFollowButton[data-following] {
+  border-color: rgba(86, 135, 56, 0.21);
+  color: #568738;
+}
+
+.worldCompact {
+  position: relative;
+}
+
+.worldCompact summary::-webkit-details-marker {
+  display: none;
+}
+
+.worldCompact[data-status="verified"] summary {
+  border-color: rgba(86, 135, 56, 0.23);
+  color: #568738;
+}
+
+.worldCompact[data-status="unverified"] summary {
+  border-color: rgba(182, 109, 53, 0.23);
+  color: #a05e2e;
+}
+
+.worldCompact > div {
+  position: absolute;
+  width: 240px;
+  z-index: 8;
+  top: 34px;
+  right: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 12px;
+  background: rgba(248, 248, 252, 0.94);
+  box-shadow: 0 14px 35px rgba(47, 46, 61, 0.16);
+  white-space: normal;
+  backdrop-filter: blur(20px);
+}
+
+.worldCompact > div strong {
+  display: block;
+  font-size: 8px;
+}
+
+.worldCompact > div p {
+  margin: 4px 0 0;
+  color: rgba(34, 38, 44, 0.48);
+  font-size: 7px;
+  line-height: 1.4;
+}
+
+.marketAuditStrip {
+  display: grid;
+  align-items: center;
+  gap: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.56);
+  color: rgba(34, 38, 44, 0.48);
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(90px, 0.25fr);
+}
+
+.marketAuditStrip span {
+  overflow: hidden;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketAuditStrip b {
+  color: #568738;
+  font-size: 7px;
+}
+
+.marketAuditStrip > i {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(53, 58, 67, 0.09);
+}
+
+.marketAuditStrip > i em {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8e73dc, #76a95b);
+  transition: width 220ms ease;
+}
+
 .chainPulse {
   display: grid;
   min-height: 72px;
@@ -2439,6 +2704,69 @@
   text-transform: uppercase;
 }
 
+.listingSwitcher {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.listingSwitcher::-webkit-scrollbar {
+  display: none;
+}
+
+.listingSwitcher > span {
+  flex: 0 0 auto;
+  color: rgba(34, 38, 44, 0.36);
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.listingSwitcher button {
+  display: inline-flex;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(34, 38, 44, 0.48);
+  font-size: 7px;
+  cursor: pointer;
+}
+
+.listingSwitcher button[data-active] {
+  border-color: color-mix(
+    in srgb,
+    var(--focus-color) 28%,
+    transparent
+  );
+  background: color-mix(in srgb, var(--focus-color) 8%, transparent);
+  color: var(--focus-color);
+}
+
+.listingSwitcher button b {
+  color: rgba(34, 38, 44, 0.76);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+.listingSwitcher button small {
+  color: rgba(34, 38, 44, 0.36);
+  font-size: 6px;
+}
+
+.listingSwitcher button.resumeFocus {
+  border-color: rgba(86, 135, 56, 0.2);
+  color: #568738;
+}
+
 .focusIdentity {
   display: flex;
   min-width: 0;
@@ -2523,6 +2851,87 @@
   color: var(--focus-color);
   font-size: 9px;
   font-weight: 620;
+}
+
+.auctionCloseStatus {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  margin: -7px 0 14px;
+  padding: 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--focus-color) 20%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--focus-color) 7%, transparent);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.auctionCloseStatus[data-ready] {
+  animation: closePolicyPulse 1.4s ease-in-out infinite;
+}
+
+.auctionCloseStatus > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--focus-color) 12%, transparent);
+  color: var(--focus-color);
+}
+
+.auctionCloseStatus > div {
+  min-width: 0;
+}
+
+.auctionCloseStatus small,
+.auctionCloseStatus strong,
+.auctionCloseStatus p {
+  display: block;
+  margin: 0;
+}
+
+.auctionCloseStatus small {
+  margin-bottom: 3px;
+  color: var(--focus-color);
+  font-size: 7px;
+  font-weight: 760;
+  letter-spacing: 0.09em;
+}
+
+.auctionCloseStatus strong {
+  font-size: 9px;
+  font-weight: 680;
+}
+
+.auctionCloseStatus p {
+  margin-top: 3px;
+  color: rgba(34, 38, 44, 0.46);
+  font-size: 7px;
+  line-height: 1.4;
+}
+
+.auctionCloseStatus > b {
+  min-width: 42px;
+  color: var(--focus-color);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  text-align: right;
+}
+
+@keyframes closePolicyPulse {
+  50% {
+    border-color: color-mix(
+      in srgb,
+      var(--focus-color) 38%,
+      transparent
+    );
+    background: color-mix(
+      in srgb,
+      var(--focus-color) 11%,
+      transparent
+    );
+  }
 }
 
 .priceRange {
@@ -2716,6 +3125,52 @@
   margin-top: 12px;
 }
 
+.focusProof {
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.52);
+}
+
+.focusProof > summary {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  color: var(--focus-color);
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.focusProof > summary::-webkit-details-marker {
+  display: none;
+}
+
+.focusProof > summary::after {
+  margin-left: 2px;
+  content: "＋";
+  font-size: 10px;
+}
+
+.focusProof[open] > summary::after {
+  content: "−";
+}
+
+.focusProof > summary code {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: rgba(34, 38, 44, 0.34);
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focusProof .focusChainLinks {
+  margin-top: 0;
+  padding-bottom: 4px;
+}
+
 .focusChainLinks a {
   display: inline-flex;
   min-height: 30px;
@@ -2741,6 +3196,14 @@
   margin-left: auto;
   color: rgba(34, 38, 44, 0.37);
   font-size: 7px;
+}
+
+.focusChainLinks > p {
+  width: 100%;
+  margin: 1px 0 0;
+  color: rgba(34, 38, 44, 0.38);
+  font-size: 7px;
+  line-height: 1.45;
 }
 
 .marketActivity {
@@ -2803,18 +3266,29 @@
 }
 
 .marketActivity li {
+  min-width: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  transition:
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.marketActivity li > button {
   display: grid;
+  width: 100%;
   min-width: 0;
   align-items: center;
   gap: 8px;
   padding: 8px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.14);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  transition:
-    border-color 180ms ease,
-    background 180ms ease;
+  text-align: left;
 }
 
 .marketActivity li[data-newest] {
@@ -2834,7 +3308,7 @@
   background: rgba(209, 139, 81, 0.07);
 }
 
-.marketActivity li > span {
+.marketActivity li > button > span {
   display: grid;
   width: 27px;
   height: 27px;
@@ -2844,18 +3318,18 @@
   color: rgba(53, 59, 68, 0.58);
 }
 
-.marketActivity li.yourMarketEvent > span,
-.marketActivity li[data-kind="settled"] > span {
+.marketActivity li.yourMarketEvent > button > span,
+.marketActivity li[data-kind="settled"] > button > span {
   background: rgba(116, 178, 78, 0.13);
   color: #568738;
 }
 
-.marketActivity li[data-kind="forfeited"] > span {
+.marketActivity li[data-kind="forfeited"] > button > span {
   background: rgba(209, 139, 81, 0.12);
   color: #a45f2c;
 }
 
-.marketActivity li > div {
+.marketActivity li > button > div {
   min-width: 0;
 }
 
@@ -2887,7 +3361,7 @@
   font-size: 6px;
 }
 
-.marketActivity li > b {
+.marketActivity li > button > b {
   font-size: 10px;
   font-weight: 650;
 }
@@ -2916,6 +3390,12 @@
   font-weight: 680;
   text-decoration: none;
   text-transform: uppercase;
+}
+
+.marketActivity > footer b {
+  color: #7656c6;
+  font-size: 7px;
+  font-weight: 680;
 }
 
 .marketListings {
@@ -3106,6 +3586,14 @@
 }
 
 @media (max-width: 900px) {
+  .marketCommandBar {
+    grid-template-columns: 1fr;
+  }
+
+  .marketCommandMeta {
+    justify-content: flex-start;
+  }
+
   .chainPulse {
     grid-template-columns: 1fr;
   }
@@ -3124,6 +3612,30 @@
 }
 
 @media (max-width: 700px) {
+  .marketCommandBar {
+    padding: 10px;
+  }
+
+  .marketCommandStatus strong {
+    white-space: normal;
+  }
+
+  .marketCategoryTabs button {
+    flex: 0 0 auto;
+  }
+
+  .marketCommandMeta {
+    flex-wrap: wrap;
+  }
+
+  .marketAuditStrip {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .marketAuditStrip > i {
+    grid-column: 2 / -1;
+  }
+
   .chainPulse {
     gap: 13px;
     padding: 12px;
@@ -3214,6 +3726,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .marketCommandStatus > span::after,
+  .auctionCloseStatus[data-ready] {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
   .chainPulseTitle > span::after,
   .marketEventTapeEmpty svg,
   .marketActivity > header > b i,

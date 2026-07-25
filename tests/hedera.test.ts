@@ -43,6 +43,12 @@ import {
   verifiedMarketClaimState,
 } from "../src/hedera/marketPolicy";
 import {
+  expectedMarketCloseAtMs,
+  MARKET_HARD_CLOSE_MS,
+  MARKET_MIN_AUCTION_MS,
+  MARKET_QUIET_CLOSE_MS,
+} from "../src/hedera/marketTiming";
+import {
   persistLeafWallet,
   readLeafWallet,
 } from "../src/hedera/walletVault";
@@ -698,6 +704,22 @@ test("browser evidence accepts only clearing-authenticated World credentials pin
         yours: true,
       },
     ],
+  );
+});
+
+test("browser and seller share the same bounded auction close clock", () => {
+  const opening = 1_700_000_000_000;
+  assert.equal(
+    expectedMarketCloseAtMs(opening, opening),
+    opening + MARKET_MIN_AUCTION_MS,
+  );
+  assert.equal(
+    expectedMarketCloseAtMs(opening, opening + 39_000),
+    opening + 39_000 + MARKET_QUIET_CLOSE_MS,
+  );
+  assert.equal(
+    expectedMarketCloseAtMs(opening, opening + 49_000),
+    opening + MARKET_HARD_CLOSE_MS,
   );
 });
 
