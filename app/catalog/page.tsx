@@ -1,10 +1,14 @@
-import { SellerStudio } from "@/components/seller-studio";
 import Link from "next/link";
 
-export default function SellerPage() {
+import { CatalogDirectory } from "@/components/catalog-directory";
+import { publicCatalogForPlanner } from "@/src/catalog";
+
+export default function CatalogPage() {
+  const listings = publicCatalogForPlanner();
+
   return (
-    <div className="app-shell seller-shell">
-      <div className="ambient-field seller-ambient" aria-hidden="true">
+    <div className="app-shell">
+      <div className="ambient-field" aria-hidden="true">
         <i className="ambient-blue" />
         <i className="ambient-violet" />
         <i className="ambient-mint" />
@@ -19,18 +23,21 @@ export default function SellerPage() {
         </Link>
 
         <div className="header-actions">
-          <Link className="mode-link" href="/catalog">
-            Catalog
-          </Link>
           <Link className="mode-link" href="/">
             Buyer
           </Link>
-          <div className="surface-label">Seller studio</div>
+          <Link className="mode-link" href="/seller">
+            Seller
+          </Link>
+          <div className="network-status">
+            <span className="network-dot" />
+            {listings.length} mock listings
+          </div>
         </div>
       </header>
 
-      <main className="seller-main">
-        <SellerStudio />
+      <main>
+        <CatalogDirectory listings={listings} />
       </main>
     </div>
   );
