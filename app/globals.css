@@ -2863,6 +2863,69 @@ a.readiness-item:hover {
   color: #568738;
 }
 
+.world-registration-status {
+  display: grid;
+  gap: 8px;
+}
+
+.world-registration-status > p {
+  margin: 0;
+  color: #568738;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.world-explorer-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1px solid rgba(86, 135, 56, 0.2);
+  border-radius: 12px;
+  background: rgba(227, 247, 214, 0.24);
+  color: #4d7d31;
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.world-explorer-link:hover {
+  background: rgba(227, 247, 214, 0.44);
+  transform: translateY(-1px);
+}
+
+.world-explorer-link > svg {
+  flex: 0 0 auto;
+}
+
+.world-explorer-link b,
+.world-explorer-link small {
+  display: block;
+}
+
+.world-explorer-link b {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.world-explorer-link small {
+  margin-top: 2px;
+  color: rgba(36, 39, 44, 0.48);
+  font-size: 8px;
+}
+
+.world-explorer-help {
+  color: rgba(36, 39, 44, 0.5);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.world-explorer-help code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: inherit;
+}
+
 .world-error {
   color: #b04a3a;
 }

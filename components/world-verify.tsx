@@ -2,7 +2,7 @@
 
 import { createWorldBridgeStore } from "@worldcoin/idkit-core";
 import { solidityEncode } from "@worldcoin/idkit-core/hashing";
-import { KeyRound, ShieldCheck, UserCheck } from "lucide-react";
+import { ExternalLink, KeyRound, ShieldCheck, UserCheck } from "lucide-react";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import { createPublicClient, decodeAbiParameters, http } from "viem";
@@ -29,11 +29,13 @@ const AGENT_BOOK_ABI = [
 const APP_ID = "app_a7c3e2b6b83927251a0db5345bd7146a";
 const ACTION = "agentbook-registration";
 const STORAGE_KEY = "pastel-world-identity";
+const WORLDSCAN_URL = "https://worldscan.org";
 
 interface StoredIdentity {
   address: `0x${string}`;
   privateKey: `0x${string}`;
   humanId?: string;
+  txHash?: `0x${string}`;
 }
 
 function loadIdentity(): StoredIdentity | null {
@@ -47,6 +49,12 @@ function loadIdentity(): StoredIdentity | null {
 
 function saveIdentity(identity: StoredIdentity): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(identity));
+}
+
+function transactionHash(value: unknown): `0x${string}` | undefined {
+  return typeof value === "string" && /^0x[a-fA-F0-9]{64}$/.test(value)
+    ? (value as `0x${string}`)
+    : undefined;
 }
 
 function normalizeProof(raw: string): string[] | null {
@@ -103,7 +111,12 @@ export function WorldVerify() {
       }
       setIdentity(stored);
       if (stored.humanId) {
-        setPhase({ name: "registered", humanId: stored.humanId });
+        const txHash = transactionHash(stored.txHash);
+        setPhase({
+          name: "registered",
+          humanId: stored.humanId,
+          ...(txHash ? { txHash } : {}),
+        });
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -126,7 +139,12 @@ export function WorldVerify() {
       if (existing !== 0n) {
         const humanId = `0x${existing.toString(16)}`;
         saveIdentity({ ...identity, humanId });
-        setPhase({ name: "registered", humanId });
+        const txHash = transactionHash(identity.txHash);
+        setPhase({
+          name: "registered",
+          humanId,
+          ...(txHash ? { txHash } : {}),
+        });
         return;
       }
 
@@ -198,11 +216,16 @@ export function WorldVerify() {
               "Relay accepted the proof but the registration has not appeared on World Chain yet. Retry status in a minute.",
             );
           }
-          saveIdentity({ ...identity, humanId });
+          const txHash = transactionHash(body.txHash);
+          saveIdentity({
+            ...identity,
+            humanId,
+            ...(txHash ? { txHash } : {}),
+          });
           setPhase({
             name: "registered",
             humanId,
-            ...(body.txHash ? { txHash: body.txHash } : {}),
+            ...(txHash ? { txHash } : {}),
           });
           return;
         }
@@ -280,18 +303,35 @@ export function WorldVerify() {
         <p className="world-status">Proof received — relaying registration to World Chain…</p>
       )}
       {phase.name === "registered" && (
-        <p className="world-status">
-          ✓ Your agents are human-backed.{" "}
-          {phase.txHash && (
-            <a
-              href={`https://worldscan.org/tx/${phase.txHash}`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              registration tx
-            </a>
+        <div className="world-registration-status">
+          <p>✓ Your agents are human-backed.</p>
+          <a
+            className="world-explorer-link"
+            href={
+              phase.txHash
+                ? `${WORLDSCAN_URL}/tx/${phase.txHash}`
+                : `${WORLDSCAN_URL}/address/${AGENT_BOOK_CONTRACT}#readContract`
+            }
+            target="_blank"
+            rel="noreferrer"
+          >
+            <ExternalLink size={13} aria-hidden="true" />
+            <span>
+              <b>
+                {phase.txHash
+                  ? "View registration transaction"
+                  : "Verify in the AgentBook contract"}
+              </b>
+              <small>Worldscan · Etherscan for World Chain</small>
+            </span>
+          </a>
+          {!phase.txHash && (
+            <small className="world-explorer-help">
+              In “Read Contract”, call <code>lookupHuman</code> with the
+              identity-agent address shown above.
+            </small>
           )}
-        </p>
+        </div>
       )}
       {phase.name === "error" && (
         <p className="world-status world-error">
