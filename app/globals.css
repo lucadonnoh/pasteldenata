@@ -1005,6 +1005,16 @@ main {
   line-height: 1.55;
 }
 
+.mock-boundary-note {
+  margin: 11px 0 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(126, 105, 84, 0.07);
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+
 .seller-shell {
   min-height: 100vh;
 }
@@ -1558,6 +1568,291 @@ main {
   color: var(--ink);
 }
 
+.zerog-receipt {
+  margin-top: 16px;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid rgba(89, 143, 55, 0.28);
+  border-radius: 25px;
+  background:
+    radial-gradient(
+      circle at 8% 0%,
+      rgba(158, 224, 103, 0.14),
+      transparent 34%
+    ),
+    rgba(255, 255, 255, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 16px 42px rgba(58, 84, 45, 0.1);
+  backdrop-filter: blur(26px) saturate(160%);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+}
+
+.zerog-receipt-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.zerog-receipt-header > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.zerog-receipt-header > div > span {
+  color: #4d782f;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+}
+
+.zerog-receipt-header h2 {
+  margin: 5px 0;
+  font-size: 17px;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+}
+
+.zerog-receipt-header p {
+  max-width: 590px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.zerog-receipt-header code,
+.trace-json,
+.verification-equation code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+.zerog-seal {
+  display: grid;
+  width: 39px;
+  height: 39px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(101, 158, 64, 0.24);
+  border-radius: 13px;
+  background: rgba(132, 204, 82, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  color: #4d782f;
+}
+
+.zerog-receipt-header > .verification-pill {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.zerog-proof-grid {
+  display: grid;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 18px;
+  grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
+}
+
+.trace-json {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(25, 31, 25, 0.15);
+  border-radius: 15px;
+  background: rgba(22, 27, 22, 0.91);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 20px rgba(31, 39, 30, 0.08);
+  color: rgba(236, 247, 230, 0.9);
+}
+
+.trace-json > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.trace-json > div span {
+  color: rgba(224, 238, 217, 0.54);
+  font-size: 7px;
+}
+
+.trace-json > div code {
+  color: #a7df7f;
+  font-size: 7px;
+}
+
+.trace-json pre {
+  min-height: 188px;
+  max-height: 250px;
+  margin: 0;
+  padding: 13px;
+  overflow: auto;
+  color: #dff4d3;
+  font-size: 8px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.zerog-request-facts {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.verification-equation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 5px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  background: rgba(104, 170, 63, 0.09);
+}
+
+.verification-equation span {
+  color: #4d782f;
+  font-size: 7px;
+  font-weight: 650;
+}
+
+.verification-equation code {
+  color: #3f6728;
+  font-size: 8px;
+}
+
+.verification-caveat.prominent {
+  margin-top: 13px;
+}
+
+.router-corroboration {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.router-corroboration > summary {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  color: rgba(35, 38, 44, 0.66);
+  cursor: pointer;
+  font-size: 9px;
+  list-style: none;
+}
+
+.router-corroboration > summary::-webkit-details-marker {
+  display: none;
+}
+
+.router-corroboration > summary span {
+  font-weight: 630;
+}
+
+.router-corroboration > summary small {
+  margin-left: auto;
+  color: #4d782f;
+  font-size: 7px;
+}
+
+.router-corroboration > summary::after {
+  color: rgba(35, 38, 44, 0.42);
+  content: "+";
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 14px;
+}
+
+.router-corroboration[open] > summary::after {
+  content: "−";
+}
+
+.router-corroboration > div {
+  display: grid;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid rgba(83, 116, 65, 0.1);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.router-corroboration pre {
+  max-height: 210px;
+  margin: 0;
+  padding: 11px;
+  overflow: auto;
+  border-radius: 10px;
+  background: rgba(22, 27, 22, 0.88);
+  color: #dff4d3;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 7px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.zerog-plan-drawer {
+  margin: 17px -20px -20px;
+  border-top: 1px solid rgba(83, 116, 65, 0.13);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.zerog-plan-drawer > summary {
+  display: flex;
+  min-height: 49px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  color: rgba(35, 38, 44, 0.7);
+  cursor: pointer;
+  font-size: 10px;
+  list-style: none;
+}
+
+.zerog-plan-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+.zerog-plan-drawer > summary span {
+  font-weight: 630;
+}
+
+.zerog-plan-drawer > summary small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.zerog-plan-drawer > summary::after {
+  color: rgba(35, 38, 44, 0.42);
+  content: "+";
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 15px;
+}
+
+.zerog-plan-drawer[open] > summary::after {
+  content: "−";
+}
+
+.zerog-plan-body {
+  padding: 17px 20px 20px;
+  border-top: 1px solid rgba(83, 116, 65, 0.1);
+}
+
+.mock-execution-drawer {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .execution-body {
   display: grid;
   gap: 12px;
@@ -1703,6 +1998,11 @@ main {
   gap: 7px;
 }
 
+.listing-auction-list {
+  display: grid;
+  gap: 7px;
+}
+
 .auction-list details {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.52);
@@ -1740,6 +2040,58 @@ main {
 .auction-detail {
   padding: 11px;
   border-top: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.inspector-heading {
+  margin: 13px 0 8px;
+  color: rgba(35, 38, 44, 0.52);
+  font-size: 7px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.auction-transcript {
+  display: grid;
+  max-height: 280px;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.auction-transcript li {
+  display: grid;
+  min-width: 0;
+  align-items: start;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22);
+  grid-template-columns: 25px 58px minmax(0, 1fr);
+}
+
+.auction-transcript li > b {
+  color: rgba(35, 38, 44, 0.4);
+  font-size: 7px;
+}
+
+.auction-transcript li > strong {
+  font-size: 8px;
+}
+
+.auction-transcript li > span {
+  min-width: 0;
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+.auction-transcript small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.4;
 }
 
 .evidence-table.compact {
@@ -1983,6 +2335,55 @@ main {
 
   .drawer-body {
     padding: 11px;
+  }
+
+  .zerog-receipt {
+    padding: 15px;
+  }
+
+  .zerog-receipt-header {
+    flex-wrap: wrap;
+  }
+
+  .zerog-receipt-header > .verification-pill {
+    margin-left: 52px;
+  }
+
+  .zerog-proof-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-json pre {
+    min-height: 0;
+  }
+
+  .verification-equation {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .router-corroboration > summary small {
+    display: none;
+  }
+
+  .router-corroboration > div {
+    grid-template-columns: 1fr;
+  }
+
+  .zerog-plan-drawer {
+    margin: 15px -15px -15px;
+  }
+
+  .zerog-plan-drawer > summary {
+    padding: 8px 15px;
+  }
+
+  .zerog-plan-drawer > summary small {
+    display: none;
+  }
+
+  .zerog-plan-body {
+    padding: 14px 15px 15px;
   }
 
   .evidence-grid,

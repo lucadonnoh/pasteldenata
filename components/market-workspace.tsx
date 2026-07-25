@@ -4,7 +4,7 @@ import { ArrowLeft, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { AgentSearchExperience } from "@/components/agent-search-experience";
-import { ExecutionDetails } from "@/components/execution-details";
+import { MockExecutionDetails } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
 import { formatUsd } from "@/src/money";
 
@@ -46,7 +46,7 @@ export function MarketWorkspace() {
       </div>
 
       <AgentSearchExperience result={result} />
-      <ExecutionDetails result={result} />
+      <MockExecutionDetails result={result} />
     </section>
   );
 }

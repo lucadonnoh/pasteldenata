@@ -31,7 +31,7 @@ import styles from "./agent-search-experience.module.css";
 
 const DISCOVERY_DURATION_MS = 4200;
 const BID_INTERVAL_MS = 1050;
-const LOST_AUCTION_HOLD_MS = 2600;
+const LOST_AUCTION_HOLD_MS = 3400;
 const RETRY_OFFER_HOLD_MS = 1800;
 const AUCTION_SETTLE_MS = 1500;
 
@@ -41,6 +41,14 @@ const categoryIcons: Record<Category, LucideIcon> = {
   dinner: UtensilsCrossed,
   transport: CarFront,
   experience: Palette,
+};
+
+const recoveryTargets: Record<Category, string> = {
+  flowers: "florist",
+  cinema: "cinema",
+  dinner: "restaurant",
+  transport: "ride",
+  experience: "experience",
 };
 
 function shortWallet(wallet: string): string {
@@ -105,6 +113,14 @@ function AgentSearchRun({
   );
 
   useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const completionTimer = window.setTimeout(() => {
+        setResolvedCount(searches.length);
+        setPhase("complete");
+      }, 0);
+      return () => window.clearTimeout(completionTimer);
+    }
+
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
@@ -268,7 +284,7 @@ function AgentSearchRun({
             onClick={onReplay}
           >
             <RotateCcw size={13} />
-            Replay agent search
+            Replay mock auction trace
           </button>
         </>
       )}
@@ -349,7 +365,7 @@ function ActivityDiscovery({
               <footer>
                 <span>
                   <WalletCards size={11} />
-                  {search.auction.bids.length} eligible sellers
+                  {search.auction.listingAuctions.length} eligible listings
                 </span>
                 <strong>
                   cap {formatUsd(search.allocation.maxBudgetCents)}
@@ -499,12 +515,17 @@ function BidAuctionStage({
         })}
       </nav>
 
-      <div className={styles.focusAuction}>
+      <div
+        className={`${styles.focusAuction} ${
+          roundIsLost ? styles.focusAuctionRecovering : ""
+        }`}
+      >
         <section
           className={styles.sellerOffer}
           data-category={activeCompetition.search.allocation.category}
           data-attempt={activeCompetition.attempt}
           key={activeCompetition.offer.sellerId}
+          aria-hidden={roundIsLost}
         >
           <header>
             <span>
@@ -549,7 +570,10 @@ function BidAuctionStage({
           </footer>
         </section>
 
-        <section className={styles.buyerCompetition}>
+        <section
+          className={styles.buyerCompetition}
+          aria-hidden={roundIsLost}
+        >
           {currentBid && (
             <div
               className={`${styles.liveLeader} ${
@@ -627,6 +651,43 @@ function BidAuctionStage({
             </div>
           </div>
         </section>
+
+        {roundIsLost && (
+          <div className={styles.recoveryOverlay} role="status">
+            <div className={styles.lostStamp}>
+              <X size={22} />
+              <strong>LOST</strong>
+              <span>OUTBID ABOVE CAP</span>
+            </div>
+
+            <div className={styles.recoverySearch}>
+              <span>
+                <ScanSearch size={14} />
+                BUYER AGENT RECOVERY
+              </span>
+              <h3>
+                Finding another{" "}
+                {
+                  recoveryTargets[
+                    activeCompetition.search.allocation.category
+                  ]
+                }
+                …
+              </h3>
+              <p>
+                {shortWallet(activeCompetition.search.wallet)} protected its{" "}
+                {formatUsd(
+                  activeCompetition.search.allocation.maxBudgetCents,
+                )}{" "}
+                mandate and restarted discovery.
+              </p>
+              <div className={styles.recoveryTrack}>
+                <i />
+              </div>
+              <small>SCANNING ELIGIBLE SELLERS</small>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -676,8 +737,8 @@ function ResultCard({
 
         <div className={styles.resultFooter}>
           <div>
-            <span>Agent wallet</span>
-            <code>{shortWallet(search.wallet)}</code>
+            <span>Mock buyer ID</span>
+            <code>{search.agentId}</code>
           </div>
           <strong>{formatUsd(search.auction.winner.amountCents)}</strong>
         </div>

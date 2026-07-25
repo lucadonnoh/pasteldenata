@@ -1,7 +1,6 @@
 "use client";
 
 import { ExternalLink, ShieldCheck } from "lucide-react";
-import { MOCK_SELLERS } from "@/src/catalog";
 import type { DemoResult } from "@/src/domain";
 import { formatUsd, neuronToOg } from "@/src/money";
 
@@ -10,6 +9,7 @@ const PRIVACY_DOCS =
 const VERIFICATION_DOCS =
   "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/features/verifiable-execution";
 const ROUTER_ENDPOINT = "https://router-api.0g.ai/v1/chat/completions";
+const CHAINSCAN_ADDRESS = "https://chainscan.0g.ai/address/";
 
 function DocsLink({ href, children }: { href: string; children: string }) {
   return (
@@ -34,27 +34,39 @@ export function PrivacyDetails() {
             <strong>Browser → 0G Router</strong>
             <p>
               This page calls 0G directly. There is no application API route,
-              and the key is held only in this tab&apos;s React state.
+              and the user&apos;s key stays in this tab&apos;s React state.
             </p>
           </div>
           <div>
             <span className="evidence-label enforced">Enforced</span>
-            <strong>Private TeeML routing</strong>
+            <strong>Private TeeML sealed inference</strong>
             <p>
               Every request sends{" "}
-              <code>X-0G-Provider-Trust-Mode: private</code> and{" "}
-              <code>verify_tee: true</code>.
+              <code>X-0G-Provider-Trust-Mode: private</code>. 0G documents that
+              this routes only to TeeML, where the model and prompt stay inside
+              the enclave.
             </p>
           </div>
           <div>
-            <span className="evidence-label mocked">Mocked</span>
-            <strong>Sellers and settlement</strong>
+            <span className="evidence-label enforced">Two checks</span>
+            <strong>Router + independent signer verification</strong>
             <p>
-              Seller inventory, bids, and USD settlement are local simulations.
-              The inference and TEE check are not mocked.
+              The Router must return <code>tee_verified: true</code>. The
+              browser also recovers the provider&apos;s EIP-191 signer and
+              matches it to the acknowledged signer recorded on 0G.
             </p>
           </div>
         </div>
+        <p className="mock-boundary-note">
+          0G calls this private or sealed inference. It is not the separate
+          draft <code>_e2ee</code> HPKE payload protocol: production uses a
+          normal OpenAI-compatible <code>messages</code> request plus the
+          private routing header.
+        </p>
+        <p className="mock-boundary-note">
+          After 0G returns the verified plan, seller inventory, auctions, rival
+          bids, and USD settlement run as a clearly separated local simulation.
+        </p>
         <div className="docs-links">
           <DocsLink href={PRIVACY_DOCS}>0G privacy mode</DocsLink>
           <DocsLink href={VERIFICATION_DOCS}>0G TEE verification</DocsLink>
@@ -64,70 +76,175 @@ export function PrivacyDetails() {
   );
 }
 
-export function ExecutionDetails({ result }: { result: DemoResult }) {
+export function ZeroGVerificationReceipt({
+  result,
+}: {
+  result: DemoResult;
+}) {
   const costOg = neuronToOg(result.attestation.costNeuron);
+  const trace = result.attestation.routerTrace;
+  const proof = result.attestation.independentVerification;
+  if (!proof) return null;
+
+  const providerExplorerUrl =
+    trace && /^0x[0-9a-fA-F]{40}$/.test(trace.provider)
+      ? `${CHAINSCAN_ADDRESS}${trace.provider}`
+      : undefined;
+  const signerExplorerUrl = `${CHAINSCAN_ADDRESS}${proof.signingAddress}`;
+  const serviceContractExplorerUrl =
+    `${CHAINSCAN_ADDRESS}${proof.serviceContract}`;
 
   return (
-    <details className="transparency-drawer execution-drawer">
-      <summary>
-        <span>
+    <section
+      className="zerog-receipt"
+      aria-label="Live 0G TEE verification receipt"
+    >
+      <header className="zerog-receipt-header">
+        <span className="zerog-seal">
           <ShieldCheck size={15} aria-hidden="true" />
-          Proof and execution details
         </span>
-        <small>Attestation · plan · bids · receipts</small>
-      </summary>
+        <div>
+          <span>LIVE · 0G PRIVATE TEE RECEIPT</span>
+          <h2>Private routing and TEE signer verified</h2>
+          <p>
+            0G verified the response synchronously, then this browser
+            independently checked the signed proof against the on-chain signer.
+          </p>
+        </div>
+        <span className="verification-pill">PRIVATE · TEEML</span>
+      </header>
 
-      <div className="drawer-body execution-body">
-        <section className="trace-section">
-          <div className="trace-heading">
-            <div>
-              <span>01 · LIVE INFERENCE</span>
-              <h3>0G private TEE evidence</h3>
-            </div>
-            <span className="verification-pill">TEE VERIFIED</span>
+      <div className="zerog-proof-grid">
+        <div className="trace-json">
+          <div>
+            <span>Cryptographic verification receipt</span>
+            <code>EIP-191</code>
           </div>
+          <pre>{JSON.stringify(proof, null, 2)}</pre>
+        </div>
 
+        <div className="zerog-request-facts">
+          <div className="verification-equation">
+            <span>Acceptance condition</span>
+            <code>
+              tee_verified &amp;&amp; signer === on-chain signer
+            </code>
+          </div>
           <dl className="evidence-table">
             <div>
-              <dt>Router result</dt>
-              <dd>
-                <code>x_0g_trace.tee_verified = true</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Trust mode</dt>
+              <dt>Routing</dt>
               <dd>
                 <code>private</code> · TeeML only
               </dd>
             </div>
             <div>
-              <dt>Endpoint</dt>
+              <dt>Router verification</dt>
+              <dd>
+                <code>verify_tee: true</code> ·{" "}
+                <code>tee_verified: true</code>
+              </dd>
+            </div>
+            <div>
+              <dt>On-chain lookup</dt>
+              <dd>
+                0G Mainnet · chain <code>{proof.chainId}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Provider service</dt>
+              <dd>
+                <code>{proof.verifiability}</code> ·{" "}
+                <code>{proof.serviceModel}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Expected signer</dt>
+              <dd>
+                <code>{proof.signingAddress}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Recovered signer</dt>
+              <dd>
+                <code>{proof.recoveredAddress}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Signed request hash</dt>
+              <dd>
+                <code>{proof.signedRequestHash ?? "Not exposed"}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Signed response hash</dt>
+              <dd>
+                <code>{proof.signedResponseHash ?? "Not exposed"}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Message hash</dt>
+              <dd>
+                <code>{proof.messageHash}</code>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      <p className="verification-caveat prominent">
+        The independent check proves that proof <code>{proof.chatId}</code> was
+        signed by the acknowledged TeeML signer. The exact plan-to-response-hash
+        match is still trusted to the Router&apos;s synchronous{" "}
+        <code>tee_verified</code> check because the Router adds metadata to the
+        provider response before this browser receives it.
+      </p>
+      <div className="docs-links">
+        {providerExplorerUrl && (
+          <DocsLink href={providerExplorerUrl}>
+            Provider on 0G ChainScan
+          </DocsLink>
+        )}
+        <DocsLink href={signerExplorerUrl}>TEE signer on ChainScan</DocsLink>
+        <DocsLink href={serviceContractExplorerUrl}>
+          0G service contract
+        </DocsLink>
+        <DocsLink href={VERIFICATION_DOCS}>
+          Verification mechanics
+        </DocsLink>
+        <DocsLink href={PRIVACY_DOCS}>Privacy-mode guarantee</DocsLink>
+      </div>
+
+      <details className="router-corroboration">
+        <summary>
+          <span>View 0G Router corroboration</span>
+          <small>routing, verification, and billing metadata</small>
+        </summary>
+        <div>
+          <pre>{JSON.stringify(trace, null, 2)}</pre>
+          <dl className="evidence-table">
+            <div>
+              <dt>Request</dt>
               <dd>
                 <code>POST {ROUTER_ENDPOINT}</code>
               </dd>
             </div>
             <div>
-              <dt>Model</dt>
+              <dt>Routing</dt>
+              <dd>
+                <code>private</code> · TeeML only
+              </dd>
+            </div>
+            <div>
+              <dt>Router verification</dt>
+              <dd>
+                <code>verify_tee: true</code> requested and{" "}
+                <code>x_0g_trace.tee_verified: true</code> required
+              </dd>
+            </div>
+            <div>
+              <dt>Router model</dt>
               <dd>
                 <code>{result.attestation.model}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Provider</dt>
-              <dd>
-                <code>{result.attestation.provider ?? "Not returned"}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Request ID</dt>
-              <dd>
-                <code>{result.attestation.requestId ?? "Not returned"}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Response / chat ID</dt>
-              <dd>
-                <code>{result.attestation.chatId ?? "Not returned"}</code>
               </dd>
             </div>
             <div>
@@ -144,25 +261,21 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
               </dd>
             </div>
           </dl>
+        </div>
+      </details>
 
-          <p className="verification-caveat">
-            This is synchronous verification by the 0G Router. Per 0G&apos;s
-            documented trust model, the boolean reports that the Router
-            validated the provider&apos;s TEE signature; this demo does not
-            independently re-run the signature verification.
-          </p>
-          <div className="docs-links">
-            <DocsLink href={PRIVACY_DOCS}>Privacy-mode guarantee</DocsLink>
-            <DocsLink href={VERIFICATION_DOCS}>
-              Verification trust model
-            </DocsLink>
-          </div>
-        </section>
-
-        <section className="trace-section">
+      <details className="zerog-plan-drawer">
+        <summary>
+          <span>View the 0G-generated private plan</span>
+          <small>
+            {result.plan.allocations.length} scoped allocations ·{" "}
+            {formatUsd(result.plan.totalBudgetCents)} cap
+          </small>
+        </summary>
+        <div className="zerog-plan-body">
           <div className="trace-heading">
             <div>
-              <span>02 · LIVE MODEL OUTPUT</span>
+              <span>LIVE MODEL OUTPUT</span>
               <h3>Scoped purchasing mandates</h3>
             </div>
             <code>{result.plan.planId}</code>
@@ -197,16 +310,34 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
               </article>
             ))}
           </div>
-        </section>
+        </div>
+      </details>
+    </section>
+  );
+}
 
+export function MockExecutionDetails({ result }: { result: DemoResult }) {
+  return (
+    <details className="transparency-drawer mock-execution-drawer">
+      <summary>
+        <span>Inspect mocked market simulation</span>
+        <small>Buyer subagents · English auctions · fake receipts</small>
+      </summary>
+
+      <div className="drawer-body execution-body">
         <section className="trace-section">
           <div className="trace-heading">
             <div>
-              <span>03 · MOCK SELLER MARKET</span>
-              <h3>Commit, reveal, score, select</h3>
+              <span>MOCKED · ALLOCATION BUYER SUBAGENTS</span>
+              <h3>Scoped agents in ascending English auctions</h3>
             </div>
-            <span className="mock-pill">MOCKED SELLERS</span>
+            <span className="mock-pill">MOCKED MARKET</span>
           </div>
+          <p className="policy-copy">
+            Every allocation creates one buyer subagent. Sellers are
+            deterministic mock auction houses—not AI agents—and mocked rivals
+            provide competitive demand.
+          </p>
 
           <div className="auction-list">
             {result.auctions.map((auction) => (
@@ -214,7 +345,8 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
                 <summary>
                   <span>
                     <strong>{auction.category}</strong>
-                    {auction.bids.length} sealed bids
+                    {auction.listingAuctions.length} listing auction
+                    {auction.listingAuctions.length === 1 ? "" : "s"}
                   </span>
                   <span>
                     Winner: {auction.winner.sellerName} ·{" "}
@@ -224,9 +356,9 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
                 <div className="auction-detail">
                   <dl className="evidence-table compact">
                     <div>
-                      <dt>Auction ID</dt>
+                      <dt>Buyer subagent</dt>
                       <dd>
-                        <code>{auction.auctionId}</code>
+                        <code>{auction.buyerSubagent.id}</code>
                       </dd>
                     </div>
                     <div>
@@ -240,24 +372,22 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
                       <dd>{formatUsd(auction.mandate.maxAmountCents)}</dd>
                     </div>
                     <div>
-                      <dt>Winning score</dt>
-                      <dd>{auction.score.toFixed(2)}</dd>
+                      <dt>Private strategy</dt>
+                      <dd>{auction.buyerSubagent.strategy}</dd>
+                    </div>
+                    <div>
+                      <dt>Requirements</dt>
+                      <dd>
+                        {auction.buyerSubagent.requirements.join(" · ")}
+                      </dd>
                     </div>
                   </dl>
 
-                  <div className="bid-list">
-                    {auction.bids.map((bid, index) => (
-                      <BidInspector
-                        key={bid.sellerId}
-                        bid={bid}
-                        commitment={
-                          auction.commitments[index] ?? "Missing commitment"
-                        }
-                        evaluation={auction.evaluations.find(
-                          (evaluation) =>
-                            evaluation.sellerId === bid.sellerId,
-                        )}
-                        winner={bid.sellerId === auction.winner.sellerId}
+                  <div className="listing-auction-list">
+                    {auction.listingAuctions.map((listingAuction) => (
+                      <EnglishAuctionInspector
+                        key={listingAuction.auctionId}
+                        auction={listingAuction}
                       />
                     ))}
                   </div>
@@ -270,7 +400,7 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
         <section className="trace-section">
           <div className="trace-heading">
             <div>
-              <span>04 · MOCK SETTLEMENT</span>
+              <span>MOCKED · SETTLEMENT</span>
               <h3>Independent payment-policy checks</h3>
             </div>
             <span className="mock-pill">NO REAL PAYMENT</span>
@@ -303,66 +433,105 @@ export function ExecutionDetails({ result }: { result: DemoResult }) {
   );
 }
 
-function BidInspector({
-  bid,
-  commitment,
-  evaluation,
-  winner,
+function EnglishAuctionInspector({
+  auction,
 }: {
-  bid: DemoResult["auctions"][number]["bids"][number];
-  commitment: string;
-  evaluation:
-    | DemoResult["auctions"][number]["evaluations"][number]
-    | undefined;
-  winner: boolean;
+  auction: DemoResult["auctions"][number]["listingAuctions"][number];
 }) {
-  const seller = MOCK_SELLERS.find((candidate) => candidate.id === bid.sellerId);
-
   return (
-    <article className={winner ? "winning-bid" : undefined}>
-      <header>
-        <strong>{bid.sellerName}</strong>
-        <b>{formatUsd(bid.amountCents)}</b>
-      </header>
-      <p>{bid.offering}</p>
-      <dl>
-        <div>
-          <dt>Commitment · checked before selection</dt>
-          <dd>
-            <code>{commitment}</code>
-          </dd>
+    <details className="listing-auction">
+      <summary>
+        <span>
+          <strong>{auction.listing.sellerName}</strong>
+          {auction.listing.offering}
+        </span>
+        <span>
+          {auction.status} · {auction.steps.length} ascending steps
+          {auction.clearingPriceCents === null
+            ? ""
+            : ` · ${formatUsd(auction.clearingPriceCents)}`}
+        </span>
+      </summary>
+
+      <div className="auction-detail">
+        <dl className="evidence-table compact">
+          <div>
+            <dt>Auction ID</dt>
+            <dd>
+              <code>{auction.auctionId}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Listing score</dt>
+            <dd>{auction.listingScore.toFixed(2)}</dd>
+          </div>
+          <div>
+            <dt>Seller floor</dt>
+            <dd>
+              {formatUsd(auction.debugSellerFloorPriceCents)}
+            </dd>
+          </div>
+          <div>
+            <dt>Increment</dt>
+            <dd>{formatUsd(auction.minimumIncrementCents)}</dd>
+          </div>
+          <div>
+            <dt>Buyer private max</dt>
+            <dd>{formatUsd(auction.buyerMaxBidCents)}</dd>
+          </div>
+          <div>
+            <dt>Winner</dt>
+            <dd>
+              <code>{auction.winningBidderId ?? "No bidder"}</code>
+            </dd>
+          </div>
+        </dl>
+
+        <h4 className="inspector-heading">
+          Participants · debug valuations
+        </h4>
+        <div className="bid-list">
+          {auction.participants.map((participant) => (
+            <article
+              key={participant.bidderId}
+              className={
+                participant.bidderId === auction.winningBidderId
+                  ? "winning-bid"
+                  : undefined
+              }
+            >
+              <header>
+                <strong>{participant.bidderId}</strong>
+                <b>{formatUsd(participant.debugMaxBidCents)}</b>
+              </header>
+              <p>{participant.bidderKind}</p>
+            </article>
+          ))}
         </div>
-        <div>
-          <dt>Reveal salt</dt>
-          <dd>
-            <code>{bid.salt}</code>
-          </dd>
-        </div>
-        <div>
-          <dt>Mock seller floor · inspector only</dt>
-          <dd>
-            {seller ? formatUsd(seller.reservePriceCents) : "Not available"}
-          </dd>
-        </div>
-        <div>
-          <dt>Evaluated score</dt>
-          <dd>
-            {evaluation
-              ? `${evaluation.score.toFixed(2)} · ${
-                  evaluation.affordable ? "within mandate" : "over mandate"
-                }`
-              : "Not available"}
-          </dd>
-        </div>
-        <div>
-          <dt>Quality</dt>
-          <dd>{bid.quality}/100</dd>
-        </div>
-        <div>
-          <dt>Tags</dt>
-          <dd>{bid.tags.join(", ")}</dd>
-        </div>
-      </dl>
-    </article>
+
+        <h4 className="inspector-heading">Ascending transcript</h4>
+        {auction.steps.length === 0 ? (
+          <p className="policy-copy">No bidder met the opening floor.</p>
+        ) : (
+          <ol className="auction-transcript">
+            {auction.steps.map((step) => (
+              <li key={step.sequence}>
+                <b>#{step.sequence}</b>
+                <strong>{formatUsd(step.askingPriceCents)}</strong>
+                <span>
+                  Lead: {step.leadingBidderId ?? "none"}
+                  <small>
+                    Active: {step.activeBidderIds.join(", ") || "none"}
+                    {step.droppedBidderIds.length > 0
+                      ? ` · Dropped: ${step.droppedBidderIds.join(", ")}`
+                      : ""}
+                  </small>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </details>
   );
 }
