@@ -897,6 +897,7 @@ export const CITY_LABELS: Record<City, string> = {
 
 export class UnknownCityError extends Error {
   readonly available: string[];
+  readonly location: string;
   constructor(location: string) {
     const available = Object.values(CITY_LABELS);
     super(
@@ -904,6 +905,7 @@ export class UnknownCityError extends Error {
     );
     this.name = "UnknownCityError";
     this.available = available;
+    this.location = location;
   }
 }
 

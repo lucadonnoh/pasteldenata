@@ -2953,3 +2953,71 @@ a.readiness-item:hover {
 .world-note-ok {
   color: #568738;
 }
+
+.no-market {
+  display: grid;
+  gap: 14px;
+  padding: 44px 36px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(18px);
+  text-align: center;
+  justify-items: center;
+}
+
+.no-market-eyebrow {
+  color: rgba(176, 74, 58, 0.85);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.no-market h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 580;
+  letter-spacing: -0.03em;
+}
+
+.no-market p {
+  max-width: 400px;
+  margin: 0;
+  color: rgba(36, 39, 44, 0.6);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.no-market-cities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.no-market-cities button {
+  padding: 9px 16px;
+  border: 1px solid rgba(37, 40, 46, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.no-market-cities button:hover {
+  background: #25282e;
+  color: #fff;
+}
+
+.no-market-reset {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(36, 39, 44, 0.5);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+}
