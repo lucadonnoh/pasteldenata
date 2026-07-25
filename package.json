@@ -5,6 +5,10 @@
   "type": "module",
   "description": "Private agentic payments with 0G confidential inference and mocked sealed-bid auctions.",
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
     "demo": "tsx src/cli.ts",
     "demo:mock": "tsx src/cli.ts --mock",
     "demo:hedera": "tsx src/cli.ts --hedera",
@@ -17,17 +21,30 @@
     "hedera:setup": "tsx src/hedera/setup.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test && npm run lint"
   },
   "dependencies": {
     "@hashgraph/sdk": "^2.81.0",
+    "@noble/hashes": "^2.2.0",
     "dotenv": "^16.6.1",
+    "lucide-react": "^1.26.0",
+    "next": "^16.2.11",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^24.1.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.11",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "sharp": "^0.35.3"
   },
   "engines": {
     "node": ">=22"

@@ -32,6 +32,8 @@ export interface PlannerAttestation {
   provider?: string;
   model: string;
   costNeuron?: string;
+  requestId?: string;
+  chatId?: string;
 }
 
 export interface Seller {
@@ -84,12 +86,19 @@ export interface BidCommitment {
   reveal: () => Bid;
 }
 
+export interface BidEvaluation {
+  sellerId: string;
+  affordable: boolean;
+  score: number;
+}
+
 export interface AuctionResult {
   auctionId: string;
   category: Category;
   mandate: SpendMandate;
   commitments: string[];
   bids: Bid[];
+  evaluations: BidEvaluation[];
   winner: Bid;
   score: number;
 }

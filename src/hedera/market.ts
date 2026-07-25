@@ -389,7 +389,16 @@ async function runMarketLeaf(
       buyerLabel: buyer.name,
       contested: {
         mirrorBaseUrl: TESTNET_MIRROR_BASE,
-        listings: listings.map(({ category: _c, seller: _s, ...listing }) => listing),
+        listings: listings.map((listing) => ({
+          itemId: listing.itemId,
+          topicId: listing.topicId,
+          sellerId: listing.sellerId,
+          sellerName: listing.sellerName,
+          offering: listing.offering,
+          floorCents: listing.floorCents,
+          quality: listing.quality,
+          tags: listing.tags,
+        })),
       },
     });
   });

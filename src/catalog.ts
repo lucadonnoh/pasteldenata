@@ -1,4 +1,4 @@
-import type { Seller } from "./domain.js";
+import type { Seller } from "./domain";
 
 export const MOCK_SELLERS: Seller[] = [
   {
@@ -148,7 +148,14 @@ export const MOCK_SELLERS: Seller[] = [
 
 export function publicCatalogForPlanner() {
   return MOCK_SELLERS.map(
-    ({ privateSalt: _privateSalt, reservePriceCents: _reserve, ...publicSeller }) =>
-      publicSeller,
+    ({ id, name, category, offering, listPriceCents, quality, tags }) => ({
+      id,
+      name,
+      category,
+      offering,
+      listPriceCents,
+      quality,
+      tags,
+    }),
   );
 }

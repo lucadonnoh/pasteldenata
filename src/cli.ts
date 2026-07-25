@@ -11,7 +11,7 @@ import {
   MockPrivatePlanner,
   ZeroGPrivatePlanner,
   type PrivatePlanner,
-} from "./planner.js";
+} from "./planner";
 
 const argv = process.argv.slice(2);
 const useMock = argv.includes("--mock");

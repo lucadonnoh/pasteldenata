@@ -7,7 +7,11 @@ import type {
 } from "./domain.js";
 import { runAuctions } from "./auction.js";
 import { settleMockPayments } from "./payments.js";
-import type { PrivatePlanner } from "./planner.js";
+import {
+  requireVerifiedPrivateTee,
+  type PlannerResult,
+  type PrivatePlanner,
+} from "./planner.js";
 
 export interface SettlementResult {
   receipts: PaymentReceipt[];
@@ -23,13 +27,10 @@ const mockSettler: Settler = async (plan, auctions) => ({
   receipts: settleMockPayments(plan, auctions),
 });
 
-export async function organizePrivatePurchase(
-  planner: PrivatePlanner,
-  intent: string,
-  now = new Date(),
+async function runPurchase(
+  { plan, attestation }: PlannerResult,
   settler: Settler = mockSettler,
 ): Promise<DemoResult> {
-  const { plan, attestation } = await planner.plan(intent, now);
   const auctions = await runAuctions(plan);
   const { receipts, hedera } = await settler(plan, auctions);
   const totalSpentCents = receipts.reduce(
@@ -45,4 +46,24 @@ export async function organizePrivatePurchase(
     totalSpentCents,
     ...(hedera ? { hedera } : {}),
   };
+}
+
+export async function organizePrivatePurchase(
+  planner: PrivatePlanner,
+  intent: string,
+  now = new Date(),
+  settler?: Settler,
+): Promise<DemoResult> {
+  return runPurchase(await planner.plan(intent, now), settler);
+}
+
+export async function organizeVerifiedPrivatePurchase(
+  planner: PrivatePlanner,
+  intent: string,
+  now = new Date(),
+  settler?: Settler,
+): Promise<DemoResult> {
+  const planned = await planner.plan(intent, now);
+  requireVerifiedPrivateTee(planned.attestation);
+  return runPurchase(planned, settler);
 }

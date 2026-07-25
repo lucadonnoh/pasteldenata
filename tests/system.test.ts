@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runAuctions } from "../src/auction.js";
 import type { AuctionResult, SellerAuctionView } from "../src/domain.js";
-import { organizePrivatePurchase } from "../src/orchestrator.js";
+import {
+  organizePrivatePurchase,
+  organizeVerifiedPrivatePurchase,
+} from "../src/orchestrator.js";
 import { nextBid } from "../src/hedera/liveAuction.js";
 import { settleMockPayments, validateSettlement } from "../src/payments.js";
 import { MOCK_SELLERS } from "../src/catalog.js";
-import { MockPrivatePlanner } from "../src/planner.js";
+import {
+  MockPrivatePlanner,
+  requireVerifiedPrivateTee,
+} from "../src/planner.js";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
@@ -136,5 +142,40 @@ test("payment policy rejects a replayed mandate", async () => {
   assert.throws(
     () => settleMockPayments(plan, [first, first]),
     /cannot be spent twice/,
+  );
+});
+
+test("the browser flow accepts only an attested 0G private TEE", () => {
+  assert.throws(
+    () =>
+      requireVerifiedPrivateTee({
+        mode: "local-mock",
+        teeVerified: false,
+        model: "deterministic-test-planner",
+      }),
+    /verified private TEE/,
+  );
+  assert.throws(
+    () =>
+      requireVerifiedPrivateTee({
+        mode: "0g-private-tee",
+        teeVerified: false,
+        model: "0gm-1.0-35b-a3b",
+      }),
+    /verified private TEE/,
+  );
+  assert.doesNotThrow(() =>
+    requireVerifiedPrivateTee({
+      mode: "0g-private-tee",
+      teeVerified: true,
+      model: "0gm-1.0-35b-a3b",
+    }),
+  );
+});
+
+test("the verified browser orchestrator rejects the mock before auctions", async () => {
+  await assert.rejects(
+    organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
+    /verified private TEE/,
   );
 });

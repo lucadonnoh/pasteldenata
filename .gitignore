@@ -1,7 +1,10 @@
 .env
 hedera-infra.json
 node_modules/
+.next/
+out/
 dist/
 coverage/
+*.tsbuildinfo
 *.log
 .DS_Store
