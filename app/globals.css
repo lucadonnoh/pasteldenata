@@ -212,9 +212,9 @@ main {
 }
 
 .workspace {
-  width: min(780px, calc(100% - 40px));
+  width: min(1080px, calc(100% - 40px));
   margin: auto;
-  padding: 74px 0 120px;
+  padding: 64px 0 110px;
   transition:
     opacity 500ms ease,
     filter 500ms ease,
@@ -226,6 +226,214 @@ main {
   opacity: 0;
   filter: blur(13px);
   transform: translateY(-24px) scale(0.955);
+}
+
+.intent-layout {
+  display: grid;
+  align-items: start;
+  justify-content: center;
+  gap: 16px;
+  grid-template-columns: 220px minmax(0, 780px);
+}
+
+.intent-column {
+  min-width: 0;
+}
+
+.credential-sidebar {
+  position: sticky;
+  top: 84px;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 27px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.56),
+    rgba(255, 255, 255, 0.25)
+  );
+  box-shadow:
+    0 22px 54px rgba(45, 55, 68, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+}
+
+.credential-sidebar::before {
+  position: absolute;
+  width: 170px;
+  height: 130px;
+  top: -84px;
+  right: -62px;
+  border-radius: 50%;
+  background: rgba(185, 210, 245, 0.32);
+  filter: blur(8px);
+  content: "";
+  pointer-events: none;
+}
+
+.credential-sidebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.credential-sidebar > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.credential-sidebar > header > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  color: rgba(38, 43, 50, 0.58);
+}
+
+.credential-sidebar > header small,
+.credential-sidebar > header strong {
+  display: block;
+}
+
+.credential-sidebar > header small {
+  margin-bottom: 3px;
+  color: rgba(33, 37, 43, 0.36);
+  font-size: 7px;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+}
+
+.credential-sidebar > header strong {
+  font-size: 13px;
+  font-weight: 610;
+  letter-spacing: -0.025em;
+}
+
+.sidebar-key-field {
+  display: block;
+  margin-top: 25px;
+}
+
+.sidebar-key-field > span {
+  display: block;
+  margin: 0 0 7px 2px;
+  color: rgba(33, 37, 43, 0.4);
+  font-size: 7px;
+  font-weight: 720;
+  letter-spacing: 0.1em;
+}
+
+.sidebar-key-field > div {
+  display: flex;
+  height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.27);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 4px 13px rgba(40, 46, 55, 0.05);
+  color: rgba(34, 38, 44, 0.4);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.sidebar-key-field > div:focus-within {
+  border-color: rgba(85, 134, 56, 0.42);
+  box-shadow:
+    0 0 0 3px rgba(133, 220, 50, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.sidebar-key-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.sidebar-key-field input::placeholder {
+  color: rgba(35, 39, 45, 0.28);
+}
+
+.credential-status {
+  display: flex;
+  min-height: 53px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.credential-status > i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #c49762;
+  box-shadow: 0 0 8px rgba(196, 151, 98, 0.45);
+}
+
+.credential-status strong,
+.credential-status span {
+  display: block;
+}
+
+.credential-status strong {
+  margin-bottom: 3px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.credential-status span {
+  color: rgba(34, 38, 44, 0.4);
+  font-size: 7px;
+  line-height: 1.35;
+}
+
+.credential-status.credential-ready {
+  border-color: rgba(110, 167, 74, 0.27);
+  background: rgba(227, 247, 214, 0.28);
+}
+
+.credential-status.credential-ready > i {
+  background: #78b94f;
+  box-shadow: 0 0 9px rgba(88, 153, 49, 0.5);
+}
+
+.credential-sidebar > footer {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.48);
+  color: rgba(34, 38, 44, 0.37);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.credential-sidebar > footer svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #5b873e;
 }
 
 .composer {
@@ -308,41 +516,6 @@ main {
   color: rgba(35, 38, 44, 0.5);
   font-size: 11px;
   font-weight: 500;
-}
-
-.key-field {
-  display: grid;
-  min-height: 44px;
-  align-items: center;
-  gap: 10px;
-  padding: 0 23px;
-  border-top: 1px solid rgba(255, 255, 255, 0.28);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(35, 38, 44, 0.48);
-  font-size: 9px;
-  grid-template-columns: auto minmax(120px, 1fr) auto;
-}
-
-.key-field label {
-  font-weight: 600;
-}
-
-.key-field input {
-  min-width: 0;
-  padding: 6px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.56);
-  border-radius: 9px;
-  outline: 0;
-  background: rgba(255, 255, 255, 0.26);
-  color: var(--ink);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-  font-size: 10px;
-}
-
-.key-field input:focus {
-  border-color: rgba(85, 134, 56, 0.45);
-  box-shadow: 0 0 0 2px rgba(133, 220, 50, 0.12);
 }
 
 .composer-input {
@@ -1603,6 +1776,50 @@ main {
 }
 
 @media (max-width: 900px) {
+  .workspace {
+    width: min(780px, calc(100% - 40px));
+    padding-top: 45px;
+  }
+
+  .intent-layout {
+    gap: 14px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .credential-sidebar {
+    position: relative;
+    display: grid;
+    top: auto;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 15px 18px;
+    grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.2fr);
+  }
+
+  .credential-sidebar > header {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .sidebar-key-field {
+    margin-top: 0;
+    grid-column: 2;
+    grid-row: 1 / 3;
+  }
+
+  .credential-status {
+    min-height: 45px;
+    margin-top: 0;
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .credential-sidebar > footer {
+    margin-top: 1px;
+    padding-top: 10px;
+    grid-column: 1 / -1;
+  }
+
   .seller-workspace {
     padding-top: 45px;
   }
@@ -1629,16 +1846,6 @@ main {
 
   .composer {
     border-radius: 27px;
-  }
-
-  .key-field {
-    gap: 7px;
-    padding: 8px 17px;
-    grid-template-columns: auto 1fr;
-  }
-
-  .key-field > span {
-    grid-column: 2;
   }
 
   .transparency-drawer > summary {
@@ -1788,6 +1995,26 @@ main {
 
   .surface-label {
     display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .credential-sidebar {
+    display: block;
+    padding: 16px;
+  }
+
+  .sidebar-key-field {
+    margin-top: 18px;
+  }
+
+  .credential-status {
+    margin-top: 10px;
+  }
+
+  .credential-sidebar > footer {
+    margin-top: 15px;
+    padding-top: 12px;
   }
 }
 
