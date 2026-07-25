@@ -13,6 +13,7 @@ import {
   KeyboardEvent,
   PointerEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
@@ -30,6 +31,8 @@ function isUsableZeroGKey(value: string): boolean {
   return value.trim().startsWith("sk-") && value.trim().length >= 12;
 }
 
+type CredentialPanelState = "open" | "closing" | "collapsed";
+
 export function IntentBox() {
   const router = useRouter();
   const { setResult } = usePurchaseSession();
@@ -38,9 +41,14 @@ export function IntentBox() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
-  const [credentialPanelOpen, setCredentialPanelOpen] = useState(true);
+  const [credentialPanelState, setCredentialPanelState] =
+    useState<CredentialPanelState>("open");
+  const autoCollapseTimerRef = useRef<number | null>(null);
   const hasUsableKey = isUsableZeroGKey(apiKey);
-  const credentialsCollapsed = hasUsableKey && !credentialPanelOpen;
+  const credentialsClosing =
+    hasUsableKey && credentialPanelState === "closing";
+  const credentialsCollapsed =
+    hasUsableKey && credentialPanelState === "collapsed";
 
   useEffect(() => {
     if (
@@ -54,12 +62,35 @@ export function IntentBox() {
   useEffect(() => {
     if (!hasUsableKey) return;
 
-    const collapseTimer = window.setTimeout(
-      () => setCredentialPanelOpen(false),
-      900,
-    );
-    return () => window.clearTimeout(collapseTimer);
+    autoCollapseTimerRef.current = window.setTimeout(() => {
+      autoCollapseTimerRef.current = null;
+      setCredentialPanelState("closing");
+    }, 900);
+    return () => {
+      if (autoCollapseTimerRef.current !== null) {
+        window.clearTimeout(autoCollapseTimerRef.current);
+        autoCollapseTimerRef.current = null;
+      }
+    };
   }, [hasUsableKey]);
+
+  useEffect(() => {
+    if (credentialPanelState !== "closing") return;
+
+    const settleTimer = window.setTimeout(
+      () => setCredentialPanelState("collapsed"),
+      340,
+    );
+    return () => window.clearTimeout(settleTimer);
+  }, [credentialPanelState]);
+
+  function closeCredentialPanel() {
+    if (autoCollapseTimerRef.current !== null) {
+      window.clearTimeout(autoCollapseTimerRef.current);
+      autoCollapseTimerRef.current = null;
+    }
+    setCredentialPanelState("closing");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -119,6 +150,8 @@ export function IntentBox() {
       >
         <aside
           className={`credential-sidebar ${
+            credentialsClosing ? "credential-sidebar-closing" : ""
+          } ${
             credentialsCollapsed ? "credential-sidebar-collapsed" : ""
           }`}
           id="zerog-credentials-panel"
@@ -127,9 +160,9 @@ export function IntentBox() {
           <button
             className="credential-sidebar-toggle"
             type="button"
-            onClick={() => setCredentialPanelOpen(true)}
+            onClick={() => setCredentialPanelState("open")}
             aria-controls="zerog-credentials-panel"
-            aria-expanded={!credentialsCollapsed}
+            aria-expanded={credentialPanelState === "open"}
             aria-label="Open 0G key settings"
             title="Edit 0G key"
           >
@@ -149,7 +182,7 @@ export function IntentBox() {
               <button
                 className="credential-sidebar-close"
                 type="button"
-                onClick={() => setCredentialPanelOpen(false)}
+                onClick={closeCredentialPanel}
                 aria-label="Collapse 0G key settings"
               >
                 <ChevronLeft size={15} />
@@ -171,7 +204,7 @@ export function IntentBox() {
                   const nextKey = event.target.value;
                   setApiKey(nextKey);
                   if (!isUsableZeroGKey(nextKey)) {
-                    setCredentialPanelOpen(true);
+                    setCredentialPanelState("open");
                   }
                 }}
                 placeholder="sk-…"
