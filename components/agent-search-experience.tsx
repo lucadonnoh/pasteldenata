@@ -195,7 +195,12 @@ function LiveAgentSearchRun({
   }[phase];
 
   return (
-    <section className={styles.experience} aria-live="polite">
+    <section
+      className={`${styles.experience} ${
+        phase === "complete" ? styles.bundleComplete : ""
+      }`}
+      aria-live="polite"
+    >
       <header className={styles.heading}>
         <div>
           <span>{phaseCopy.eyebrow}</span>
@@ -618,7 +623,12 @@ function AgentSearchRun({
   }, [frames, replays]);
 
   return (
-    <section className={styles.experience} aria-live="polite">
+    <section
+      className={`${styles.experience} ${
+        phase === "complete" ? styles.bundleComplete : ""
+      }`}
+      aria-live="polite"
+    >
       <header className={styles.heading}>
         <div>
           <span>LOCAL MOCK MARKET · RECORDED EXECUTION</span>
@@ -1069,17 +1079,55 @@ function BundleGrid({
     buyerName: string;
   }>;
 }) {
+  const isLost = (search: MockAgentSearch) =>
+    !result.receipts.some(
+      (receipt) =>
+        receipt.category === search.allocation.category &&
+        receipt.status === "hedera-settled",
+    ) && lostCategories.includes(search.allocation.category);
+  const securedCount = searches.filter((search) => !isLost(search)).length;
+  const totalSettledCents = searches.reduce((total, search) => {
+    if (isLost(search)) return total;
+    const receipt = result.receipts.find(
+      (candidate) =>
+        candidate.category === search.allocation.category,
+    );
+    return total + (receipt?.amountCents ?? search.auction.winner.amountCents);
+  }, 0);
+  const hasOnChainReceipts = result.receipts.some(
+    (receipt) => receipt.status === "hedera-settled",
+  );
+
   return (
-    <div className={styles.bundleGrid}>
-      {searches.map((search, index) => {
+    <>
+      <div className={styles.bundleSummary}>
+        <span>
+          <Check size={18} strokeWidth={2.7} aria-hidden="true" />
+        </span>
+        <div>
+          <small>
+            {hasOnChainReceipts
+              ? "HEDERA SETTLEMENT COMPLETE"
+              : "MOCK AUCTIONS COMPLETE"}
+          </small>
+          <strong>
+            {securedCount} of {searches.length} activities secured
+          </strong>
+        </div>
+        <div>
+          <small>TOTAL SETTLED</small>
+          <strong>{formatUsd(totalSettledCents)}</strong>
+        </div>
+      </div>
+
+      <div className={styles.bundleGrid}>
+        {searches.map((search, index) => {
         const receipt = result.receipts.find(
           (candidate) =>
             candidate.category === search.allocation.category,
         );
         const onChain = receipt?.status === "hedera-settled";
-        const lost =
-          !onChain &&
-          lostCategories.includes(search.allocation.category);
+        const lost = isLost(search);
         const agentAccountId = agentAccounts.find(
           (agent) =>
             agent.category === search.allocation.category,
@@ -1094,20 +1142,23 @@ function BundleGrid({
           <article
             className={styles.resultCard}
             data-category={search.allocation.category}
+            data-lost={lost || undefined}
             key={search.id}
           >
-            <div className={styles.resultArt}>
-              <CategoryIcon size={28} />
-              <b>0{index + 1}</b>
+            <div className={styles.resultCardHeader}>
+              <div className={styles.resultArt}>
+                <CategoryIcon size={24} aria-hidden="true" />
+              </div>
+              <div className={styles.resultCategory}>
+                <small>ACTIVITY 0{index + 1}</small>
+                <strong>{search.allocation.category}</strong>
+              </div>
+              <span className={styles.resultMatched}>
+                {lost ? <X size={11} /> : <Check size={11} />}
+                {lost ? "Outbid" : onChain ? "On-chain" : "Secured"}
+              </span>
             </div>
             <div className={styles.resultBody}>
-              <header>
-                <span>{search.allocation.category}</span>
-                <b>
-                  {lost ? <X size={9} /> : <Check size={9} />}
-                  {lost ? "outbid" : onChain ? "on-chain" : "mock win"}
-                </b>
-              </header>
               <h3>
                 {lost ? "No purchase" : search.auction.winner.sellerName}
               </h3>
@@ -1181,7 +1232,8 @@ function BundleGrid({
             </div>
           </article>
         );
-      })}
-    </div>
+        })}
+      </div>
+    </>
   );
 }
