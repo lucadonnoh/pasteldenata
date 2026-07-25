@@ -108,7 +108,6 @@ function modelPlanResponse(
         output_cost: "20",
         total_cost: "30",
       },
-      tee_verified: true,
     },
     choices: [
       {
@@ -421,7 +420,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: false,
         model: "deterministic-test-planner",
       }),
-    /both Router and independent TEE verification/,
+    /independent, content-bound TEE verification/,
   );
   assert.throws(
     () =>
@@ -430,7 +429,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: true,
         model: "0gm-1.0-35b-a3b",
       }),
-    /both Router and independent TEE verification/,
+    /independent, content-bound TEE verification/,
   );
   assert.doesNotThrow(() =>
     requireVerifiedPrivateTee({
@@ -440,7 +439,6 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
       routerTrace: {
         request_id: "request-1",
         provider: TEST_PROVIDER,
-        tee_verified: true,
       },
       independentVerification: independentVerification(),
     }),
@@ -521,7 +519,7 @@ test("E2EE proof binds both the decrypted request and exact plan response", () =
 test("the verified browser orchestrator rejects the mock before auctions", async () => {
   await assert.rejects(
     organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
-    /both Router and independent TEE verification/,
+    /independent, content-bound TEE verification/,
   );
 });
 
@@ -540,7 +538,7 @@ test("the 0G planner rejects a generic top-level TEE claim", async () => {
       },
       mockE2eeClient(response),
     ).plan(INTENT, NOW),
-    /x_0g_trace\.tee_verified/,
+    /incomplete verification trace/,
   );
 });
 
@@ -570,7 +568,6 @@ test("the 0G planner retains the exact verified Router trace", async () => {
       output_cost: "20",
       total_cost: "30",
     },
-    tee_verified: true,
   });
   assert.equal(result.attestation.chatId, "chat-header-id");
   assert.equal(verificationInputs.length, 1);
@@ -587,7 +584,7 @@ test("the 0G planner retains the exact verified Router trace", async () => {
   );
 });
 
-test("the 0G planner rejects a Router-verified response when independent verification fails", async () => {
+test("the 0G planner rejects a response when independent verification fails", async () => {
   const verifier = {
     verify: async () => {
       throw new Error(

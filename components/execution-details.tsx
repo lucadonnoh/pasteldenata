@@ -277,7 +277,7 @@ export function ZeroGVerificationReceipt({
         <summary>
           <span>View 0G Router corroboration</span>
           <small>
-            <code>x_0g_trace.tee_verified === true</code>
+            unbound routing and billing metadata
           </small>
         </summary>
         <div>
@@ -298,7 +298,9 @@ export function ZeroGVerificationReceipt({
             <div>
               <dt>Router verification</dt>
               <dd>
-                <code>verify_tee: true</code> · returned true
+                <code>verify_tee</code> omitted: Router strips that control
+                field, so binding it would invalidate the E2EE request. The
+                independent content proof above is authoritative.
               </dd>
             </div>
             <div>

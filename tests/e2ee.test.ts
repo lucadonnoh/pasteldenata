@@ -94,6 +94,7 @@ test("browser E2EE client seals messages and opens authenticated choices", async
       JSON.parse(String(init?.body)),
     );
     assert.equal(Object.hasOwn(requestEnvelope, "messages"), false);
+    assert.equal(Object.hasOwn(requestEnvelope, "verify_tee"), false);
     const requestMetadata = asObject(requestEnvelope._e2ee);
     const providerRecipient = await suite.createRecipientContext({
       recipientKey: providerKeys.privateKey,
@@ -171,7 +172,6 @@ test("browser E2EE client seals messages and opens authenticated choices", async
       model: "0gm-1.0-35b-a3b",
       request: {
         model: "0gm-1.0-35b-a3b",
-        verify_tee: true,
         messages: [
           { role: "user", content: "private interop intent" },
         ],

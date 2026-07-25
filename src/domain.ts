@@ -34,7 +34,12 @@ export interface ZeroGRouterTrace {
     output_cost?: string | number;
     total_cost?: string | number;
   };
-  tee_verified: true;
+  /**
+   * Router-authored corroboration only. E2EE requests deliberately omit
+   * verify_tee because the Router strips that control field before forwarding,
+   * which would invalidate the request AAD.
+   */
+  tee_verified?: boolean | null;
 }
 
 export interface ZeroGE2eeReceipt {

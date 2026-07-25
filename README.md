@@ -148,10 +148,13 @@ that call, the browser:
    disabled.
 6. Authenticates and decrypts the provider-sealed `choices` field locally.
 
-The response must contain `x_0g_trace.tee_verified: true`, a request ID,
-provider address, and a proof lookup key. The browser uses `ZG-Res-Key` when
-the Router exposes it; otherwise it derives the same key from the documented
-`chatcmpl-<ZG-Res-Key>` response ID. It then independently:
+The response must contain a Router request ID, provider address, and a proof
+lookup key. The sealed request deliberately omits `verify_tee`: that field is a
+Router-only directive which the Router strips before forwarding, so including
+it in the authenticated E2EE envelope would make the provider's AAD check fail.
+The browser instead performs the stronger verification itself. It uses
+`ZG-Res-Key` when the Router exposes it; otherwise it derives the same key from
+the documented `chatcmpl-<ZG-Res-Key>` response ID. It then:
 
 1. Re-reads the provider's service record and acknowledged TEE signer from the
    official 0G Compute `InferenceServing` contract on 0G Mainnet.
@@ -170,8 +173,8 @@ Only successful E2EE opening, signer recovery, request-hash matching, and
 response-hash matching allow the plan to be parsed and the local auctions to
 start. A generic top-level claim, mock response, incomplete trace, missing proof
 key, wrong signer, invalid signature, changed request, changed plan, or
-unacknowledged signer fails closed. `x_0g_trace.tee_verified` is retained as
-corroborating Router metadata, but it is not the source of the content
+unacknowledged signer fails closed. `x_0g_trace` is retained as untrusted
+routing and billing metadata, but it is not the source of the content
 guarantee.
 
 Current limitation: the deployed provider's TDX quote binds its signer address,

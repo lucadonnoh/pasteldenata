@@ -5,6 +5,7 @@ import {
   type PlanAllocation,
   type PlannerAttestation,
   type PrivatePlan,
+  type ZeroGRouterTrace,
 } from "./domain";
 import { sha256Hex } from "./hash";
 import { parseBudgetCents } from "./money";
@@ -104,7 +105,7 @@ export function requireVerifiedPrivateTee(
   if (
     attestation.mode !== "0g-private-tee" ||
     attestation.teeVerified !== true ||
-    attestation.routerTrace?.tee_verified !== true ||
+    !attestation.routerTrace ||
     !attestation.routerTrace.request_id ||
     !attestation.routerTrace.provider ||
     attestation.independentVerification?.verified !== true ||
@@ -113,7 +114,7 @@ export function requireVerifiedPrivateTee(
     attestation.independentVerification.responseHashVerified !== true
   ) {
     throw new Error(
-      "The 0G response did not pass both Router and independent TEE verification.",
+      "The 0G response did not pass independent, content-bound TEE verification.",
     );
   }
 }
@@ -191,7 +192,6 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         model: this.model,
         temperature: 0.15,
         max_tokens: 900,
-        verify_tee: true,
         chat_template_kwargs: { enable_thinking: false },
         response_format: { type: "json_object" },
         messages: [
@@ -227,12 +227,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const raw = completion.response as RouterResponse;
     const chatId = completion.chatId;
     const trace = raw.x_0g_trace;
-    if (trace?.tee_verified !== true) {
-      throw new Error(
-        "0G returned a response without x_0g_trace.tee_verified = true.",
-      );
-    }
-    if (!trace.request_id || !trace.provider) {
+    if (!trace?.request_id || !trace.provider) {
       throw new Error(
         "0G returned an incomplete verification trace without a request ID or provider.",
       );
@@ -260,11 +255,10 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
       trace.billing?.total_cost === undefined
         ? undefined
         : String(trace.billing.total_cost);
-    const routerTrace = {
+    const routerTrace: ZeroGRouterTrace = {
       ...trace,
       request_id: trace.request_id,
       provider: trace.provider,
-      tee_verified: true as const,
     };
 
     return {
