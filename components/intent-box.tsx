@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUp, ShieldCheck, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   FormEvent,
   KeyboardEvent,
@@ -8,14 +9,10 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { DemoResult } from "@/src/domain";
-import { formatUsd } from "@/src/money";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
-import {
-  ExecutionDetails,
-  PrivacyDetails,
-} from "@/components/execution-details";
+import { PrivacyDetails } from "@/components/execution-details";
+import { usePurchaseSession } from "@/components/purchase-session";
 
 const examples = [
   "Organize me a date tomorrow in Lisbon. My budget is $200.",
@@ -24,11 +21,13 @@ const examples = [
 ];
 
 export function IntentBox() {
+  const router = useRouter();
+  const { setResult } = usePurchaseSession();
   const [intent, setIntent] = useState(examples[0] ?? "");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<DemoResult | null>(null);
+  const [departing, setDeparting] = useState(false);
   const hasUsableKey =
     apiKey.trim().startsWith("sk-") && apiKey.trim().length >= 12;
 
@@ -48,6 +47,7 @@ export function IntentBox() {
     setLoading(true);
     setError("");
     setResult(null);
+    setDeparting(false);
 
     try {
       const planner = new ZeroGPrivatePlanner(apiKey.trim());
@@ -56,7 +56,13 @@ export function IntentBox() {
         intent.trim(),
       );
       setResult(purchase);
+      setDeparting(true);
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        await new Promise((resolve) => window.setTimeout(resolve, 520));
+      }
+      router.push("/market");
     } catch (requestError) {
+      setDeparting(false);
       setError(
         requestError instanceof Error
           ? requestError.message
@@ -83,7 +89,10 @@ export function IntentBox() {
   }
 
   return (
-    <section className="workspace" aria-label="Private intent planner">
+    <section
+      className={`workspace ${departing ? "workspace-departing" : ""}`}
+      aria-label="Private intent planner"
+    >
       <form
         className="composer"
         onSubmit={submit}
@@ -138,7 +147,7 @@ export function IntentBox() {
         <div className="composer-footer">
           <div className="privacy-note">
             <ShieldCheck size={13} />
-            Direct to 0G · verified TEE required
+            E2EE to 0G · verified TEE response required
           </div>
           <div className="character-count">
             <span>⌘ ENTER</span>
@@ -147,7 +156,7 @@ export function IntentBox() {
         </div>
       </form>
 
-      {!loading && !error && !result && (
+      {!loading && !error && (
         <div className="suggestions">
           <span>Examples</span>
           <div>
@@ -171,9 +180,12 @@ export function IntentBox() {
             <Sparkles size={18} />
           </div>
           <div className="thinking-copy">
-            <span>REQUESTING 0G PRIVATE COMPUTE</span>
+            <span>REQUESTING + VERIFYING 0G PRIVATE COMPUTE</span>
             <strong>Turning your intent into market mandates</strong>
-            <p>Waiting for verified TEE attestation before running auctions</p>
+            <p>
+              Auctions wait for local decryption, the on-chain signer, and
+              exact request + response hash matches
+            </p>
           </div>
         </div>
       )}
@@ -183,22 +195,6 @@ export function IntentBox() {
           <strong>We couldn&apos;t process this intent.</strong>
           <span>{error}</span>
         </div>
-      )}
-
-      {result && (
-        <>
-          <div className="success-message" aria-live="polite">
-            <ShieldCheck size={22} />
-            <div>
-              <strong>TEE verified · mock purchases settled</strong>
-              <span>
-                {result.receipts.length} auctions ·{" "}
-                {formatUsd(result.totalSpentCents)} simulated spend
-              </span>
-            </div>
-          </div>
-          <ExecutionDetails result={result} />
-        </>
       )}
 
       {!loading && <PrivacyDetails />}

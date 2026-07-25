@@ -4,14 +4,14 @@ import type {
   HederaSummary,
   PaymentReceipt,
   PrivatePlan,
-} from "./domain.js";
-import { runAuctions } from "./auction.js";
-import { settleMockPayments } from "./payments.js";
+} from "./domain";
+import { runAuctions } from "./auction";
+import { settleMockPayments } from "./payments";
 import {
   requireVerifiedPrivateTee,
   type PlannerResult,
   type PrivatePlanner,
-} from "./planner.js";
+} from "./planner";
 
 export interface SettlementResult {
   receipts: PaymentReceipt[];

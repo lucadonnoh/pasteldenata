@@ -1,12 +1,15 @@
 import "dotenv/config";
-import { MOCK_SELLERS } from "./catalog.js";
-import { connectHedera, type HederaContext } from "./hedera/client.js";
-import { ensureInfra } from "./hedera/infra.js";
-import { runMarket, type MarketBuyer } from "./hedera/market.js";
-import { settleOnHedera } from "./hedera/settle.js";
-import { settleWithSwarm } from "./hedera/swarm.js";
-import { formatUsd, neuronToOg } from "./money.js";
-import { organizePrivatePurchase, type Settler } from "./orchestrator.js";
+import { MOCK_SELLERS } from "./catalog";
+import { connectHedera, type HederaContext } from "./hedera/client";
+import { ensureInfra } from "./hedera/infra";
+import { runMarket, type MarketBuyer } from "./hedera/market";
+import {
+  HederaPartialSettlementError,
+  settleOnHedera,
+} from "./hedera/settle";
+import { settleWithSwarm } from "./hedera/swarm";
+import { formatUsd, neuronToOg } from "./money";
+import { organizePrivatePurchase, type Settler } from "./orchestrator";
 import {
   MockPrivatePlanner,
   ZeroGPrivatePlanner,
@@ -43,22 +46,42 @@ function createPlanner(): PrivatePlanner {
   );
 }
 
-function line(label: string, value: string) {
+function line(label: string, value: string): void {
   console.log(`${label.padEnd(18)} ${value}`);
 }
 
 const MARKET_PERSONAS = [
-  { name: "Ana", intent: "Plan a romantic anniversary evening tomorrow in Lisbon with dinner and a film. My budget is $200." },
-  { name: "Bruno", intent: "Organize a fun first date tomorrow evening in Lisbon. My budget is $180." },
-  { name: "Chiara", intent: "Organize a special dinner and cinema night for two tomorrow in Lisbon. My budget is $170." },
-  { name: "Dario", intent: "Plan a cozy evening for two tomorrow in Lisbon. My budget is $160." },
-  { name: "Emma", intent: "Organize a memorable date night tomorrow in Lisbon. My budget is $150." },
+  {
+    name: "Ana",
+    intent:
+      "Plan a romantic anniversary evening tomorrow in Lisbon with dinner and a film. My budget is $200.",
+  },
+  {
+    name: "Bruno",
+    intent:
+      "Organize a fun first date tomorrow evening in Lisbon. My budget is $180.",
+  },
+  {
+    name: "Chiara",
+    intent:
+      "Organize a special dinner and cinema night for two tomorrow in Lisbon. My budget is $170.",
+  },
+  {
+    name: "Dario",
+    intent:
+      "Plan a cozy evening for two tomorrow in Lisbon. My budget is $160.",
+  },
+  {
+    name: "Emma",
+    intent:
+      "Organize a memorable date night tomorrow in Lisbon. My budget is $150.",
+  },
 ];
 
 async function marketMain(): Promise<void> {
   console.log("\nPASTEL DE NATA — OPEN MARKET\n");
   console.log(
-    "Five private mandates, one public market. Each intent goes only to its own private planner; the agents meet as strangers in ascending auctions where the seller's price is the floor.\n",
+    "Five private mandates, one authenticated public market. Each intent goes only to its own private planner.\n",
   );
 
   const ctx = connectHedera();
@@ -78,14 +101,15 @@ async function marketMain(): Promise<void> {
     console.log();
 
     const market = await runMarket(buyers, { ...ctx, infra });
-
     for (const buyer of market.buyers) {
       const spent = buyer.outcomes.reduce(
         (sum, outcome) => sum + outcome.result.amountCents,
         0,
       );
       console.log(
-        `\n${buyer.name.toUpperCase()} · budget ${formatUsd(buyer.plan.totalBudgetCents)} · spent ${formatUsd(spent)}`,
+        `\n${buyer.name.toUpperCase()} · budget ${formatUsd(
+          buyer.plan.totalBudgetCents,
+        )} · spent ${formatUsd(spent)}`,
       );
       for (const outcome of buyer.outcomes) {
         if (outcome.result.lost) {
@@ -97,23 +121,28 @@ async function marketMain(): Promise<void> {
         }
         line(
           outcome.category,
-          `${formatUsd(outcome.result.amountCents)} → ${outcome.result.sellerName} · claim NFT #${outcome.result.claimNftSerial}${
-            outcome.result.grantedCents
-              ? ` · +${formatUsd(outcome.result.grantedCents)} contingency`
-              : ""
+          `${formatUsd(outcome.result.amountCents)} → ${
+            outcome.result.sellerName
+          } · ${outcome.result.offering} · claim NFT #${
+            outcome.result.claimNftSerial
           }`,
         );
+        line("Wallet recovery", outcome.walletRecoveryPath);
         if (outcome.hashscanUrl) line("", outcome.hashscanUrl);
       }
     }
 
-    console.log("\nCONTENTION · public bid wars between strangers' agents");
+    console.log("\nCONTENTION · authenticated public bid wars");
     for (const item of market.contention) {
       if (item.bids === 0) continue;
       line(
         item.sellerName,
-        `floor ${formatUsd(item.floorCents)} · ${item.bids} bids · ${item.bidders} agents · ${
-          item.soldForCents ? `sold ${formatUsd(item.soldForCents)}` : "unsold"
+        `${item.offering} · floor ${formatUsd(item.floorCents)} · ${
+          item.bids
+        } bids · ${item.bidders} agents · ${
+          item.soldForCents
+            ? `sold ${formatUsd(item.soldForCents)}`
+            : "unsold"
         }`,
       );
       line("", item.topicUrl);
@@ -124,7 +153,7 @@ async function marketMain(): Promise<void> {
   }
 }
 
-async function main() {
+async function main(): Promise<void> {
   if (useMarket) {
     await marketMain();
     return;
@@ -146,9 +175,15 @@ async function main() {
         `Hedera testnet ready · NATA ${infra.paymentTokenId} · claims ${infra.claimTokenId}\n`,
       );
       settler = useSimpleHedera
-        ? (plan, auctions) => settleOnHedera(plan, auctions, { ...ctx, infra })
+        ? (plan, auctions) =>
+            settleOnHedera(plan, auctions, { ...ctx, infra })
         : (plan, auctions) =>
-            settleWithSwarm(plan, auctions, { ...ctx, infra }, { live: useLive });
+            settleWithSwarm(
+              plan,
+              auctions,
+              { ...ctx, infra },
+              { live: useLive },
+            );
     }
 
     const result = await organizePrivatePurchase(
@@ -169,33 +204,46 @@ async function main() {
       line("Provider", result.attestation.provider);
     }
     const costOg = neuronToOg(result.attestation.costNeuron);
-    if (costOg) line("Inference cost", `${costOg} testnet 0G`);
+    if (costOg) line("Inference cost", `${costOg} 0G`);
 
     console.log("\nSCOPED MANDATES");
     for (const allocation of result.plan.allocations) {
       line(
         allocation.category,
-        `${formatUsd(allocation.maxBudgetCents)} · ${allocation.requirements.join(", ")}`,
+        `${formatUsd(
+          allocation.maxBudgetCents,
+        )} · ${allocation.requirements.join(", ")}`,
       );
     }
     line("Contingency", formatUsd(result.plan.unallocatedBudgetCents));
 
-    if (useLive) {
+    console.log("\nALLOCATION BUYER SUBAGENTS · ENGLISH AUCTIONS");
+    for (const auction of result.auctions) {
       console.log(
-        "\nLIVE AUCTIONS · sellers undercut each other on each auction's HCS topic; agents close on quiet",
+        `\n${auction.category.toUpperCase()} · ${
+          auction.buyerSubagent.id
+        } · mandate ${formatUsd(
+          auction.mandate.maxAmountCents,
+        )} · ${auction.listingAuctions.length} listing auction${
+          auction.listingAuctions.length === 1 ? "" : "s"
+        }`,
       );
-    } else {
-      console.log("\nSEALED-BID AUCTIONS");
-      for (const auction of result.auctions) {
+      for (const listingAuction of auction.listingAuctions) {
+        const marker = listingAuction.status === "won" ? "✓" : "×";
         console.log(
-          `\n${auction.category.toUpperCase()} · ${auction.bids.length} mock sellers · ${auction.commitments.length} commitments`,
+          ` ${marker} ${listingAuction.listing.sellerName} · ${listingAuction.listing.offering}`,
         );
-        for (const bid of auction.bids) {
-          const marker = bid.sellerId === auction.winner.sellerId ? "✓" : " ";
-          console.log(
-            ` ${marker} ${bid.sellerName.padEnd(23)} ${formatUsd(bid.amountCents).padStart(8)}  ${bid.offering}`,
-          );
-        }
+        console.log(
+          `   floor ${formatUsd(
+            listingAuction.debugSellerFloorPriceCents,
+          )} · ${listingAuction.steps.length} ascending steps · ${
+            listingAuction.clearingPriceCents === null
+              ? listingAuction.status
+              : `cleared ${formatUsd(
+                  listingAuction.clearingPriceCents,
+                )} (${listingAuction.status})`
+          }`,
+        );
       }
     }
 
@@ -205,49 +253,42 @@ async function main() {
     for (const receipt of result.receipts) {
       line(
         receipt.category,
-        `${formatUsd(receipt.amountCents)} → ${receipt.sellerName}${
+        `${formatUsd(receipt.amountCents)} → ${receipt.sellerName} · ${
+          receipt.offering
+        }${
           receipt.claimNftSerial === undefined
             ? ` · ${receipt.id}`
             : ` · claim NFT #${receipt.claimNftSerial}`
         }`,
       );
-      if (receipt.liveBids !== undefined && receipt.liveOpeningCents !== undefined) {
+      if (receipt.leafWalletRecoveryPath) {
+        line("Wallet recovery", receipt.leafWalletRecoveryPath);
+      }
+      if (
+        receipt.liveBids !== undefined &&
+        receipt.liveOpeningCents !== undefined
+      ) {
         line(
           "",
-          `${receipt.liveBids} on-chain bids · ${formatUsd(receipt.liveOpeningCents)} → ${formatUsd(receipt.amountCents)}${
-            receipt.liveGrantedCents ? ` · +${formatUsd(receipt.liveGrantedCents)} contingency granted` : ""
-          }`,
+          `${receipt.liveBids} authenticated on-chain bids · ${formatUsd(
+            receipt.liveOpeningCents,
+          )} → ${formatUsd(receipt.amountCents)}`,
         );
       }
-      if (receipt.escrowAccountId && receipt.auctionTopicUrl) {
-        line("", `agent wallet ${receipt.escrowAccountId}`);
-      }
-      if (receipt.hashscanUrl) {
-        line("", receipt.hashscanUrl);
-      }
-      if (receipt.auctionTopicUrl) {
-        line("", receipt.auctionTopicUrl);
-      }
+      if (receipt.hashscanUrl) line("", receipt.hashscanUrl);
+      if (receipt.auctionTopicUrl) line("", receipt.auctionTopicUrl);
     }
     line("Total spent", formatUsd(result.totalSpentCents));
     line(
       "Unused",
       formatUsd(result.plan.totalBudgetCents - result.totalSpentCents),
     );
-    if (result.hedera) {
-      line("Status", "all policy checks passed; settled with atomic HTS transfers");
-      if (result.hedera.topicUrl) {
-        line("Auction log", result.hedera.topicUrl);
-      }
-      if (result.hedera.clearingAccountId) {
-        line("Clearing", result.hedera.clearingAccountId);
-      }
-      line("NATA token", result.hedera.paymentTokenId);
-      line("Claim NFTs", result.hedera.claimTokenId);
-      line("Buyer wallet", result.hedera.buyerAccountId);
-    } else {
-      line("Status", "all policy checks passed; no real payment sent");
-    }
+    line(
+      "Status",
+      result.hedera
+        ? "policy checks passed; reconciled atomic HTS settlements"
+        : "all policy checks passed; no real payment sent",
+    );
     console.log();
   } finally {
     hederaCtx?.client.close();
@@ -255,7 +296,22 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`\nDemo failed: ${message}\n`);
+  if (error instanceof HederaPartialSettlementError) {
+    console.error(`\n${error.message}`);
+    for (const receipt of error.receipts) {
+      console.error(
+        `CONFIRMED ${receipt.category}: ${receipt.transactionId} (${formatUsd(
+          receipt.amountCents,
+        )})`,
+      );
+    }
+    for (const failure of error.failures) {
+      console.error(`FAILED ${failure.category}: ${failure.message}`);
+    }
+    console.error();
+  } else {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`\nDemo failed: ${message}\n`);
+  }
   process.exitCode = 1;
 });

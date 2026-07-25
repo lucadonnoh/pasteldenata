@@ -1,77 +1,23 @@
-import { MOCK_SELLERS } from "./catalog";
+import { AllocationBuyerSubagent } from "./buyer-agent";
 import type {
   AuctionResult,
-  Bid,
-  BidCommitment,
   PlanAllocation,
   PrivatePlan,
-  Seller,
   SellerAuctionView,
   SpendMandate,
 } from "./domain";
 import { sha256Hex } from "./hash";
-
-function hash(value: string): string {
-  return sha256Hex(value);
-}
-
-function canonicalBid(bid: Bid): string {
-  return JSON.stringify({
-    auctionId: bid.auctionId,
-    sellerId: bid.sellerId,
-    offering: bid.offering,
-    amountCents: bid.amountCents,
-    quality: bid.quality,
-    tags: [...bid.tags].sort(),
-    salt: bid.salt,
-  });
-}
-
-function deterministicDiscount(seller: Seller, auctionId: string): number {
-  const sample = Number.parseInt(
-    hash(`${seller.privateSalt}|${auctionId}`).slice(0, 8),
-    16,
-  );
-  return 3 + (sample % 14);
-}
-
-export function sellerSubmitSealedBid(
-  seller: Seller,
-  view: SellerAuctionView,
-): BidCommitment {
-  if (seller.category !== view.category) {
-    throw new Error("Seller received an auction for the wrong category.");
-  }
-
-  const discountPercent = deterministicDiscount(seller, view.auctionId);
-  const discounted = Math.round(
-    seller.listPriceCents * (1 - discountPercent / 100),
-  );
-  const amountCents = Math.max(seller.reservePriceCents, discounted);
-  const bid: Bid = {
-    auctionId: view.auctionId,
-    sellerId: seller.id,
-    sellerName: seller.name,
-    offering: seller.offering,
-    amountCents,
-    quality: seller.quality,
-    tags: seller.tags,
-    salt: hash(`${seller.privateSalt}|${view.auctionId}|reveal`).slice(0, 24),
-  };
-
-  return {
-    sellerId: seller.id,
-    commitment: hash(canonicalBid(bid)),
-    reveal: () => structuredClone(bid),
-  };
-}
+import {
+  createMockSellerAuctionHouses,
+  type MockSellerAuctionHouse,
+} from "./sellers";
 
 function createMandate(
   plan: PrivatePlan,
   allocation: PlanAllocation,
 ): SpendMandate {
   return {
-    id: `mandate_${hash(`${plan.planId}|${allocation.category}`).slice(0, 16)}`,
+    id: `mandate_${sha256Hex(`${plan.planId}|${allocation.category}`).slice(0, 16)}`,
     planId: plan.planId,
     category: allocation.category,
     maxAmountCents: allocation.maxBudgetCents,
@@ -80,121 +26,98 @@ function createMandate(
   };
 }
 
-export interface ScoringConstraints {
-  requirements: string[];
-  maxBudgetCents: number;
-}
-
-export function scoreBid(bid: Bid, constraints: ScoringConstraints): number {
-  const requirements = constraints.requirements.map((item) =>
-    item.toLowerCase(),
-  );
-  const tagMatches = bid.tags.filter((tag) =>
-    requirements.some(
-      (requirement) =>
-        requirement.includes(tag.toLowerCase()) ||
-        tag.toLowerCase().includes(requirement),
-    ),
-  ).length;
-  const priceValue =
-    25 * (1 - bid.amountCents / constraints.maxBudgetCents);
-  return bid.quality + tagMatches * 6 + priceValue;
-}
-
-export function verifyRevealedBid(bid: Bid, commitment: string): boolean {
-  return hash(canonicalBid(bid)) === commitment;
-}
-
-export function pickWinner(
-  bids: Bid[],
-  constraints: ScoringConstraints,
-): { bid: Bid; score: number } | undefined {
-  return bids
-    .filter((bid) => bid.amountCents <= constraints.maxBudgetCents)
-    .map((bid) => ({ bid, score: scoreBid(bid, constraints) }))
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        left.bid.amountCents - right.bid.amountCents,
-    )[0];
-}
-
 export async function runCategoryAuction(
   plan: PrivatePlan,
   allocation: PlanAllocation,
-  sellers = MOCK_SELLERS,
+  sellers: MockSellerAuctionHouse[] = createMockSellerAuctionHouses(),
   onSellerView?: (view: SellerAuctionView) => void,
 ): Promise<AuctionResult> {
-  const auctionId = `auction_${hash(`${plan.planId}|${allocation.category}`).slice(0, 16)}`;
+  const auctionId = `auction_${sha256Hex(
+    `${plan.planId}|${allocation.category}`,
+  ).slice(0, 16)}`;
   const mandate = createMandate(plan, allocation);
-  const sellerView: SellerAuctionView = {
-    auctionId,
-    category: allocation.category,
-    location: plan.location,
-    scheduledFor: plan.scheduledFor,
-    requirements: [...allocation.requirements],
-  };
-  onSellerView?.(structuredClone(sellerView));
-
-  const eligibleSellers = sellers.filter(
+  const buyerSubagent = new AllocationBuyerSubagent(allocation, mandate);
+  const categorySellers = sellers.filter(
     (seller) => seller.category === allocation.category,
   );
-  if (eligibleSellers.length === 0) {
-    throw new Error(`No sellers for ${allocation.category}.`);
-  }
-
-  // All commitments are collected before any bid is revealed.
-  const commitments = await Promise.all(
-    eligibleSellers.map(async (seller) =>
-      sellerSubmitSealedBid(seller, sellerView),
-    ),
+  const candidates = buyerSubagent.rankListings(
+    categorySellers.flatMap((seller) => seller.listAvailableInventory()),
   );
-  const bids = commitments.map((sealed) => {
-    const bid = sealed.reveal();
-    if (hash(canonicalBid(bid)) !== sealed.commitment) {
-      throw new Error(`Invalid bid reveal from ${sealed.sellerId}.`);
-    }
-    return bid;
-  });
 
-  const evaluated = bids.map((bid) => ({
-    bid,
-    affordable: bid.amountCents <= mandate.maxAmountCents,
-    score: scoreBid(bid, allocation),
-  }));
-  const affordable = evaluated
-    .filter((evaluation) => evaluation.affordable)
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        left.bid.amountCents - right.bid.amountCents,
-    );
-  const selected = affordable[0];
-  if (!selected) {
-    throw new Error(
-      `No ${allocation.category} bid fits its scoped mandate.`,
-    );
+  if (candidates.length === 0) {
+    throw new Error(`No seller inventory for ${allocation.category}.`);
   }
 
-  return {
-    auctionId,
-    category: allocation.category,
-    mandate,
-    commitments: commitments.map((item) => item.commitment),
-    bids,
-    evaluations: evaluated.map(({ bid, affordable: fitsMandate, score }) => ({
-      sellerId: bid.sellerId,
-      affordable: fitsMandate,
-      score,
-    })),
-    winner: selected.bid,
-    score: selected.score,
-  };
+  const listingAuctions = [];
+  for (const [index, candidate] of candidates.entries()) {
+    const seller = categorySellers.find(
+      (entry) => entry.id === candidate.listing.sellerId,
+    );
+    if (
+      !seller ||
+      !seller.hasAvailableListing(candidate.listing.id)
+    ) {
+      continue;
+    }
+
+    const view: SellerAuctionView = {
+      auctionId: `${auctionId}_${index + 1}`,
+      listingId: candidate.listing.id,
+      category: allocation.category,
+      location: plan.location,
+      scheduledFor: plan.scheduledFor,
+      requirements: [...allocation.requirements],
+    };
+    onSellerView?.(structuredClone(view));
+
+    const listingAuction = seller.openEnglishAuction(
+      view,
+      buyerSubagent.bidderFor(candidate),
+      candidate.score,
+    );
+    listingAuctions.push(listingAuction);
+
+    if (
+      listingAuction.status === "won" &&
+      listingAuction.clearingPriceCents !== null
+    ) {
+      if (
+        listingAuction.clearingPriceCents >
+        mandate.maxAmountCents
+      ) {
+        throw new Error("Auction clearing price exceeded its mandate.");
+      }
+
+      return {
+        auctionId,
+        category: allocation.category,
+        buyerSubagent: buyerSubagent.trace,
+        mandate,
+        listingAuctions,
+        winner: {
+          auctionId: listingAuction.auctionId,
+          listingId: listingAuction.listing.id,
+          sellerId: listingAuction.listing.sellerId,
+          sellerName: listingAuction.listing.sellerName,
+          offering: listingAuction.listing.offering,
+          amountCents: listingAuction.clearingPriceCents,
+          quality: listingAuction.listing.quality,
+          tags: listingAuction.listing.tags,
+          attributes: listingAuction.listing.attributes,
+        },
+        score: candidate.score,
+      };
+    }
+  }
+
+  throw new Error(
+    `The ${allocation.category} buyer subagent did not win any affordable inventory.`,
+  );
 }
 
 export async function runAuctions(
   plan: PrivatePlan,
-  sellers = MOCK_SELLERS,
+  sellers = createMockSellerAuctionHouses(),
   onSellerView?: (view: SellerAuctionView) => void,
 ): Promise<AuctionResult[]> {
   return Promise.all(

@@ -1,5 +1,6 @@
 .env
 hedera-infra.json
+.pasteldenata/
 node_modules/
 .next/
 out/

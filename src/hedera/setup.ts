@@ -1,7 +1,7 @@
 import "dotenv/config";
-import { MOCK_SELLERS } from "../catalog.js";
-import { connectHedera } from "./client.js";
-import { ensureInfra } from "./infra.js";
+import { MOCK_SELLERS } from "../catalog";
+import { connectHedera } from "./client";
+import { ensureInfra } from "./infra";
 
 async function main() {
   const ctx = connectHedera();

@@ -1,29 +1,33 @@
 import { createHash } from "node:crypto";
-import { Client, Hbar, TransferTransaction } from "@hashgraph/sdk";
-import type { Seller } from "../domain.js";
-import { parsePrivateKey, type HederaContext } from "./client.js";
-import type { StoredAccount } from "./infra.js";
-import { publishToTopic } from "./log.js";
-import { fetchTopicBids, standingOffers } from "./mirror.js";
+import { Client, Hbar, PrivateKey, TransferTransaction } from "@hashgraph/sdk";
+import type { Seller, SellerInventoryItem } from "../domain";
+import { parsePrivateKey, type HederaContext } from "./client";
+import type { StoredAccount } from "./infra";
+import { publishToTopic } from "./log";
+import {
+  fetchTopicBids,
+  standingOffers,
+  type AuthorizedSeller,
+} from "./mirror";
 
 const POLL_MS = 2500;
 const MAX_RUNTIME_MS = 150_000;
 
-interface LiveSeller {
+interface LiveSellerListing {
   seller: Seller;
+  item: SellerInventoryItem;
+  account: StoredAccount;
   client: Client;
 }
 
 /**
- * Root-hosted seller agents for one live reverse auction. Each seller starts
- * at its list price and undercuts the current leader on the auction's HCS
- * topic — from its own Hedera account, never below its private reserve. The
- * buying leaf watches the same public topic and closes when bidding goes
- * quiet. Price discovery is real and replayable; only the seller's reserve
- * and the buyer's scoring stay private.
+ * Root-hosted mocked seller strategies for one live reverse auction. Each
+ * inventory listing publishes from its registered seller account and every
+ * message additionally carries the auction topic's submit-key signature.
  */
 export class LiveAuctioneer {
-  private readonly sellers: LiveSeller[];
+  private readonly listings: LiveSellerListing[];
+  private readonly authorized: Map<string, AuthorizedSeller>;
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly startedAt = Date.now();
   private ticking = false;
@@ -33,17 +37,30 @@ export class LiveAuctioneer {
   constructor(
     private readonly ctx: HederaContext,
     private readonly topicId: string,
+    private readonly topicSubmitKey: PrivateKey,
     private readonly auctionId: string,
     private readonly mirrorBaseUrl: string,
-    sellers: Array<{ seller: Seller; account: StoredAccount }>,
+    listings: Array<{
+      seller: Seller;
+      item: SellerInventoryItem;
+      account: StoredAccount;
+    }>,
   ) {
-    this.sellers = sellers.map(({ seller, account }) => ({
+    this.listings = listings.map(({ seller, item, account }) => ({
       seller,
+      item,
+      account,
       client: Client.forTestnet().setOperator(
         account.accountId,
         parsePrivateKey(account.privateKey),
       ),
     }));
+    this.authorized = new Map(
+      this.listings.map(({ seller, item, account }) => [
+        item.id,
+        { sellerId: seller.id, accountId: account.accountId },
+      ]),
+    );
   }
 
   start(): void {
@@ -62,73 +79,88 @@ export class LiveAuctioneer {
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
-    for (const { client } of this.sellers) client.close();
+    for (const { client } of this.listings) client.close();
   }
 
   private async tick(): Promise<void> {
     if (Date.now() - this.startedAt > MAX_RUNTIME_MS) return;
-    const bids = await fetchTopicBids(this.mirrorBaseUrl, this.topicId, this.auctionId);
+    const bids = await fetchTopicBids(
+      this.mirrorBaseUrl,
+      this.topicId,
+      this.auctionId,
+      this.authorized,
+    );
     const standing = standingOffers(bids);
     const lowest = [...standing.values()].reduce(
-      (min, bid) => (min === undefined || bid.amountCents < min ? bid.amountCents : min),
+      (min, bid) =>
+        min === undefined || bid.amountCents < min
+          ? bid.amountCents
+          : min,
       undefined as number | undefined,
     );
 
     await Promise.all(
-      this.sellers.map(({ seller, client }) =>
-        this.maybeBid(seller, client, standing, lowest),
+      this.listings.map((listing) =>
+        this.maybeBid(listing, standing, lowest),
       ),
     );
   }
 
   private async maybeBid(
-    seller: Seller,
-    client: Client,
+    listing: LiveSellerListing,
     standing: Map<string, { amountCents: number }>,
     lowest: number | undefined,
   ): Promise<void> {
-    const amount = nextBid(seller, standing, lowest);
+    const amount = nextBid(listing.seller, listing.item, standing, lowest);
     if (amount === undefined) return;
-    const previous = this.lastPublished.get(seller.id);
+    const previous = this.lastPublished.get(listing.item.id);
     if (previous !== undefined && amount >= previous) return;
-    this.lastPublished.set(seller.id, amount);
-    await publishToTopic(client, this.topicId, {
-      type: "BID",
-      auctionId: this.auctionId,
-      sellerId: seller.id,
-      sellerName: seller.name,
-      offering: seller.offering,
-      amountCents: amount,
-      quality: seller.quality,
-      tags: seller.tags,
-    });
+    this.lastPublished.set(listing.item.id, amount);
+    await publishToTopic(
+      listing.client,
+      this.topicId,
+      this.topicSubmitKey,
+      {
+        type: "BID",
+        auctionId: this.auctionId,
+        listingId: listing.item.id,
+        sellerId: listing.seller.id,
+        sellerName: listing.seller.name,
+        offering: listing.item.offering,
+        amountCents: amount,
+        quality: listing.item.quality,
+        tags: listing.item.tags,
+      },
+    );
   }
 }
 
 /**
- * Open descending-price strategy: enter at list price, then concede while
- * not leading — undercut the leader when the reserve allows it, otherwise
- * keep lowering your own offer stepwise toward the reserve (competitive
- * pressure is real even when you cannot be the cheapest). Never bid below
- * the private reserve. Returns undefined to hold.
+ * Mock reverse-auction strategy for one inventory item. Its public opening
+ * price is the market estimate and its private floor is the seller floor.
  */
 export function nextBid(
   seller: Seller,
+  item: SellerInventoryItem,
   standing: Map<string, { amountCents: number }>,
   lowest: number | undefined,
 ): number | undefined {
-  const mine = standing.get(seller.id)?.amountCents;
-  if (mine === undefined) return seller.listPriceCents;
+  const mine = standing.get(item.id)?.amountCents;
+  if (mine === undefined) return item.estimatedMarketPriceCents;
   if (lowest !== undefined && mine <= lowest) return undefined;
 
   const jitter =
     Number.parseInt(
-      createHash("sha256").update(`${seller.privateSalt}|step`).digest("hex").slice(0, 4),
+      createHash("sha256")
+        .update(`${seller.privateSalt}|${item.id}|step`)
+        .digest("hex")
+        .slice(0, 4),
       16,
     ) % 20;
-  const step = Math.max(25, Math.round(seller.listPriceCents * 0.03)) + jitter;
+  const step =
+    Math.max(25, Math.round(item.estimatedMarketPriceCents * 0.03)) + jitter;
   const target = Math.max(
-    seller.reservePriceCents,
+    item.floorPriceCents,
     Math.min(mine - step, (lowest ?? mine) - step),
   );
   if (target >= mine) return undefined;
@@ -140,8 +172,9 @@ export async function fundSellerFees(
   ctx: HederaContext,
   accounts: StoredAccount[],
 ): Promise<void> {
+  const unique = new Map(accounts.map((account) => [account.accountId, account]));
   const transfer = new TransferTransaction();
-  for (const account of accounts) {
+  for (const account of unique.values()) {
     transfer.addHbarTransfer(account.accountId, new Hbar(1));
     transfer.addHbarTransfer(ctx.operatorId, new Hbar(-1));
   }

@@ -3,24 +3,24 @@ import {
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import { pickWinner, verifyRevealedBid } from "../auction.js";
-import type { Bid } from "../domain.js";
-import { parsePrivateKey } from "./client.js";
+import { parsePrivateKey } from "./client";
 import type {
   ContestedListing,
+  HederaOffer,
   LeafInit,
+  LeafResult,
   LeafToParent,
   LiveStats,
   ParentToLeaf,
-} from "./ipc.js";
-import { publishToTopic } from "./log.js";
+} from "./ipc";
+import { publishToTopic } from "./log";
 import {
   ascendingLeader,
   fetchItemState,
   fetchTopicBids,
   standingOffers,
   type LiveBid,
-} from "./mirror.js";
+} from "./mirror";
 
 /**
  * An isolated buyer agent. It runs in its own process, holds only its own
@@ -82,41 +82,69 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function asBid(auctionId: string, live: LiveBid): Bid {
+function asOffer(live: LiveBid): HederaOffer {
   return {
-    auctionId,
+    listingId: live.listingId,
     sellerId: live.sellerId,
     sellerName: live.sellerName,
     offering: live.offering,
     amountCents: live.amountCents,
     quality: live.quality,
     tags: live.tags,
-    salt: "",
+    attributes: {},
   };
 }
 
-/** Sealed one-shot RFQ: quotes arrive over IPC, commitments verified here. */
-async function sealedWinner(init: LeafInit): Promise<{ winner: Bid }> {
-  send({ type: "RFQ" });
-  const { commitments, reveals } = await expectMessage("BIDS");
-  const commitmentBySeller = new Map(
-    commitments.map((item) => [item.sellerId, item.commitment]),
+function offerScore(
+  offer: HederaOffer,
+  requirements: string[],
+  maxBudgetCents: number,
+): number {
+  const normalized = requirements.map((item) => item.toLowerCase());
+  const tagMatches = offer.tags.filter((tag) =>
+    normalized.some(
+      (requirement) =>
+        requirement.includes(tag.toLowerCase()) ||
+        tag.toLowerCase().includes(requirement),
+    ),
+  ).length;
+  return (
+    offer.quality +
+    tagMatches * 6 +
+    25 * (1 - offer.amountCents / maxBudgetCents)
   );
-  const validBids = reveals.filter((bid) => {
-    const commitment = commitmentBySeller.get(bid.sellerId);
-    return commitment !== undefined && verifyRevealedBid(bid, commitment);
-  });
-  if (validBids.length !== reveals.length) {
-    throw new Error("A sealed bid failed commitment verification.");
-  }
-  const selected = pickWinner(validBids, {
-    requirements: init.mandate.requirements,
-    maxBudgetCents: init.mandate.maxAmountCents,
-  });
+}
+
+function pickOffer(
+  offers: HederaOffer[],
+  init: LeafInit,
+  maxBudgetCents = init.mandate.maxAmountCents,
+): HederaOffer | undefined {
+  return offers
+    .filter(
+      (offer) =>
+        Number.isSafeInteger(offer.amountCents) &&
+        offer.amountCents > 0 &&
+        offer.amountCents <= maxBudgetCents,
+    )
+    .sort(
+      (left, right) =>
+        offerScore(right, init.mandate.requirements, maxBudgetCents) -
+          offerScore(left, init.mandate.requirements, maxBudgetCents) ||
+        left.amountCents - right.amountCents ||
+        left.listingId.localeCompare(right.listingId),
+    )[0];
+}
+
+/** The current mock English-auction winner arrives as a scoped public offer. */
+async function sealedWinner(init: LeafInit): Promise<{ winner: HederaOffer }> {
+  send({ type: "RFQ" });
+  const { offers } = await expectMessage("OFFERS");
+  const selected = pickOffer(offers, init);
   if (!selected) {
-    throw new Error(`No ${init.mandate.category} bid fits the mandate cap.`);
+    throw new Error(`No ${init.mandate.category} offer fits the mandate cap.`);
   }
-  return { winner: selected.bid };
+  return { winner: selected };
 }
 
 /**
@@ -128,9 +156,16 @@ async function sealedWinner(init: LeafInit): Promise<{ winner: Bid }> {
 async function liveWinner(
   init: LeafInit,
   tag: string,
-): Promise<{ winner: Bid; capCents: number; stats: LiveStats }> {
-  const mirrorBaseUrl = init.live?.mirrorBaseUrl;
-  if (!mirrorBaseUrl) throw new Error("Live mode requires a mirror base URL.");
+): Promise<{ winner: HederaOffer; capCents: number; stats: LiveStats }> {
+  const live = init.live;
+  if (!live) throw new Error("Live mode requires a mirror configuration.");
+  const mirrorBaseUrl = live.mirrorBaseUrl;
+  const authorized = new Map(
+    live.authorizedOffers.map(({ offer, sellerAccountId }) => [
+      offer.listingId,
+      { sellerId: offer.sellerId, accountId: sellerAccountId },
+    ]),
+  );
   let capCents = init.mandate.maxAmountCents;
   let grantedCents = 0;
   let requestedTopUp = false;
@@ -145,6 +180,7 @@ async function liveWinner(
       mirrorBaseUrl,
       init.auctionTopicId,
       init.mandate.auctionId,
+      authorized,
     );
     if (history.length > seenBids) {
       seenBids = history.length;
@@ -160,28 +196,26 @@ async function liveWinner(
       ((elapsed > MIN_AUCTION_MS && quiet > QUIET_CLOSE_MS) ||
         elapsed > HARD_CLOSE_MS);
     if (shouldClose) {
-      const selected = pickWinner(
-        affordable.map((bid) => asBid(init.mandate.auctionId, bid)),
-        {
-          requirements: init.mandate.requirements,
-          maxBudgetCents: capCents,
-        },
+      const selected = pickOffer(
+        affordable.map(asOffer),
+        init,
+        capCents,
       );
       if (!selected) break;
       // Price discovery shown from the winner's own trajectory: its opening
       // (list-price) bid down to what it actually charges.
       const winnerEntry = history.find(
-        (bid) => bid.sellerId === selected.bid.sellerId,
+        (bid) => bid.listingId === selected.listingId,
       );
       return {
-        winner: selected.bid,
+        winner: selected,
         capCents,
         stats: {
           bids: history.length,
           openingCents: winnerEntry
             ? winnerEntry.amountCents
-            : selected.bid.amountCents,
-          closingCents: selected.bid.amountCents,
+            : selected.amountCents,
+          closingCents: selected.amountCents,
           grantedCents,
         },
       };
@@ -254,25 +288,18 @@ async function contestedRun(
   const increment = (floorCents: number) =>
     Math.max(25, Math.round(floorCents * 0.02));
 
-  const sweepAndReport = async (outcome: {
+  const report = (outcome: {
     listing?: ContestedListing;
     amountCents?: number;
     transactionId?: string;
     claimNftSerial?: number;
-  }): Promise<void> => {
+  }): void => {
     const spent = outcome.amountCents ?? 0;
-    const leftover = capCents - spent;
-    if (leftover > 0) {
-      await (
-        await new TransferTransaction()
-          .addTokenTransfer(init.paymentTokenId, me, -leftover)
-          .addTokenTransfer(init.paymentTokenId, init.clearingAccountId, leftover)
-          .execute(client)
-      ).getReceipt(client);
-    }
     send({
       type: "DONE",
       result: {
+        listingId: outcome.listing?.listingId ?? "",
+        offering: outcome.listing?.offering ?? "",
         sellerId: outcome.listing?.sellerId ?? "",
         sellerName: outcome.listing?.sellerName ?? "",
         amountCents: spent,
@@ -280,6 +307,9 @@ async function contestedRun(
         leafAccountId: me,
         claimNftSerial: outcome.claimNftSerial ?? 0,
         auctionTopicId: outcome.listing?.topicId ?? "",
+        ...(outcome.listing
+          ? { marketItemId: outcome.listing.itemId }
+          : {}),
         ...(outcome.listing ? {} : { lost: true }),
         grantedCents,
       },
@@ -290,7 +320,12 @@ async function contestedRun(
     listing: ContestedListing,
     amountCents: number,
   ): Promise<boolean> => {
-    send({ type: "PREPARE", sellerId: listing.sellerId });
+    send({
+      type: "PREPARE",
+      sellerId: listing.sellerId,
+      listingId: listing.listingId,
+      amountCents,
+    });
     const reply = await nextMessage();
     if (reply.type === "PREPARE_REJECTED") return false;
     if (reply.type !== "PREPARED") {
@@ -317,16 +352,22 @@ async function contestedRun(
     console.log(
       `${tag} WON ${listing.sellerName} at ${usd(amountCents)} · ${transactionId}`,
     );
-    await publishToTopic(client, listing.topicId, {
-      type: "SETTLED",
-      itemId: listing.itemId,
+    const result: LeafResult = {
+      listingId: listing.listingId,
+      offering: listing.offering,
       sellerId: listing.sellerId,
-      bidder: me,
+      sellerName: listing.sellerName,
       amountCents,
-      claimNftSerial: reply.claimNftSerial,
       transactionId,
-    });
-    await sweepAndReport({
+      leafAccountId: me,
+      claimNftSerial: reply.claimNftSerial,
+      auctionTopicId: listing.topicId,
+      marketItemId: listing.itemId,
+      grantedCents,
+    };
+    send({ type: "SETTLEMENT_CONFIRMED", result });
+    await expectMessage("SETTLEMENT_RECORDED");
+    report({
       listing,
       amountCents,
       transactionId,
@@ -342,7 +383,7 @@ async function contestedRun(
     const open = listings.filter((listing) => !closed.has(listing.itemId));
     if (open.length === 0) {
       console.log(`${tag} lost: every affordable listing sold to someone else`);
-      return sweepAndReport({});
+      return report({});
     }
 
     let states: Array<{
@@ -353,7 +394,12 @@ async function contestedRun(
       states = await Promise.all(
         open.map(async (listing) => ({
           listing,
-          state: await fetchItemState(mirrorBaseUrl, listing.topicId, listing.itemId),
+          state: await fetchItemState(
+            mirrorBaseUrl,
+            listing.topicId,
+            listing.itemId,
+            init.clearingAccountId,
+          ),
         })),
       );
     } catch {
@@ -365,7 +411,7 @@ async function contestedRun(
       | undefined;
     let waitingForMirror = false;
     for (const { listing, state } of states) {
-      if (state.settled) {
+      if (state.settlement) {
         closed.add(listing.itemId);
         continue;
       }
@@ -406,11 +452,14 @@ async function contestedRun(
     if (waitingForMirror) continue;
     if (elapsed > CONTESTED_HARD_MS) {
       console.log(`${tag} lost: auction closed while outbid`);
-      return sweepAndReport({});
+      return report({});
     }
 
     const candidates = states
-      .filter(({ listing, state }) => !closed.has(listing.itemId) && !state.settled)
+      .filter(
+        ({ listing, state }) =>
+          !closed.has(listing.itemId) && !state.settlement,
+      )
       .map(({ listing, state }) => {
         const leader = ascendingLeader(state.bids);
         const priceCents = leader
@@ -439,39 +488,44 @@ async function contestedRun(
         }
       }
       console.log(`${tag} lost: outbid beyond the mandate everywhere`);
-      return sweepAndReport({});
+      return report({});
     }
 
-    const best = pickWinner(
-      affordable.map(({ listing, priceCents }) =>
-        asBid(listing.itemId, {
-          sellerId: listing.sellerId,
-          sellerName: listing.sellerName,
-          offering: listing.offering,
-          amountCents: priceCents,
-          quality: listing.quality,
-          tags: listing.tags,
-          sequenceNumber: 0,
-        }),
-      ),
-      { requirements: init.mandate.requirements, maxBudgetCents: capCents },
+    const best = pickOffer(
+      affordable.map(({ listing, priceCents }) => ({
+        listingId: listing.listingId,
+        sellerId: listing.sellerId,
+        sellerName: listing.sellerName,
+        offering: listing.offering,
+        amountCents: priceCents,
+        quality: listing.quality,
+        tags: listing.tags,
+        attributes: listing.attributes,
+      })),
+      init,
+      capCents,
     );
     if (!best) {
-      return sweepAndReport({});
+      return report({});
     }
     const target = affordable.find(
-      (item) => item.listing.itemId === best.bid.auctionId,
+      (item) => item.listing.listingId === best.listingId,
     );
     if (!target) continue;
     console.log(
       `${tag} bidding ${usd(target.priceCents)} on ${target.listing.sellerName}`,
     );
-    await publishToTopic(client, target.listing.topicId, {
-      type: "BID",
-      itemId: target.listing.itemId,
-      bidder: me,
-      amountCents: target.priceCents,
-    });
+    await publishToTopic(
+      client,
+      target.listing.topicId,
+      target.listing.topicSubmitKey,
+      {
+        type: "BID",
+        itemId: target.listing.itemId,
+        bidder: me,
+        amountCents: target.priceCents,
+      },
+    );
     pending.set(target.listing.itemId, target.priceCents);
     lastNewBidAt.set(target.listing.itemId, Date.now());
   }
@@ -494,13 +548,11 @@ async function run(init: LeafInit): Promise<void> {
       return;
     }
 
-    let winner: Bid;
-    let capCents = mandate.maxAmountCents;
+    let winner: HederaOffer;
     let stats: LiveStats | undefined;
     if (init.live) {
       const outcome = await liveWinner(init, tag);
       winner = outcome.winner;
-      capCents = outcome.capCents;
       stats = outcome.stats;
     } else {
       winner = (await sealedWinner(init)).winner;
@@ -512,7 +564,12 @@ async function run(init: LeafInit): Promise<void> {
     // The seller readies the claim NFT, then both parties sign one atomic
     // swap: my NATA out, the claim NFT in. This agent is the fee payer and
     // signs with its own key; the seller counter-signs.
-    send({ type: "PREPARE", sellerId: winner.sellerId });
+    send({
+      type: "PREPARE",
+      sellerId: winner.sellerId,
+      listingId: winner.listingId,
+      amountCents: winner.amountCents,
+    });
     const prepared = await expectMessage("PREPARED");
 
     const swap = new TransferTransaction()
@@ -549,41 +606,21 @@ async function run(init: LeafInit): Promise<void> {
     const transactionId = response.transactionId.toString();
     console.log(`${tag} settled atomically · ${transactionId}`);
 
-    await publishToTopic(client, init.auctionTopicId, {
-      type: "SETTLED",
-      auctionId: mandate.auctionId,
+    const result: LeafResult = {
+      listingId: winner.listingId,
+      offering: winner.offering,
       sellerId: winner.sellerId,
+      sellerName: winner.sellerName,
       amountCents: winner.amountCents,
-      claimNftSerial: prepared.claimNftSerial,
       transactionId,
-    });
-
-    // Return the unspent remainder to the marketplace clearing account. The
-    // claim NFT stays in this wallet; consolidating it would publicly link
-    // the purchases.
-    const leftover = capCents - winner.amountCents;
-    if (leftover > 0) {
-      await (
-        await new TransferTransaction()
-          .addTokenTransfer(init.paymentTokenId, wallet.accountId, -leftover)
-          .addTokenTransfer(init.paymentTokenId, init.clearingAccountId, leftover)
-          .execute(client)
-      ).getReceipt(client);
-    }
-
-    send({
-      type: "DONE",
-      result: {
-        sellerId: winner.sellerId,
-        sellerName: winner.sellerName,
-        amountCents: winner.amountCents,
-        transactionId,
-        leafAccountId: wallet.accountId,
-        claimNftSerial: prepared.claimNftSerial,
-        auctionTopicId: init.auctionTopicId,
-        ...(stats ? { liveStats: stats } : {}),
-      },
-    });
+      leafAccountId: wallet.accountId,
+      claimNftSerial: prepared.claimNftSerial,
+      auctionTopicId: init.auctionTopicId,
+      ...(stats ? { liveStats: stats } : {}),
+    };
+    send({ type: "SETTLEMENT_CONFIRMED", result });
+    await expectMessage("SETTLEMENT_RECORDED");
+    send({ type: "DONE", result });
   } finally {
     client.close();
   }

@@ -1,4 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import {
   AccountCreateTransaction,
   Hbar,
@@ -6,8 +11,8 @@ import {
   TokenCreateTransaction,
   TokenType,
 } from "@hashgraph/sdk";
-import type { Seller } from "../domain.js";
-import type { HederaContext } from "./client.js";
+import type { Seller } from "../domain";
+import type { HederaContext } from "./client";
 
 export interface StoredAccount {
   accountId: string;
@@ -84,6 +89,7 @@ export async function ensureInfra(
   sellers: Seller[],
 ): Promise<HederaInfra> {
   if (existsSync(INFRA_PATH)) {
+    chmodSync(INFRA_PATH, 0o600);
     const infra = JSON.parse(readFileSync(INFRA_PATH, "utf8")) as HederaInfra;
     const missing = sellers.filter((seller) => !infra.sellers[seller.id]);
     if (missing.length > 0) {
@@ -112,6 +118,10 @@ export async function ensureInfra(
     buyer,
     sellers: Object.fromEntries(sellerAccounts),
   };
-  writeFileSync(INFRA_PATH, `${JSON.stringify(infra, null, 2)}\n`);
+  writeFileSync(INFRA_PATH, `${JSON.stringify(infra, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  chmodSync(INFRA_PATH, 0o600);
   return infra;
 }

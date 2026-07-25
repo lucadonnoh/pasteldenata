@@ -33,6 +33,12 @@ export function validateSettlement(
     if (auction.category !== auction.mandate.category) {
       throw new Error("The winner does not match the mandate category.");
     }
+    if (
+      !Number.isSafeInteger(auction.winner.amountCents) ||
+      auction.winner.amountCents <= 0
+    ) {
+      throw new Error("A winner amount must be a positive integer number of cents.");
+    }
     if (auction.winner.amountCents > auction.mandate.maxAmountCents) {
       throw new Error("A winner exceeded its category mandate.");
     }
@@ -59,6 +65,8 @@ export function settleMockPayments(
       mandateId: auction.mandate.id,
       sellerId: auction.winner.sellerId,
       sellerName: auction.winner.sellerName,
+      listingId: auction.winner.listingId,
+      offering: auction.winner.offering,
       category: auction.category,
       amountCents: auction.winner.amountCents,
       currency: plan.currency,

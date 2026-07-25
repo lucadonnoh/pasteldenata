@@ -1,47 +1,59 @@
 import {
   Client,
+  PrivateKey,
   TopicCreateTransaction,
   TopicMessageSubmitTransaction,
 } from "@hashgraph/sdk";
-import { hashscanTopicUrl } from "./client.js";
+import { hashscanTopicUrl, parsePrivateKey } from "./client";
 
 export async function publishToTopic(
   client: Client,
   topicId: string,
+  submitKey: PrivateKey | string,
   message: Record<string, unknown>,
 ): Promise<void> {
-  const response = await new TopicMessageSubmitTransaction()
+  const key =
+    typeof submitKey === "string" ? parsePrivateKey(submitKey) : submitKey;
+  const transaction = new TopicMessageSubmitTransaction()
     .setTopicId(topicId)
     .setMessage(JSON.stringify(message))
-    .execute(client);
+    .freezeWith(client);
+  await transaction.sign(key);
+  const response = await transaction.execute(client);
   await response.getReceipt(client);
 }
 
 /**
- * A public, replayable HCS record of one plan's auctions. Only data already
- * visible to sellers goes here: commitments, revealed winning amounts, and
- * settlement transaction ids. Never the intent, the global budget, or a
- * category cap.
+ * A public, replayable HCS record. Every topic has a fresh submit key, so
+ * outsiders cannot inject bids or settlement messages. The payer account
+ * remains visible in Mirror Node responses and is validated by readers.
  */
 export class AuctionLog {
   private constructor(
     readonly topicId: string,
+    readonly submitKey: PrivateKey,
     private readonly client: Client,
   ) {}
 
   static async create(client: Client): Promise<AuctionLog> {
+    const submitKey = PrivateKey.generateED25519();
     const response = await new TopicCreateTransaction()
       .setTopicMemo("pastel-de-nata auction log")
+      .setSubmitKey(submitKey.publicKey)
       .execute(client);
     const receipt = await response.getReceipt(client);
     if (!receipt.topicId) {
       throw new Error("Hedera did not return the topic id.");
     }
-    return new AuctionLog(receipt.topicId.toString(), client);
+    return new AuctionLog(receipt.topicId.toString(), submitKey, client);
   }
 
   async publish(message: Record<string, unknown>): Promise<void> {
-    await publishToTopic(this.client, this.topicId, message);
+    await publishToTopic(this.client, this.topicId, this.submitKey, message);
+  }
+
+  get submitKeyDer(): string {
+    return this.submitKey.toStringDer();
   }
 
   get url(): string {
