@@ -16,6 +16,10 @@ import type {
   Seller,
   SellerInventoryItem,
 } from "../domain";
+import {
+  verifyAuctionPass,
+  type AuctionPass,
+} from "../server/world-gateway";
 import { hashscanTopicUrl, hashscanTxUrl, parsePrivateKey } from "./client";
 import { createAccount, type StoredAccount } from "./infra";
 import type {
@@ -99,6 +103,7 @@ export type MarketEvent =
 
 export interface PurchaseAuthorization {
   ok: boolean;
+  pass?: AuctionPass;
   reason?: string;
 }
 
@@ -106,8 +111,9 @@ export interface MarketOptions {
   onEvent?: (event: MarketEvent) => void;
   /**
    * Seller-side access control for protected listings (World AgentKit):
-   * consulted before a buyer may settle a one-per-human item. Absent hook
-   * means every listing behaves as open.
+   * consulted before a buyer may settle a one-per-human item. Protected
+   * markets fail before creating topics unless both this hook and the
+   * issuer key are configured.
    */
   authorizePurchase?: (input: {
     itemId: string;
@@ -118,6 +124,8 @@ export interface MarketOptions {
     buyerIndex: number;
     leafWallet: string;
   }) => Promise<PurchaseAuthorization>;
+  /** Ed25519 gateway key published in LISTED and used by every seller. */
+  authorizationIssuerPublicKey?: string;
 }
 
 export interface MarketOutcome {
@@ -181,6 +189,7 @@ interface SharedMarketState {
       amountCents: number;
       expiresAtMs: number;
       sellerSigned: boolean;
+      authorizationPass?: AuctionPass;
     }
   >;
   itemActions: Map<string, Promise<void>>;
@@ -226,6 +235,20 @@ export function marketItemId(
   return `item_${hash(`${runSalt}|${sellerId}|${listingId}`).slice(0, 16)}`;
 }
 
+export function assertProtectedMarketAuthorizationConfigured(
+  hasProtectedListings: boolean,
+  options: MarketOptions,
+): void {
+  if (
+    hasProtectedListings &&
+    (!options.authorizePurchase || !options.authorizationIssuerPublicKey)
+  ) {
+    throw new Error(
+      "Protected market listings require a World authorization hook and issuer public key.",
+    );
+  }
+}
+
 /**
  * Multi-buyer open market with one authenticated topic per scarce inventory
  * item. All leaves are awaited and ledger-reconciled before any error returns.
@@ -249,10 +272,19 @@ export async function runMarket(
   const roster = sellersForLocation(
     buyers[0]?.plan.location ?? "Lisbon",
   );
+  const activeSellers = roster.filter((seller) =>
+    categories.has(seller.category),
+  );
+  assertProtectedMarketAuthorizationConfigured(
+    activeSellers.some(
+      (seller) => (seller.humanPolicy ?? "open") !== "open",
+    ),
+    options,
+  );
 
   const listings = (
     await Promise.all(
-      roster.filter((seller) => categories.has(seller.category)).flatMap(
+      activeSellers.flatMap(
         (seller) =>
           seller.inventory.map(async (item): Promise<MarketListing> => {
             const account = ctx.infra.sellers[seller.id];
@@ -272,6 +304,12 @@ export async function runMarket(
               floorCents: item.floorPriceCents,
               quantity: 1,
               humanPolicy: seller.humanPolicy ?? "open",
+              ...((seller.humanPolicy ?? "open") !== "open"
+                ? {
+                    authorizationIssuerPublicKey:
+                      options.authorizationIssuerPublicKey,
+                  }
+                : {}),
             });
             onEvent({
               type: "LISTING_OPEN",
@@ -287,6 +325,12 @@ export async function runMarket(
             return {
               itemId,
               humanPolicy: seller.humanPolicy ?? "open",
+              ...((seller.humanPolicy ?? "open") !== "open"
+                ? {
+                    authorizationIssuerPublicKey:
+                      options.authorizationIssuerPublicKey,
+                  }
+                : {}),
               listingId: item.id,
               topicId: log.topicId,
               topicSubmitKey: log.submitKeyDer,
@@ -995,7 +1039,23 @@ async function runMarketLeaf(
             break;
           }
           const policy = listing.humanPolicy ?? "open";
-          if (policy !== "open" && shared.authorizePurchase) {
+          let authorizationPass: AuctionPass | undefined;
+          if (policy !== "open") {
+            if (
+              !shared.authorizePurchase ||
+              !listing.authorizationIssuerPublicKey
+            ) {
+              shared.onEvent({
+                type: "PURCHASE_BLOCKED",
+                itemId: listing.itemId,
+                category: allocation.category,
+                buyerName: buyer.name,
+                leafWallet: wallet.accountId,
+                reason: "Protected listing has no World authorization verifier.",
+              });
+              sendToLeaf({ type: "PREPARE_REJECTED" });
+              break;
+            }
             const authorization = await shared.authorizePurchase({
               itemId: listing.itemId,
               listingId: listing.listingId,
@@ -1005,18 +1065,30 @@ async function runMarketLeaf(
               buyerIndex: runtime.buyerIndex,
               leafWallet: wallet.accountId,
             });
-            if (!authorization.ok) {
+            if (
+              !authorization.ok ||
+              !authorization.pass ||
+              !verifyAuctionPass(
+                authorization.pass,
+                listing.authorizationIssuerPublicKey,
+                listing.itemId,
+                wallet.accountId,
+              )
+            ) {
               shared.onEvent({
                 type: "PURCHASE_BLOCKED",
                 itemId: listing.itemId,
                 category: allocation.category,
                 buyerName: buyer.name,
                 leafWallet: wallet.accountId,
-                reason: authorization.reason ?? "not authorized",
+                reason:
+                  authorization.reason ??
+                  "World authorization credential is missing or invalid.",
               });
               sendToLeaf({ type: "PREPARE_REJECTED" });
               break;
             }
+            authorizationPass = authorization.pass;
           }
           const closed = await closeAndVerifyAuction(listing, {
             buyerAccountId: wallet.accountId,
@@ -1029,6 +1101,30 @@ async function runMarketLeaf(
           if (shared.sold.has(listing.itemId)) {
             sendToLeaf({ type: "PREPARE_REJECTED" });
             break;
+          }
+          if (authorizationPass) {
+            if (
+              !listing.authorizationIssuerPublicKey ||
+              !verifyAuctionPass(
+                authorizationPass,
+                listing.authorizationIssuerPublicKey,
+                listing.itemId,
+                wallet.accountId,
+              )
+            ) {
+              sendToLeaf({ type: "PREPARE_REJECTED" });
+              break;
+            }
+            await listing.log.publish({
+              type: "AUTHORIZED",
+              itemId: listing.itemId,
+              bidder: wallet.accountId,
+              nullifier: authorizationPass.nullifier,
+              quota: authorizationPass.quota,
+              expiresAt: authorizationPass.expiresAt,
+              issuerPublicKey: authorizationPass.issuerPublicKey,
+              signature: authorizationPass.signature,
+            });
           }
 
           const expiresAtMs = await withItemAction(
@@ -1062,6 +1158,7 @@ async function runMarketLeaf(
                 amountCents: message.amountCents,
                 expiresAtMs: claim.deadlineMs,
                 sellerSigned: false,
+                ...(authorizationPass ? { authorizationPass } : {}),
               });
               return claim.deadlineMs;
             },
@@ -1116,6 +1213,22 @@ async function runMarketLeaf(
             Date.now() >= reservation.expiresAtMs
           ) {
             throw new Error("The winner's settlement reservation expired.");
+          }
+          if ((reserved.humanPolicy ?? "open") !== "open") {
+            if (
+              !reservation.authorizationPass ||
+              !reserved.authorizationIssuerPublicKey ||
+              !verifyAuctionPass(
+                reservation.authorizationPass,
+                reserved.authorizationIssuerPublicKey,
+                reserved.itemId,
+                wallet.accountId,
+              )
+            ) {
+              throw new Error(
+                "Seller rejected an invalid or expired World authorization credential.",
+              );
+            }
           }
           const state = await fetchItemState(
             TESTNET_MIRROR_BASE,

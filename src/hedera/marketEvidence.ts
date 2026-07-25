@@ -9,6 +9,20 @@ export type MarketLedgerEvent =
       type: "LISTED";
       sequenceNumber: number;
       payerAccountId: string;
+      humanPolicy?: "open" | "one-per-human";
+      authorizationIssuerPublicKey?: string;
+    }
+  | {
+      type: "AUTHORIZED";
+      sequenceNumber: number;
+      payerAccountId: string;
+      bidder: string;
+      nullifier: string;
+      quota: number;
+      expiresAt: number;
+      issuerPublicKey: string;
+      signature: string;
+      yours: boolean;
     }
   | {
       type: "BID";
@@ -134,6 +148,7 @@ export function parseMarketLedgerEvents(
 ): MarketLedgerEvent[] {
   const events: MarketLedgerEvent[] = [];
   let closed = false;
+  let authorizationIssuerPublicKey: string | undefined;
 
   for (const item of messages) {
     const body = decodeMirrorMessageBody(item.message);
@@ -143,10 +158,22 @@ export function parseMarketLedgerEvents(
       body.type === "LISTED" &&
       item.payer_account_id === clearingAccountId
     ) {
+      authorizationIssuerPublicKey = nonEmptyString(
+        body.authorizationIssuerPublicKey,
+      )
+        ? body.authorizationIssuerPublicKey
+        : undefined;
       events.push({
         type: "LISTED",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
+        ...(body.humanPolicy === "open" ||
+        body.humanPolicy === "one-per-human"
+          ? { humanPolicy: body.humanPolicy }
+          : {}),
+        ...(authorizationIssuerPublicKey
+          ? { authorizationIssuerPublicKey }
+          : {}),
       });
       continue;
     }
@@ -164,6 +191,34 @@ export function parseMarketLedgerEvents(
         payerAccountId: item.payer_account_id,
         bidder: body.bidder,
         amountCents: body.amountCents,
+        yours: yourAgentIds.has(body.bidder),
+      });
+      continue;
+    }
+
+    if (
+      body.type === "AUTHORIZED" &&
+      item.payer_account_id === clearingAccountId &&
+      nonEmptyString(body.bidder) &&
+      nonEmptyString(body.nullifier) &&
+      Number.isSafeInteger(body.quota) &&
+      Number(body.quota) > 0 &&
+      Number.isSafeInteger(body.expiresAt) &&
+      Number(body.expiresAt) > 0 &&
+      nonEmptyString(body.issuerPublicKey) &&
+      body.issuerPublicKey === authorizationIssuerPublicKey &&
+      nonEmptyString(body.signature)
+    ) {
+      events.push({
+        type: "AUTHORIZED",
+        sequenceNumber: item.sequence_number,
+        payerAccountId: item.payer_account_id,
+        bidder: body.bidder,
+        nullifier: body.nullifier,
+        quota: Number(body.quota),
+        expiresAt: Number(body.expiresAt),
+        issuerPublicKey: body.issuerPublicKey,
+        signature: body.signature,
         yours: yourAgentIds.has(body.bidder),
       });
       continue;

@@ -35,6 +35,8 @@ export interface ContestedListing {
   itemId: string;
   /** Seller-chosen access policy; defaults to open. */
   humanPolicy?: HumanPolicy;
+  /** Ed25519 gateway key pinned in HCS for protected listings. */
+  authorizationIssuerPublicKey?: string;
   listingId: string;
   topicId: string;
   topicSubmitKey: string;

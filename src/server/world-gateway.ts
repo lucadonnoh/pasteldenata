@@ -1,4 +1,11 @@
-import { createHmac, createHash, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createPublicKey,
+  generateKeyPairSync,
+  sign,
+  verify,
+  type KeyObject,
+} from "node:crypto";
 
 /**
  * Auction Credential Gateway.
@@ -35,7 +42,9 @@ export interface AuctionPass {
   nullifier: string;
   quota: number;
   expiresAt: number;
-  /** HMAC over the fields above with the gateway secret. */
+  /** DER-encoded Ed25519 public key, pinned in the listing's HCS record. */
+  issuerPublicKey: string;
+  /** Ed25519 signature over every credential field above. */
   signature: string;
 }
 
@@ -63,7 +72,36 @@ function passPayload(pass: Omit<AuctionPass, "signature">): string {
     pass.nullifier,
     String(pass.quota),
     String(pass.expiresAt),
+    pass.issuerPublicKey,
   ].join("|");
+}
+
+export function verifyAuctionPass(
+  pass: AuctionPass,
+  expectedIssuerPublicKey: string,
+  auctionId: string,
+  leafWallet: string,
+  now = Date.now(),
+): boolean {
+  if (pass.issuerPublicKey !== expectedIssuerPublicKey) return false;
+  if (pass.auctionId !== auctionId) return false;
+  if (pass.leafWallet !== leafWallet) return false;
+  if (pass.expiresAt <= now) return false;
+  try {
+    const publicKey = createPublicKey({
+      key: Buffer.from(expectedIssuerPublicKey, "base64"),
+      format: "der",
+      type: "spki",
+    });
+    return verify(
+      null,
+      Buffer.from(passPayload(pass)),
+      publicKey,
+      Buffer.from(pass.signature, "base64"),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -85,6 +123,27 @@ export class MockAgentBook implements HumanResolver {
   }
 }
 
+/**
+ * Route only explicitly named demo identities to the mock book. A negative
+ * mock result must stay negative instead of accidentally reaching the real
+ * AgentBook, while every other address is resolved canonically.
+ */
+export function createDemoAwareHumanResolver(
+  canonical: HumanResolver,
+  demoBook: HumanResolver,
+  demoAddresses: ReadonlySet<string>,
+): HumanResolver {
+  const normalized = new Set(
+    [...demoAddresses].map((address) => address.toLowerCase()),
+  );
+  return {
+    lookupHuman: (address) =>
+      normalized.has(address.toLowerCase())
+        ? demoBook.lookupHuman(address)
+        : canonical.lookupHuman(address),
+  };
+}
+
 export interface GatewayStats {
   passesIssued: number;
   sybilRejections: number;
@@ -92,7 +151,8 @@ export interface GatewayStats {
 }
 
 export class WorldGateway {
-  private readonly secret: string;
+  private readonly signingKey: KeyObject;
+  readonly issuerPublicKey: string;
   /** auctionId → nullifier → passes issued. */
   private readonly issued = new Map<string, Map<string, number>>();
   readonly stats: GatewayStats = {
@@ -101,11 +161,16 @@ export class WorldGateway {
     notHumanBacked: 0,
   };
 
-  constructor(
-    private readonly agentBook: HumanResolver,
-    secret = randomBytes(32).toString("hex"),
-  ) {
-    this.secret = secret;
+  constructor(private readonly agentBook: HumanResolver) {
+    const keyPair = generateKeyPairSync("ed25519");
+    this.signingKey = keyPair.privateKey;
+    this.issuerPublicKey = keyPair.publicKey
+      .export({ format: "der", type: "spki" })
+      .toString("base64");
+  }
+
+  noteMissingIdentity(): void {
+    this.stats.notHumanBacked += 1;
   }
 
   /**
@@ -150,31 +215,32 @@ export class WorldGateway {
       nullifier,
       quota,
       expiresAt: Date.now() + PASS_TTL_MS,
+      issuerPublicKey: this.issuerPublicKey,
     };
-    const signature = createHmac("sha256", this.secret)
-      .update(passPayload(unsigned))
-      .digest("hex");
+    const signature = sign(
+      null,
+      Buffer.from(passPayload(unsigned)),
+      this.signingKey,
+    ).toString("base64");
     this.stats.passesIssued += 1;
     return { ok: true, pass: { ...unsigned, signature } };
   }
 
   /** Sellers and the coordinator verify passes without learning anything else. */
   verifyPass(pass: AuctionPass, auctionId: string, leafWallet: string): boolean {
-    if (pass.auctionId !== auctionId) return false;
-    if (pass.leafWallet !== leafWallet) return false;
-    if (pass.expiresAt < Date.now()) return false;
-    const expected = createHmac("sha256", this.secret)
-      .update(passPayload(pass))
-      .digest("hex");
-    return expected === pass.signature;
+    return verifyAuctionPass(
+      pass,
+      this.issuerPublicKey,
+      auctionId,
+      leafWallet,
+    );
   }
 }
 
 /**
- * Resolve the human resolver for the current environment. Real mode uses
- * the canonical AgentBook on World Chain via @worldcoin/agentkit; it
- * activates when WORLD_AGENTBOOK=real is set and the identity agent has
- * been registered with `npx @worldcoin/agentkit-cli register <address>`.
+ * Resolve the human resolver for the current environment. The canonical
+ * AgentBook is the default; WORLD_AGENTBOOK=mock is an explicit offline-only
+ * override. Browser identities still need registration through /world.
  */
 export async function createHumanResolver(): Promise<HumanResolver> {
   if (process.env.WORLD_AGENTBOOK === "mock") return new MockAgentBook();

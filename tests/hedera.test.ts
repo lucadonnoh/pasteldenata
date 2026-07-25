@@ -23,7 +23,10 @@ import {
   marketSettlementFromEvents,
   parseMarketLedgerEvents,
 } from "../src/hedera/marketEvidence";
-import { marketItemId } from "../src/hedera/market";
+import {
+  assertProtectedMarketAuthorizationConfigured,
+  marketItemId,
+} from "../src/hedera/market";
 import {
   assertExactAtomicSwap,
   assertVerifiedMarketClaim,
@@ -411,6 +414,93 @@ test("browser market evidence uses the authenticated settled bidder", () => {
   });
 });
 
+test("browser evidence accepts only clearing-authenticated World credentials pinned by LISTED", () => {
+  const messages = [
+    mirrorMessage(
+      {
+        type: "LISTED",
+        itemId: "item-world",
+        humanPolicy: "one-per-human",
+        authorizationIssuerPublicKey: "issuer-key",
+      },
+      "0.0.clearing",
+      1,
+    ),
+    mirrorMessage(
+      {
+        type: "AUTHORIZED",
+        itemId: "item-world",
+        bidder: "0.0.201",
+        nullifier: "forged-payer",
+        quota: 1,
+        expiresAt: 1_800_000_000_000,
+        issuerPublicKey: "issuer-key",
+        signature: "signature",
+      },
+      "0.0.attacker",
+      2,
+    ),
+    mirrorMessage(
+      {
+        type: "AUTHORIZED",
+        itemId: "item-world",
+        bidder: "0.0.201",
+        nullifier: "wrong-issuer",
+        quota: 1,
+        expiresAt: 1_800_000_000_000,
+        issuerPublicKey: "attacker-key",
+        signature: "signature",
+      },
+      "0.0.clearing",
+      3,
+    ),
+    mirrorMessage(
+      {
+        type: "AUTHORIZED",
+        itemId: "item-world",
+        bidder: "0.0.201",
+        nullifier: "auction-nullifier",
+        quota: 1,
+        expiresAt: 1_800_000_000_000,
+        issuerPublicKey: "issuer-key",
+        signature: "signature",
+      },
+      "0.0.clearing",
+      4,
+    ),
+  ];
+
+  assert.deepEqual(
+    parseMarketLedgerEvents(
+      messages,
+      "item-world",
+      "0.0.clearing",
+      new Set(["0.0.201"]),
+    ),
+    [
+      {
+        type: "LISTED",
+        sequenceNumber: 1,
+        payerAccountId: "0.0.clearing",
+        humanPolicy: "one-per-human",
+        authorizationIssuerPublicKey: "issuer-key",
+      },
+      {
+        type: "AUTHORIZED",
+        sequenceNumber: 4,
+        payerAccountId: "0.0.clearing",
+        bidder: "0.0.201",
+        nullifier: "auction-nullifier",
+        quota: 1,
+        expiresAt: 1_800_000_000_000,
+        issuerPublicKey: "issuer-key",
+        signature: "signature",
+        yours: true,
+      },
+    ],
+  );
+});
+
 test("seller policy independently derives the winner before signing", () => {
   const open = {
     opening: {
@@ -677,6 +767,29 @@ test("market item ids are namespaced per run", () => {
   assert.equal(first, marketItemId("run-a", "cinema", "seat-e6-e7"));
 });
 
+test("protected markets fail closed without a credential verifier", () => {
+  assert.throws(
+    () => assertProtectedMarketAuthorizationConfigured(true, {}),
+    /require a World authorization hook and issuer public key/,
+  );
+  assert.throws(
+    () =>
+      assertProtectedMarketAuthorizationConfigured(true, {
+        authorizePurchase: async () => ({ ok: true }),
+      }),
+    /require a World authorization hook and issuer public key/,
+  );
+  assert.doesNotThrow(() =>
+    assertProtectedMarketAuthorizationConfigured(true, {
+      authorizationIssuerPublicKey: "test-key",
+      authorizePurchase: async () => ({ ok: false }),
+    }),
+  );
+  assert.doesNotThrow(() =>
+    assertProtectedMarketAuthorizationConfigured(false, {}),
+  );
+});
+
 test("settlement API validates the complete plan and auction relationship", async () => {
   const purchase = await organizePrivatePurchase(
     new MockPrivatePlanner(),
@@ -689,6 +802,16 @@ test("settlement API validates the complete plan and auction relationship", asyn
     mode: "market",
   });
   assert.equal(parsed.auctions.length, parsed.plan.allocations.length);
+  assert.throws(
+    () =>
+      parseSettlementRequest({
+        plan: purchase.plan,
+        auctions: purchase.auctions,
+        mode: "market",
+        identityAgent: "0x0000000000000000000000000000000000000001",
+      }),
+    /Unrecognized key/,
+  );
 
   const tampered = structuredClone(purchase);
   const firstAuction = tampered.auctions[0];

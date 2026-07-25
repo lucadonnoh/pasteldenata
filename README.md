@@ -20,6 +20,9 @@ The product combines three ideas:
    own requirements, spending cap, and funded wallet.
 3. **Auditable markets and settlement:** HCS records the auction transcript,
    while HTS atomically exchanges payment for the reservation or ticket claim.
+4. **Human-gated scarcity:** sellers can require one allocation per verified
+   human using World AgentKit without revealing a reusable human identifier to
+   bidders or other sellers.
 
 This is a hackathon prototype. The privacy, market, and settlement layers have
 different trust boundaries, which are documented below.
@@ -53,6 +56,7 @@ The repository contains several progressively more realistic modes:
 | Planning | Real 0G private TeeML call, or deterministic mock planner | Uses the already accepted plan; no second 0G call |
 | Seller catalog | Mocked Lisbon or Milan inventory | Same mocked inventory |
 | Rival demand | Deterministic mock rivals | Mock rival personas using real testnet accounts |
+| World identity | Optional real browser registration | Explicit mix of mock human-backed and unverified rivals |
 | Auction | In-process English-auction trace | Real HCS messages and Mirror Node replay |
 | Payment | Simulated receipt | Real HTS transfer of test token `NATA` |
 | Product claim | Simulated receipt metadata | Real testnet `NATAC` NFT |
@@ -91,6 +95,9 @@ USER'S BROWSER
               /          |          \
        flowers agent  cinema agent  dinner agent
           scoped wallet + mandate + category cap
+                         |
+          World AgentBook + credential gateway
+       (protected listings; auction-scoped nullifier)
               \          |          /
                   HCS AUCTIONS
                          |
@@ -166,6 +173,30 @@ coordinator. It:
 The job store is in memory and survives development hot reloads, but not a full
 process restart. This endpoint is not a production payment API.
 
+### 5. World identity and scarce allocations
+
+The browser creates a dedicated EVM identity key and keeps it in local storage.
+At `/world`, the user scans a World App QR to register that address in the
+canonical AgentBook on World Chain. Before a settlement job may use the
+address, the localhost coordinator issues a one-time, five-minute challenge
+bound to the plan ID. The browser signs it with the identity key; the
+coordinator verifies and consumes it before consulting the AgentBook. A public
+registered address alone is therefore insufficient.
+
+For `one-per-human` listings, the credential gateway converts the private
+AgentBook `humanId` into `H(humanId, auctionId)`. It issues a 15-minute
+Ed25519-signed pass bound to one auction and one leaf wallet. The issuer public
+key and seller policy are pinned in `LISTED`; a successful pass is independently
+rechecked by seller policy and written to HCS as `AUTHORIZED` before the seller
+signs.
+
+The demo does not pretend every rival has a real World ID. Rival identities are
+explicit server-side fixtures: some resolve to distinct mock humans and some
+are deliberately unverified and are blocked from protected settlement. They
+never substitute for the real user's browser identity. Scalper mode assigns
+the verified mock rivals one shared human so their wallets collapse to one
+allocation per protected auction.
+
 ## Auction protocol
 
 ### Local English-auction simulation
@@ -198,11 +229,14 @@ The Hedera market gives each scarce listing a fresh HCS topic:
 4. The fixed ranking keeps the highest bid from each distinct account, orders
    higher amounts first, and breaks equal bids by earlier HCS consensus
    sequence.
-5. Each ranked buyer receives a 30-second claim window.
-6. If the current winner never provides its buyer signature, the coordinator
+5. For a protected listing, `AUTHORIZED` records the winner's
+   gateway-signed, auction-scoped nullifier. Seller policy verifies the
+   signature, auction, wallet, expiry, quota, and issuer key.
+6. Each ranked buyer receives a 30-second claim window.
+7. If the current winner never provides its buyer signature, the coordinator
    records an authenticated `FORFEITED` event after the deadline. The next
    distinct account in the fixed ranking becomes eligible.
-7. `SETTLED` records the successful Hedera transaction ID.
+8. `SETTLED` records the successful Hedera transaction ID.
 
 Seller policy independently replays the payer-bound listing, bids, close,
 deadlines, and forfeitures before it signs. A premature forfeiture, incorrect
@@ -253,6 +287,9 @@ other venue.
 | Original intent and hard budget | Browser, 0G Router request path, selected TeeML inference environment |
 | Public seller catalog | Browser and 0G planner |
 | Derived global plan | Browser and trusted local coordinator |
+| World identity private key | Browser local storage |
+| AgentBook human ID | Canonical AgentBook and trusted credential gateway |
+| Auction-scoped World nullifier and pass signature | Public HCS topic for that listing |
 | Scoped category mandate | Coordinator and that buyer child process |
 | Seller request | Relevant seller-side auction logic |
 | HCS listing, bids, accounts, amounts, outcomes | Public Hedera observers |
@@ -321,6 +358,12 @@ browser extension, or same-origin script could still read it.
 
 For the CLI, `ZEROG_KEY` is read from the local `.env`.
 
+The browser's generated World identity private key persists in local storage so
+the same registered AgentBook address can authorize later plans. It never goes
+to the coordinator; only plan-bound EIP-191 signatures do. A compromised
+frontend, browser extension, or same-origin script could steal this key, so
+production custody would require stronger browser key storage.
+
 Generated Hedera testnet credentials are stored in `hedera-infra.json` and
 `.pasteldenata/hedera-wallets/`. They are ignored by git and written with
 owner-only permissions, but they are plaintext testnet keys and are not
@@ -336,6 +379,8 @@ production-grade custody.
 | Local coordinator | Availability, orchestration, wallet funding, mocked seller signing, and correct progression | Plan validation, public HCS history, exact transaction checks, and ledger reconciliation make deviations observable |
 | User's own buyer agents | Choosing listings and authorizing spend within their mandates | Each wallet contains its scoped cap plus only explicitly granted contingency; parent policy revalidates results |
 | Other buyers | Not trusted | Bids are payer-bound, ranking is deterministic, and non-settling winners time out |
+| World AgentBook | Correct human-backed address lookup | The user must also prove control of that public address |
+| Credential gateway | Private human-ID lookup, quota issuance, and unlinkable nullifiers | Ed25519 passes, issuer key, policy, and successful `AUTHORIZED` records are public; duplicate nullifiers are detectable |
 | Seller | May refuse availability; not trusted to receive payment without transferring the claim | Both signatures are required and payment-for-NFT settlement is atomic |
 | Seller for off-chain service | Trusted to honor a valid claim NFT | Not enforced by this prototype |
 | Hedera consensus and Mirror Node | Consensus ordering, final settlement, and readable HCS state | HashScan links and full topics are public; Mirror availability is still required by the app |
@@ -344,6 +389,13 @@ The coordinator is trusted but auditable, not trustless. It can censor, delay,
 or stop the market. Incorrect close, ranking, forfeiture, or settlement
 messages are detectable from HCS, but the protocol does not force an offline
 coordinator to make progress.
+
+The credential gateway is part of that trusted coordinator boundary. Public
+HCS evidence proves which issuer key authorized which bidder and makes
+duplicate auction nullifiers detectable; it cannot prove that the gateway
+honestly performed its private AgentBook lookup. A malicious gateway could
+invent credentials, but it still cannot sign for the buyer, move funds, or
+bypass the atomic payment-for-claim transaction.
 
 The current mocked seller private keys are held by the coordinator. The code
 demonstrates the seller verification policy and atomic transaction shape, not
@@ -371,10 +423,12 @@ seller would run or control its own signing service.
 - A non-settling bidder is delayed by one 30-second claim window and then
   forfeited.
 - This restores liveness across a finite fixed ranking, but it is not Sybil
-  resistance. One attacker can use multiple funded accounts and consume one
-  timeout per account.
-- Preventing cheap repeated griefing requires bid bonds, collateral and
-  slashing, identity admission, or contract-enforced bids.
+  resistance for bidding. One attacker can use multiple funded accounts and
+  consume one timeout per account because World authorization is checked at
+  settlement, not when the bid is submitted.
+- Protected settlement prevents those accounts from receiving multiple scarce
+  allocations. Preventing bid-level griefing still requires pass-bound bids,
+  bid bonds, collateral and slashing, or contract-enforced bids.
 - A trusted coordinator or required network service going offline can pause
   progress.
 
@@ -440,6 +494,10 @@ npm run dev
 Open `http://localhost:3000` and enter your own 0G Router key in the interface.
 The web flow keeps that key in the browser; it does not read `ZEROG_KEY` from
 the server environment.
+
+Open `http://localhost:3000/world` to register the browser identity with World
+App. This is optional: an unverified user can use open listings but is refused
+by `one-per-human` sellers.
 
 For Hedera settlement from the web interface, also configure:
 
@@ -510,6 +568,9 @@ src/hedera/market.ts           shared HCS market and coordinator settlement
 src/hedera/marketPolicy.ts     close, ranking, timeout, and exact-swap policy
 src/hedera/mirror.ts           payer-bound HCS replay
 src/hedera/leafAgent.ts        isolated scoped buyer agent
+src/server/world-identity-auth.ts
+                               one-time browser identity challenge verification
+src/server/world-gateway.ts    AgentBook lookup and signed auction credentials
 src/server/settlement-jobs.ts  localhost settlement job coordinator
 components/execution-details.tsx
                                visible 0G and Hedera proof details

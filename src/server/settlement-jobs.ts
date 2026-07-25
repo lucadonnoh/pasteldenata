@@ -10,6 +10,7 @@ import type { SettlementResult } from "../orchestrator";
 import { MockPrivatePlanner } from "../planner";
 import {
   createHumanResolver,
+  createDemoAwareHumanResolver,
   MockAgentBook,
   WorldGateway,
   type AuctionPass,
@@ -46,8 +47,14 @@ export interface JobListing {
 export interface JobWorld {
   enabled: boolean;
   scalperMode: boolean;
-  /** False once a real AgentBook identity backs the user. */
-  userSimulated?: boolean;
+  /** True only after the browser proves control of its AgentBook address. */
+  userIdentityProved: boolean;
+  /** Explicit demo personas; these never replace the real user's identity. */
+  mockBuyers: Array<{
+    name: string;
+    humanBacked: boolean;
+    humanLabel?: string;
+  }>;
   passesIssued: number;
   sybilRejections: number;
   notHumanBacked: number;
@@ -100,9 +107,23 @@ export class SettlementJobBusyError extends Error {
 }
 
 const RIVAL_PERSONAS = [
-  { name: "Bruno", intent: "Organize me a date tomorrow in Lisbon. My budget is $180." },
-  { name: "Chiara", intent: "Organize me a date tomorrow in Lisbon. My budget is $165." },
-  { name: "Emma", intent: "Organize me a date tomorrow in Lisbon. My budget is $150." },
+  {
+    name: "Bruno",
+    intent: "Organize me a date tomorrow in Lisbon. My budget is $180.",
+    identityAgent: "0x000000000000000000000000000000000000b001",
+    mockHumanSeed: "bruno",
+  },
+  {
+    name: "Chiara",
+    intent: "Organize me a date tomorrow in Lisbon. My budget is $165.",
+    identityAgent: "0x000000000000000000000000000000000000c001",
+  },
+  {
+    name: "Emma",
+    intent: "Organize me a date tomorrow in Lisbon. My budget is $150.",
+    identityAgent: "0x000000000000000000000000000000000000e001",
+    mockHumanSeed: "emma",
+  },
 ];
 
 // Survives dev-server module reloads between the POST and the polling GETs.
@@ -122,7 +143,7 @@ function prune(): void {
 }
 
 export interface SettlementJobOptions {
-  /** Demo switch: all rival buyers share one underlying human. */
+  /** Demo switch: every human-backed rival shares one underlying human. */
   scalperMode?: boolean;
   /** Browser-registered identity agent (AgentBook, World Chain). */
   identityAgent?: string;
@@ -157,6 +178,8 @@ export function startSettlementJob(
           world: {
             enabled: true,
             scalperMode: options.scalperMode === true,
+            userIdentityProved: Boolean(options.identityAgent),
+            mockBuyers: [],
             passesIssued: 0,
             sybilRejections: 0,
             notHumanBacked: 0,
@@ -289,39 +312,46 @@ async function execute(
     );
 
     // World AgentKit: one-per-human listings require an auction-scoped pass.
-    // The user's identity agent resolves through the configured resolver
-    // (real AgentBook with WORLD_AGENTBOOK=real); rival personas are
-    // simulated humans on a mock book. In scalper mode all rivals share ONE
-    // underlying human, so the gateway collapses them to a single
-    // allocation per protected item — the live sybil demo.
+    // The user's proved identity agent resolves through the canonical
+    // AgentBook (unless explicit offline mock mode is configured); rivals are
+    // explicit identities on a mock book, including a negative fixture. In
+    // scalper mode the human-backed rivals share ONE underlying human, so the
+    // gateway collapses them to a single allocation per protected item while
+    // the unverified fixture remains unverified.
     const scalperMode = job.world?.scalperMode === true;
     const rivalBook = new MockAgentBook();
     const identityByBuyer = new Map<string, string>();
-    const userIdentity =
-      job.identityAgent ??
-      process.env.WORLD_IDENTITY_AGENT ??
-      "0xYouIdentityAgent";
-    const userIsSimulated =
-      !job.identityAgent && !process.env.WORLD_IDENTITY_AGENT;
-    identityByBuyer.set(USER_BUYER_NAME, userIdentity);
-    // A real identity must resolve through the canonical AgentBook; only
-    // the default dev persona lives on the mock book.
-    if (userIsSimulated) rivalBook.registerAgent(userIdentity, "you");
-    if (job.world) job.world.userSimulated = userIsSimulated;
-    for (const rival of rivals) {
-      const address = `0x${rival.name}IdentityAgent`;
-      identityByBuyer.set(rival.name, address);
-      rivalBook.registerAgent(address, scalperMode ? "scalper" : rival.name);
+    if (job.identityAgent) {
+      identityByBuyer.set(USER_BUYER_NAME, job.identityAgent);
+    }
+    const mockIdentityAddresses = new Set<string>();
+    for (const persona of RIVAL_PERSONAS) {
+      identityByBuyer.set(persona.name, persona.identityAgent);
+      mockIdentityAddresses.add(persona.identityAgent.toLowerCase());
+      const humanSeed =
+        "mockHumanSeed" in persona ? persona.mockHumanSeed : undefined;
+      if (humanSeed) {
+        rivalBook.registerAgent(
+          persona.identityAgent,
+          scalperMode ? "scalper" : humanSeed,
+        );
+      }
+      job.world?.mockBuyers.push({
+        name: persona.name,
+        humanBacked: Boolean(humanSeed),
+        ...(humanSeed
+          ? { humanLabel: scalperMode ? "shared-scalper" : humanSeed }
+          : {}),
+      });
     }
     const baseResolver: HumanResolver = await createHumanResolver();
-    const resolver: HumanResolver = {
-      // Rivals and (in dev) the user live on the mock book; anything else
-      // falls through to the configured resolver (the real AgentBook when
-      // WORLD_AGENTBOOK=real).
-      lookupHuman: async (address) =>
-        (await rivalBook.lookupHuman(address)) ??
-        (await baseResolver.lookupHuman(address)),
-    };
+    // Every rival is an explicit demo identity. An unverified mock remains a
+    // negative result; only the browser-proved user reaches the real book.
+    const resolver = createDemoAwareHumanResolver(
+      baseResolver,
+      rivalBook,
+      mockIdentityAddresses,
+    );
     const gateway = new WorldGateway(resolver);
     const passes = new Map<string, AuctionPass>();
     const refusals = new Map<string, string>();
@@ -340,12 +370,22 @@ async function execute(
       leafWallet: string,
     ): Promise<void> => {
       const identityAgent = identityByBuyer.get(buyerName);
-      if (!identityAgent) return;
       const protectedItems = job.listings.filter(
         (listing) =>
           listing.category === category &&
           listing.humanPolicy === "one-per-human",
       );
+      if (!identityAgent) {
+        for (const listing of protectedItems) {
+          gateway.noteMissingIdentity();
+          refusals.set(
+            `${listing.itemId}|${leafWallet}`,
+            `${buyerName}'s agent has no proved World identity.`,
+          );
+        }
+        syncWorldStats();
+        return;
+      }
       for (const listing of protectedItems) {
         const enrollment = await gateway.enroll({
           auctionId: listing.itemId,
@@ -369,7 +409,7 @@ async function execute(
         await Promise.all(enrollments);
         const pass = passes.get(`${itemId}|${leafWallet}`);
         if (pass && gateway.verifyPass(pass, itemId, leafWallet)) {
-          return { ok: true };
+          return { ok: true, pass };
         }
         return {
           ok: false,
@@ -378,6 +418,7 @@ async function execute(
             `${buyerName}'s agent holds no auction pass for this item.`,
         };
       },
+      authorizationIssuerPublicKey: gateway.issuerPublicKey,
       onEvent: (event) => {
         switch (event.type) {
           case "LISTING_OPEN":

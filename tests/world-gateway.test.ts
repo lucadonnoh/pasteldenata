@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   MockAgentBook,
   WorldGateway,
+  createDemoAwareHumanResolver,
+  verifyAuctionPass,
   type AuctionPass,
 } from "../src/server/world-gateway";
 
@@ -79,6 +81,34 @@ test("unregistered agents are refused: bots do not pass", async () => {
   assert.equal(gateway.stats.notHumanBacked, 1);
 });
 
+test("unverified mock buyers never fall through to the canonical AgentBook", async () => {
+  const demo = new MockAgentBook();
+  demo.registerAgent("0xVerifiedDemo", "demo-human");
+  let canonicalLookups = 0;
+  const resolver = createDemoAwareHumanResolver(
+    {
+      lookupHuman: async (address) => {
+        canonicalLookups += 1;
+        return `canonical:${address}`;
+      },
+    },
+    demo,
+    new Set(["0xVerifiedDemo", "0xUnverifiedDemo"]),
+  );
+
+  assert.match(
+    (await resolver.lookupHuman("0xVerifiedDemo")) ?? "",
+    /^[a-f0-9]{64}$/,
+  );
+  assert.equal(await resolver.lookupHuman("0xUnverifiedDemo"), null);
+  assert.equal(canonicalLookups, 0);
+  assert.equal(
+    await resolver.lookupHuman("0xRealBrowserIdentity"),
+    "canonical:0xRealBrowserIdentity",
+  );
+  assert.equal(canonicalLookups, 1);
+});
+
 test("passes are bound to auction and wallet, and tamper-evident", async () => {
   const { gateway } = setup();
   const enrolled = await gateway.enroll({
@@ -90,9 +120,27 @@ test("passes are bound to auction and wallet, and tamper-evident", async () => {
   const pass = enrolled.pass;
 
   assert.ok(gateway.verifyPass(pass, "item_cinema_rowE", "0.0.5001"));
+  assert.ok(
+    verifyAuctionPass(
+      pass,
+      gateway.issuerPublicKey,
+      "item_cinema_rowE",
+      "0.0.5001",
+    ),
+  );
   // Wrong auction, wrong wallet, or edited amount: all refused.
   assert.equal(gateway.verifyPass(pass, "item_dinner_window", "0.0.5001"), false);
   assert.equal(gateway.verifyPass(pass, "item_cinema_rowE", "0.0.9999"), false);
   const forged: AuctionPass = { ...pass, quota: 99 };
   assert.equal(gateway.verifyPass(forged, "item_cinema_rowE", "0.0.5001"), false);
+  const otherGateway = new WorldGateway(setup().book);
+  assert.equal(
+    verifyAuctionPass(
+      pass,
+      otherGateway.issuerPublicKey,
+      "item_cinema_rowE",
+      "0.0.5001",
+    ),
+    false,
+  );
 });

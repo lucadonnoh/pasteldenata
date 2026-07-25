@@ -20,6 +20,7 @@ import {
 import type { DemoResult } from "@/src/domain";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
+import { privateKeyToAccount } from "viem/accounts";
 import { PrivacyDetails } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
 
@@ -36,6 +37,12 @@ function isUsableZeroGKey(value: string): boolean {
 }
 
 type CredentialPanelState = "open" | "closing" | "collapsed";
+
+interface StoredWorldIdentity {
+  address?: `0x${string}`;
+  privateKey?: `0x${string}`;
+  humanId?: string;
+}
 
 export function IntentBox() {
   const router = useRouter();
@@ -109,7 +116,7 @@ export function IntentBox() {
         intent.trim(),
       );
       setResult(purchase);
-      settleOnHedera(purchase);
+      void settleOnHedera(purchase);
       setDeparting(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         await new Promise((resolve) => window.setTimeout(resolve, 520));
@@ -132,53 +139,93 @@ export function IntentBox() {
    * derived plan and mock auction trace leave browser memory; the original
    * prompt and 0G key do not. The market page streams the ledger activity.
    */
-  function settleOnHedera(purchase: DemoResult) {
+  async function settleOnHedera(purchase: DemoResult) {
     setSettlement("pending");
     setSettlementError("");
     setJobId(null);
-    fetch("/api/hedera/jobs", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Pastel-Local-Demo": "1",
-      },
-      body: JSON.stringify({
-        plan: purchase.plan,
-        auctions: purchase.auctions,
-        mode: "market",
-        ...(() => {
-          try {
-            const raw = window.localStorage.getItem("pastel-world-identity");
-            const stored = raw
-              ? (JSON.parse(raw) as { address?: string; humanId?: string })
-              : null;
-            return stored?.humanId && stored.address
-              ? { identityAgent: stored.address }
-              : {};
-          } catch {
-            return {};
+    try {
+      let identityProof:
+        | {
+            identityAgent: `0x${string}`;
+            challengeId: string;
+            signature: `0x${string}`;
           }
-        })(),
-      }),
-    })
-      .then(async (response) => {
-        const body = (await response.json()) as {
-          jobId?: string;
+        | undefined;
+      let stored: StoredWorldIdentity | null = null;
+      try {
+        const raw = window.localStorage.getItem("pastel-world-identity");
+        stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
+      } catch {
+        // Corrupt optional identity state must not block open listings.
+      }
+      if (stored?.humanId && stored.address && stored.privateKey) {
+        const account = privateKeyToAccount(stored.privateKey);
+        if (account.address.toLowerCase() !== stored.address.toLowerCase()) {
+          throw new Error("Stored World identity key does not match its address.");
+        }
+        const challengeResponse = await fetch("/api/world/challenge", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Pastel-Local-Demo": "1",
+          },
+          body: JSON.stringify({
+            identityAgent: account.address,
+            planId: purchase.plan.planId,
+          }),
+        });
+        const challenge = (await challengeResponse.json()) as {
+          challengeId?: string;
+          message?: string;
           error?: string;
         };
-        if (!response.ok || !body.jobId) {
-          throw new Error(body.error ?? "Settlement failed to start.");
+        if (
+          !challengeResponse.ok ||
+          !challenge.challengeId ||
+          !challenge.message
+        ) {
+          throw new Error(
+            challenge.error ?? "Could not obtain a World identity challenge.",
+          );
         }
-        setJobId(body.jobId);
-      })
-      .catch((settleError: unknown) => {
-        setSettlementError(
-          settleError instanceof Error
-            ? settleError.message
-            : "Settlement failed to start.",
-        );
-        setSettlement("failed");
+        identityProof = {
+          identityAgent: account.address,
+          challengeId: challenge.challengeId,
+          signature: await account.signMessage({
+            message: challenge.message,
+          }),
+        };
+      }
+
+      const response = await fetch("/api/hedera/jobs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Pastel-Local-Demo": "1",
+        },
+        body: JSON.stringify({
+          plan: purchase.plan,
+          auctions: purchase.auctions,
+          mode: "market",
+          ...(identityProof ? { identityProof } : {}),
+        }),
       });
+      const body = (await response.json()) as {
+        jobId?: string;
+        error?: string;
+      };
+      if (!response.ok || !body.jobId) {
+        throw new Error(body.error ?? "Settlement failed to start.");
+      }
+      setJobId(body.jobId);
+    } catch (settleError) {
+      setSettlementError(
+        settleError instanceof Error
+          ? settleError.message
+          : "Settlement failed to start.",
+      );
+      setSettlement("failed");
+    }
   }
 
   function handleShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {
