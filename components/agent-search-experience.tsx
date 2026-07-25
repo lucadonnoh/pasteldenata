@@ -730,7 +730,17 @@ function MarketBidStage({
                   })()}
                 </span>
                 <div>
-                  <small>{focus.sellerName}</small>
+                  <small>
+                    {focus.sellerName}
+                    {focus.humanPolicy === "one-per-human" && (
+                      <i
+                        className={styles.humanGate}
+                        title="This seller admits only agents backed by a verified human (World ID) — one allocation per human, pinned in the on-chain listing"
+                      >
+                        verified humans only
+                      </i>
+                    )}
+                  </small>
                   <h3>{focus.offering}</h3>
                 </div>
               </div>
