@@ -44,6 +44,28 @@ interface StoredWorldIdentity {
   humanId?: string;
 }
 
+interface DemoReadiness {
+  hedera: {
+    network: "testnet";
+    operatorIdConfigured: boolean;
+    operatorKeyConfigured: boolean;
+    ready: boolean;
+  };
+}
+
+function storedWorldIdentityIsReady(stored: StoredWorldIdentity | null): boolean {
+  if (!stored?.humanId || !stored.address || !stored.privateKey) return false;
+
+  try {
+    return (
+      privateKeyToAccount(stored.privateKey).address.toLowerCase() ===
+      stored.address.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function IntentBox() {
   const router = useRouter();
   const { setResult, setSettlement, setSettlementError, setJobId } =
@@ -54,17 +76,44 @@ export function IntentBox() {
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
   const [worldVerified, setWorldVerified] = useState(false);
+  const [demoReadiness, setDemoReadiness] = useState<DemoReadiness | null>(
+    null,
+  );
+  const [readinessUnavailable, setReadinessUnavailable] = useState(false);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
         const raw = window.localStorage.getItem("pastel-world-identity");
-        const stored = raw ? (JSON.parse(raw) as { humanId?: string }) : null;
-        setWorldVerified(Boolean(stored?.humanId));
+        const stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
+        setWorldVerified(storedWorldIdentityIsReady(stored));
       } catch {
         setWorldVerified(false);
       }
     }, 0);
     return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void fetch("/api/readiness", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Readiness check failed.");
+        setDemoReadiness((await response.json()) as DemoReadiness);
+      })
+      .catch((readinessError: unknown) => {
+        if (
+          !(readinessError instanceof DOMException) ||
+          readinessError.name !== "AbortError"
+        ) {
+          setReadinessUnavailable(true);
+        }
+      });
+
+    return () => controller.abort();
   }, []);
   const [credentialPanelState, setCredentialPanelState] =
     useState<CredentialPanelState>("open");
@@ -73,6 +122,24 @@ export function IntentBox() {
     hasUsableKey && credentialPanelState === "closing";
   const credentialsCollapsed =
     hasUsableKey && credentialPanelState === "collapsed";
+  const hederaStatus = demoReadiness?.hedera;
+  const presentPrerequisites =
+    Number(hasUsableKey) +
+    Number(worldVerified) +
+    Number(hederaStatus?.ready ?? false);
+  const allPrerequisitesPresent = presentPrerequisites === 3;
+  const hederaStatusLabel = readinessUnavailable
+    ? "Check unavailable"
+    : !hederaStatus
+      ? "Checking…"
+      : hederaStatus.ready
+        ? "Present"
+        : !hederaStatus.operatorIdConfigured &&
+            !hederaStatus.operatorKeyConfigured
+          ? "ID + key missing"
+          : !hederaStatus.operatorIdConfigured
+            ? "ID missing"
+            : "Key missing";
 
   useEffect(() => {
     if (
@@ -412,6 +479,71 @@ export function IntentBox() {
               </div>
             </div>
           </form>
+
+          <section
+            className={`demo-readiness ${
+              allPrerequisitesPresent ? "demo-readiness-complete" : ""
+            }`}
+            aria-label="Local demo prerequisites"
+          >
+            <header>
+              <div>
+                <span>LOCAL DEMO PREFLIGHT</span>
+                <strong>{presentPrerequisites}/3 present</strong>
+              </div>
+              <small>
+                {allPrerequisitesPresent
+                  ? "Ready for the full demo"
+                  : "See exactly what still needs setup"}
+              </small>
+            </header>
+            <div className="readiness-items">
+              <div
+                className={`readiness-item ${
+                  hasUsableKey ? "readiness-item-ready" : ""
+                }`}
+                title="Checks that a 0G Router-shaped key is present in this browser tab. 0G validates it during inference."
+              >
+                <i />
+                <span>
+                  <b>0G Router key</b>
+                  <small>Browser tab only</small>
+                </span>
+                <em>{hasUsableKey ? "Present" : "Missing"}</em>
+              </div>
+              <Link
+                className={`readiness-item ${
+                  worldVerified ? "readiness-item-ready" : ""
+                }`}
+                href="/world"
+                title="A complete locally stored World identity is required for scarce listings. Its proof is verified during settlement."
+              >
+                <i />
+                <span>
+                  <b>World identity</b>
+                  <small>Scarce listings</small>
+                </span>
+                <em>{worldVerified ? "Present" : "Set up"}</em>
+              </Link>
+              <div
+                className={`readiness-item ${
+                  hederaStatus?.ready ? "readiness-item-ready" : ""
+                } ${readinessUnavailable ? "readiness-item-unavailable" : ""}`}
+                title="Checks only that HEDERA_OPERATOR_ID and HEDERA_OPERATOR_KEY are loaded by this local server. Hedera validates the signature during settlement."
+              >
+                <i />
+                <span>
+                  <b>Hedera testnet</b>
+                  <small>Local coordinator</small>
+                </span>
+                <em>{hederaStatusLabel}</em>
+              </div>
+            </div>
+            <p>
+              Presence only. 0G TEE proof and Hedera signatures are verified
+              live when the run executes.
+            </p>
+          </section>
 
           {!loading && !error && (
             <div className="suggestions">
