@@ -57,7 +57,7 @@
 }
 
 .marketWorkspace :global(.zerog-receipt) {
-  margin-top: 0;
+  margin-top: 10px;
 }
 
 .marketWorkspace :global(.execution-drawer) {

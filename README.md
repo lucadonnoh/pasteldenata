@@ -117,9 +117,10 @@ private intent + hard cap
 
 The repository also includes a minimal Next.js interface for the live demo. It
 keeps the primary interaction focused on one Liquid Glass intent box. After a
-successful request, it navigates to an in-memory market route. The 0G
-verification receipt is shown first and includes the private trust mode, Router
-TEE result, 0G chain ID, provider service contract, on-chain TEE signer,
+successful request, it navigates to an in-memory market route. The recorded
+local mock-market execution is presented first, with the live 0G verification
+receipt immediately below it. The receipt includes the private trust mode,
+Router TEE result, 0G chain ID, provider service contract, on-chain TEE signer,
 recovered EIP-191 signer, raw signature, and signed proof payload. Provider,
 signer, and service contract addresses link to 0G ChainScan. The Router's exact
 `x_0g_trace` remains visible alongside the independent proof.

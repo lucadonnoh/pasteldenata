@@ -33,23 +33,22 @@ export function MarketWorkspace() {
 
   return (
     <section className={styles.marketWorkspace}>
-      <ZeroGVerificationReceipt result={result} />
-
       <div className={styles.boundary}>
         <span>
           <FlaskConical size={15} aria-hidden="true" />
         </span>
         <div>
-          <strong>Trust boundary: verified plan above, mock market below</strong>
+          <strong>Trust boundary: local mock replay, then live proof</strong>
           <p>
-            The 0G plan is replayed unchanged. Sellers, rivals, auctions, and
-            settlement below are deterministic local simulation data.
+            Sellers, rivals, auctions, and settlement are deterministic local
+            simulation data. The verified 0G receipt follows the replay.
           </p>
         </div>
         <b>MOCK EXECUTION</b>
       </div>
 
       <AgentSearchExperience result={result} />
+      <ZeroGVerificationReceipt result={result} />
       <MockExecutionDetails result={result} />
     </section>
   );
