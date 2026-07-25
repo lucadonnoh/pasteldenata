@@ -35,23 +35,29 @@ and reusable for the prize submission.
   `npm run demo:scalper` remains as the fast offline version.
 - Tests pinning the trust model (43 passing on the branch): sybil collapse,
   cross-auction unlinkability, bot rejection, pass tamper-evidence.
-- Real-mode switch: `WORLD_AGENTBOOK=real` + `WORLD_IDENTITY_AGENT=<addr>`
-  resolves the user's identity against the canonical AgentBook on World
-  Chain via `@worldcoin/agentkit`, while simulated rival personas stay on
-  the mock book (composite resolver).
+- **In-product registration at `/world`**: the AgentKit CLI flow in the
+  browser — nonce read from the AgentBook contract, a World ID bridge
+  session, a QR scanned with World App, the signed proof relayed on-chain.
+  The identity key is generated and kept in the browser; the registered
+  address flows into settlement jobs and resolves against the real
+  canonical AgentBook on World Chain (`job.world.userSimulated: false`).
+  Simulated rival personas stay on the mock book (composite resolver).
+- **UI surfacing**: the front page shows the buyer's backing status
+  ("Not verified · scarce listings locked" → `/world`; green
+  "Human-backed · World ID" once registered) and protected listing cards
+  carry a `1/HUMAN` badge; open listings carry nothing because they involve
+  no identity check.
+- **Real negative path verified**: an unregistered address is refused via a
+  live query to the canonical AgentBook on World Chain — the reject side of
+  real mode already runs.
 
 ## What is missing
 
-1. **Real-mode execution.** The user's identity currently resolves through
-   the mock book. Going real requires (owner: Davide):
-   - a World Dev Portal account,
-   - World App on a phone with a verification — Selfie Check works without
-     an Orb and is itself a hackathon beta track,
-   - registering an identity wallet: `npx @worldcoin/agentkit-cli register
-     <address>` (prompts World App),
-   - `WORLD_AGENTBOOK=real WORLD_IDENTITY_AGENT=<address>` and one full
-     end-to-end run for the demo evidence. A mock-only submission reads as
-     a wrapper; at least one real-mode run belongs in the video.
+1. **Real-mode positive run.** Everything is wired; what remains is one
+   human with World App scanning the QR at `/world` (Selfie Check works
+   without an Orb and is itself a beta track), then one market run from
+   that browser as submission evidence. A mock-only submission reads as a
+   wrapper; at least one real-mode run belongs in the video.
 
 2. **Proof of wallet control at enrollment.** The gateway trusts the
    coordinator's claim of which identity agent backs a buyer. Fine while
@@ -66,12 +72,14 @@ and reusable for the prize submission.
    blocked" counter during the scalper demo, and an explainer line in the
    proof drawer. Needs coordination with the UI owner.
 
-4. **Bid-level enforcement (optional hardening).** Enforcement is at
-   enrollment and settlement; pass-less agents can still place bids they
-   can never win (and, per PR #14's known boundary, consume a timeout
-   each). A stricter variant embeds the pass hash in every `BID` message so
-   replayers filter unpassed bids outright. Composes with the payer
-   verification but is not required for the demo.
+4. **Bid-level enforcement (optional hardening).** Precisely: unverified
+   buyers cannot SETTLE protected items, but pass-less bids can still land
+   on the topic, push prices, and burn a forfeiture timeout each (PR #14's
+   known boundary). The fix is twofold: coordinators mark protected
+   listings ineligible in an unbacked agent's mandate (it never bids), and
+   replayers filter bids that carry no pass hash. Documented, not built —
+   the demo answer is "allocation rights are gated; bid spam is an
+   acknowledged griefing vector with a known fix."
 
 5. **Gateway quota persistence across jobs.** Quotas live for the duration
    of one settlement job, which matches auctions living inside one job. If
