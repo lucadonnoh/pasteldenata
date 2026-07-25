@@ -60,9 +60,10 @@ Each listing runs a mocked English auction:
 4. The last active bidder wins and pays the final asking price.
 5. Sold inventory cannot be auctioned again.
 
-This runs in one process for the hackathon. It demonstrates the protocol and
-economic shape. Sellers are deterministic mocks, not AI agents, and the rival
-buyers and settlement are also simulated.
+The default flow runs in one process for the hackathon. It demonstrates the
+protocol and economic shape with deterministic mock sellers and rival buyers.
+The Hedera modes below replace the simulated payment/market trace with real
+testnet accounts, authenticated HCS messages, and atomic HTS settlement.
 
 ## Hedera testnet settlement
 
@@ -93,6 +94,13 @@ Settlement does not fail fast. The root waits for every leaf to exit, compares
 confirmed receipts with actual token balances, sweeps every recoverable
 remainder, refunds buyers, and then reports any partial failure together with
 transactions that already became irreversible.
+
+The web settlement endpoint is a local demo coordinator, not a public backend.
+It accepts same-origin requests on loopback only, validates the complete plan
+and auction shape, and runs at most one ledger job at a time. The browser sends
+the derived plan and mock auction trace to this trusted local process; the
+original prompt and 0G key remain in browser memory. Do not expose the
+coordinator remotely without adding deployment-grade authentication.
 
 ## Run
 

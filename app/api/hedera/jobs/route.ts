@@ -1,36 +1,42 @@
 import { NextResponse } from "next/server";
-import type { AuctionResult, PrivatePlan } from "@/src/domain";
 import { validateSettlement } from "@/src/payments";
-import { startSettlementJob } from "@/src/server/settlement-jobs";
+import {
+  LocalDemoRequestError,
+  assertLocalDemoRequest,
+} from "@/src/server/local-demo-request";
+import {
+  SettlementJobBusyError,
+  startSettlementJob,
+} from "@/src/server/settlement-jobs";
+import { parseSettlementRequest } from "@/src/server/settlement-request";
 
 export const runtime = "nodejs";
 
 /**
- * Start a Hedera settlement job. The browser sends only public data — the
- * normalized plan and auction results; the private intent and the 0G key
- * never reach this server. Live mode runs real reverse auctions on HCS; the
- * response returns immediately so the browser can watch the topics via
- * Mirror Node while the agents work. Demo endpoint — no auth, testnet only.
+ * Start a local Hedera testnet job. The original prompt and 0G key stay in
+ * the browser, while the derived plan and mock auction trace are deliberately
+ * sent to this trusted local coordinator. It owns the operator key and funds
+ * the trusted child agents.
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      plan?: PrivatePlan;
-      auctions?: AuctionResult[];
-      mode?: string;
-    };
-    if (!body.plan?.planId || !Array.isArray(body.auctions)) {
-      throw new Error("Expected { plan, auctions }.");
-    }
+    assertLocalDemoRequest(request, { mutating: true });
+    const body = parseSettlementRequest(await request.json());
     validateSettlement(body.plan, body.auctions);
     const job = startSettlementJob(
       body.plan,
       body.auctions,
-      body.mode === "live" ? "live" : "market",
+      body.mode,
     );
     return NextResponse.json({ jobId: job.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid request.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const status =
+      error instanceof LocalDemoRequestError
+        ? error.status
+        : error instanceof SettlementJobBusyError
+          ? error.status
+          : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }

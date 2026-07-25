@@ -8,11 +8,16 @@ import {
   fetchItemState,
   fetchTopicBids,
 } from "../src/hedera/mirror";
+import { marketItemId } from "../src/hedera/market";
 import {
   persistLeafWallet,
   readLeafWallet,
 } from "../src/hedera/walletVault";
+import { organizePrivatePurchase } from "../src/orchestrator";
 import { validateSettlement } from "../src/payments";
+import { MockPrivatePlanner } from "../src/planner";
+import { assertLocalDemoRequest } from "../src/server/local-demo-request";
+import { parseSettlementRequest } from "../src/server/settlement-request";
 
 function mirrorMessage(
   payload: Record<string, unknown>,
@@ -183,5 +188,81 @@ test("settlement policy rejects zero and negative winner amounts", () => {
   assert.throws(
     () => validateSettlement(plan, [auction]),
     /positive integer/,
+  );
+});
+
+test("market item ids are namespaced per run", () => {
+  const first = marketItemId("run-a", "cinema", "seat-e6-e7");
+  const retry = marketItemId("run-b", "cinema", "seat-e6-e7");
+
+  assert.notEqual(first, retry);
+  assert.equal(first, marketItemId("run-a", "cinema", "seat-e6-e7"));
+});
+
+test("settlement API validates the complete plan and auction relationship", async () => {
+  const purchase = await organizePrivatePurchase(
+    new MockPrivatePlanner(),
+    "Organize me a date tomorrow in Lisbon. My budget is $200.",
+    new Date("2026-07-25T10:00:00Z"),
+  );
+  const parsed = parseSettlementRequest({
+    plan: purchase.plan,
+    auctions: purchase.auctions,
+    mode: "market",
+  });
+  assert.equal(parsed.auctions.length, parsed.plan.allocations.length);
+
+  const tampered = structuredClone(purchase);
+  const firstAuction = tampered.auctions[0];
+  assert.ok(firstAuction);
+  firstAuction.mandate.maxAmountCents += 1;
+  assert.throws(
+    () =>
+      parseSettlementRequest({
+        plan: tampered.plan,
+        auctions: tampered.auctions,
+        mode: "market",
+      }),
+    /does not match its scoped allocation/,
+  );
+});
+
+test("local settlement request guard rejects remote and cross-origin callers", () => {
+  assert.doesNotThrow(() =>
+    assertLocalDemoRequest(
+      new Request("http://localhost:3000/api/hedera/jobs", {
+        method: "POST",
+        headers: {
+          Origin: "http://localhost:3000",
+          "X-Pastel-Local-Demo": "1",
+        },
+      }),
+      { mutating: true },
+    ),
+  );
+  assert.throws(
+    () =>
+      assertLocalDemoRequest(
+        new Request("https://demo.example/api/hedera/jobs", {
+          method: "POST",
+          headers: { "X-Pastel-Local-Demo": "1" },
+        }),
+        { mutating: true },
+      ),
+    /local-only/,
+  );
+  assert.throws(
+    () =>
+      assertLocalDemoRequest(
+        new Request("http://localhost:3000/api/hedera/jobs", {
+          method: "POST",
+          headers: {
+            Origin: "https://attacker.example",
+            "X-Pastel-Local-Demo": "1",
+          },
+        }),
+        { mutating: true },
+      ),
+    /Cross-origin/,
   );
 });

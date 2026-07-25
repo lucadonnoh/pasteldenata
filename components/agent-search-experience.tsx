@@ -17,7 +17,12 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import type {
   Category,
@@ -82,9 +87,11 @@ export function AgentSearchExperience({
 }) {
   // Settlement replaces the session result with on-chain receipts. Keep the
   // already-recorded mock trace stable while those receipts arrive.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const searches = useMemo(
     () => createMockAgentSearches(result),
+    // Settlement swaps mock receipts for Hedera receipts on the same plan.
+    // Keep the replay snapshot stable across that receipt-only update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [result.plan.planId],
   );
   const replays = useMemo(
@@ -234,6 +241,81 @@ function shortAccount(accountId: string): string {
   return accountId.length > 12
     ? `…${accountId.slice(-7)}`
     : accountId;
+}
+
+function ActivityDiscovery({
+  searches,
+  resolvedCount,
+}: {
+  searches: MockAgentSearch[];
+  resolvedCount: number;
+}) {
+  return (
+    <>
+      <div className={styles.orbitScene}>
+        <div className={styles.dreamWash} />
+        <div className={styles.orbitLine} />
+        <div className={styles.core}>
+          <Users size={18} aria-hidden="true" />
+          <strong>{resolvedCount}</strong>
+          <span>WALLETS LIVE</span>
+        </div>
+        {searches.map((search, index) => {
+          const CategoryIcon = categoryIcons[search.allocation.category];
+          const found = index < resolvedCount;
+          return (
+            <div
+              className={styles.orbitSlot}
+              key={search.id}
+              style={
+                {
+                  "--agent-delay": `${-(index * 9) / searches.length}s`,
+                } as CSSProperties
+              }
+            >
+              <div className={styles.orbitTraveller}>
+                <article
+                  className={`${styles.orbitCard} ${
+                    found ? styles.found : ""
+                  }`}
+                >
+                  <header>
+                    <span>
+                      <CategoryIcon size={13} aria-hidden="true" />
+                    </span>
+                    <b>
+                      {found ? <Check size={10} /> : <Clock3 size={10} />}
+                      {found ? "funded" : "creating"}
+                    </b>
+                  </header>
+                  <h3>{search.allocation.category} agent</h3>
+                  <code>{search.agentId}</code>
+                  <footer>
+                    {formatUsd(search.allocation.maxBudgetCents)} mandate
+                  </footer>
+                </article>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className={styles.agentLedger}>
+        {searches.map((search, index) => (
+          <div key={search.id}>
+            <span
+              className={index < resolvedCount ? styles.ledgerFound : ""}
+            >
+              {index < resolvedCount ? <Check size={10} /> : index + 1}
+            </span>
+            <div>
+              <strong>{search.allocation.category}</strong>
+              <code>{search.agentId}</code>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }
 
 function MarketBidStage({

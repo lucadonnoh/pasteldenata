@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { MOCK_SELLERS } from "../catalog";
 import type { AuctionResult, PrivatePlan } from "../domain";
 import { connectHedera } from "../hedera/client";
-import { ensureInfra } from "../hedera/infra";
+import { ensureInfra, type HederaInfra } from "../hedera/infra";
 import { runMarket, type MarketBuyer } from "../hedera/market";
+import { HederaPartialSettlementError } from "../hedera/settle";
 import { settleWithSwarm } from "../hedera/swarm";
 import type { SettlementResult } from "../orchestrator";
 import { MockPrivatePlanner } from "../planner";
@@ -28,7 +29,16 @@ export interface SettlementJob {
   /** Real leaf wallets, streamed as they are created and funded. */
   agents: Array<{ category: string; accountId: string; buyerName: string }>;
   /** Live mode: one auction topic per category. */
-  auctions: Array<{ category: string; auctionId: string; topicId: string }>;
+  auctions: Array<{
+    category: string;
+    auctionId: string;
+    topicId: string;
+    authorizedListings: Array<{
+      listingId: string;
+      sellerId: string;
+      accountId: string;
+    }>;
+  }>;
   /** Market mode: scarce listings, floor = the seller's price. */
   listings: JobListing[];
   /** Rival buyer personas competing against the user (market mode). */
@@ -42,6 +52,10 @@ export interface SettlementJob {
 }
 
 export const USER_BUYER_NAME = "You";
+
+export class SettlementJobBusyError extends Error {
+  readonly status = 409;
+}
 
 const RIVAL_PERSONAS = [
   { name: "Bruno", intent: "Organize me a date tomorrow in Lisbon. My budget is $180." },
@@ -71,6 +85,12 @@ export function startSettlementJob(
   mode: SettlementMode,
 ): SettlementJob {
   prune();
+  const active = [...jobs.values()].find((job) => job.status === "running");
+  if (active) {
+    throw new SettlementJobBusyError(
+      `Settlement job ${active.id} is still running. Wait for it to finish before starting another.`,
+    );
+  }
   const job: SettlementJob = {
     id: randomUUID(),
     status: "running",
@@ -88,7 +108,9 @@ export function startSettlementJob(
   return job;
 }
 
-const LEAF_FLOAT_HBAR = 2;
+const ACCOUNT_CREATION_HBAR = 1.5;
+const LIVE_LEAF_FLOAT_HBAR = 2;
+const MARKET_LEAF_FLOAT_HBAR = 5;
 const RUN_MARGIN_HBAR = 6;
 
 /**
@@ -96,20 +118,36 @@ const RUN_MARGIN_HBAR = 6;
  * agents before they can return their fee float, stranding it in dead
  * wallets forever. Failing here costs nothing.
  */
-async function assertOperatorRunway(leafCount: number): Promise<void> {
-  const response = await fetch(
-    "https://testnet.mirrornode.hedera.com/api/v1/accounts/" +
-      process.env.HEDERA_OPERATOR_ID,
-  );
-  if (!response.ok) return; // Mirror down; let the run try.
-  const data = (await response.json()) as { balance?: { balance?: number } };
-  const hbar = (data.balance?.balance ?? 0) / 1e8;
-  const needed = leafCount * LEAF_FLOAT_HBAR + RUN_MARGIN_HBAR;
-  if (hbar < needed) {
-    throw new Error(
-      `Operator has ${hbar.toFixed(1)} HBAR but this run needs ~${needed}. ` +
-        "Refill at portal.hedera.com/faucet (100 HBAR daily) before running.",
+async function assertOperatorRunway(
+  leafCount: number,
+  feeFloatHbar: number,
+): Promise<void> {
+  try {
+    const response = await fetch(
+      "https://testnet.mirrornode.hedera.com/api/v1/accounts/" +
+        process.env.HEDERA_OPERATOR_ID,
+      { signal: AbortSignal.timeout(10_000) },
     );
+    if (!response.ok) return;
+    const data = (await response.json()) as { balance?: { balance?: number } };
+    const hbar = (data.balance?.balance ?? 0) / 1e8;
+    const needed = Math.ceil(
+      leafCount * (ACCOUNT_CREATION_HBAR + feeFloatHbar) + RUN_MARGIN_HBAR,
+    );
+    if (hbar < needed) {
+      throw new Error(
+        `Operator has ${hbar.toFixed(1)} HBAR but this run needs ~${needed}. ` +
+          "Refill at portal.hedera.com/faucet (100 HBAR daily) before running.",
+      );
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Operator has ")
+    ) {
+      throw error;
+    }
+    // Mirror availability must not become a new dependency for settlement.
   }
 }
 
@@ -118,12 +156,14 @@ async function execute(
   plan: PrivatePlan,
   auctions: AuctionResult[],
 ): Promise<void> {
-  const ctx = connectHedera();
+  let ctx: ReturnType<typeof connectHedera> | undefined;
+  let infra: HederaInfra | undefined;
   try {
-    const infra = await ensureInfra(ctx, MOCK_SELLERS);
+    ctx = connectHedera();
+    infra = await ensureInfra(ctx, MOCK_SELLERS);
 
     if (job.mode === "live") {
-      await assertOperatorRunway(auctions.length);
+      await assertOperatorRunway(auctions.length, LIVE_LEAF_FLOAT_HBAR);
       const result = await settleWithSwarm(plan, auctions, { ...ctx, infra }, {
         live: true,
         onEvent: (event) => {
@@ -140,6 +180,7 @@ async function execute(
                 category: event.category,
                 auctionId: event.auctionId,
                 topicId: event.topicId,
+                authorizedListings: event.authorizedListings,
               });
               break;
             case "CATEGORY_SETTLED":
@@ -168,6 +209,7 @@ async function execute(
     ];
     await assertOperatorRunway(
       buyers.reduce((sum, buyer) => sum + buyer.plan.allocations.length, 0),
+      MARKET_LEAF_FLOAT_HBAR,
     );
 
     const market = await runMarket(buyers, { ...ctx, infra }, {
@@ -210,15 +252,22 @@ async function execute(
 
     const user = market.buyers[0];
     if (!user) throw new Error("Market run returned no user outcomes.");
+    const mandates = new Map(
+      auctions.map((auction) => [auction.category, auction.mandate.id]),
+    );
     job.result = {
       receipts: user.outcomes
         .filter((outcome) => outcome.result.lost !== true)
         .map((outcome) => ({
           id: outcome.result.transactionId,
           planId: plan.planId,
-          mandateId: `mandate_${outcome.category}`,
+          mandateId:
+            mandates.get(outcome.category) ??
+            `mandate_${outcome.category}`,
           sellerId: outcome.result.sellerId,
           sellerName: outcome.result.sellerName,
+          listingId: outcome.result.listingId,
+          offering: outcome.result.offering,
           category: outcome.category,
           amountCents: outcome.result.amountCents,
           currency: plan.currency,
@@ -242,10 +291,28 @@ async function execute(
     };
     job.status = "done";
   } catch (error) {
+    if (error instanceof HederaPartialSettlementError && infra && ctx) {
+      const receipts = error.receipts.filter(
+        (receipt) => receipt.planId === plan.planId,
+      );
+      job.result = {
+        receipts,
+        hedera: {
+          network: "testnet",
+          paymentTokenId: infra.paymentTokenId,
+          claimTokenId: infra.claimTokenId,
+          buyerAccountId:
+            job.mode === "market"
+              ? (infra.marketBuyers?.[0]?.accountId ?? infra.buyer.accountId)
+              : infra.buyer.accountId,
+          clearingAccountId: ctx.operatorId.toString(),
+        },
+      };
+    }
     job.error = error instanceof Error ? error.message : "Settlement failed.";
     job.status = "failed";
   } finally {
-    ctx.client.close();
+    ctx?.client.close();
   }
 }
 

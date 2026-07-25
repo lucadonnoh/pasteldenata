@@ -88,10 +88,9 @@ export function IntentBox() {
   }
 
   /**
-   * Start real settlement on the server: live reverse auctions on HCS. Only
-   * public data leaves the browser — the plan and auction results, never the
-   * intent or the 0G key. The market page polls the job and streams the real
-   * bids straight from Mirror Node while the agents work.
+   * Start real testnet settlement in the trusted local coordinator. The
+   * derived plan and mock auction trace leave browser memory; the original
+   * prompt and 0G key do not. The market page streams the ledger activity.
    */
   function settleOnHedera(purchase: DemoResult) {
     setSettlement("pending");
@@ -99,7 +98,10 @@ export function IntentBox() {
     setJobId(null);
     fetch("/api/hedera/jobs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Pastel-Local-Demo": "1",
+      },
       body: JSON.stringify({
         plan: purchase.plan,
         auctions: purchase.auctions,

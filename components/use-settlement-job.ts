@@ -37,7 +37,16 @@ export interface LiveAuctionView {
   /** Real leaf wallets, as the coordinators create them. */
   agents: Array<{ category: string; accountId: string; buyerName: string }>;
   /** Live mode: one HCS topic per category auction. */
-  auctions: Array<{ category: string; auctionId: string; topicId: string }>;
+  auctions: Array<{
+    category: string;
+    auctionId: string;
+    topicId: string;
+    authorizedListings: Array<{
+      listingId: string;
+      sellerId: string;
+      accountId: string;
+    }>;
+  }>;
   /** Live mode: real seller bids per category. */
   bidsByCategory: Record<string, LiveSellerBid[]>;
   /** Market mode: scarce listings and the ascending bids on each. */
@@ -53,6 +62,8 @@ export interface LiveAuctionView {
 const MIRROR_BASE = "https://testnet.mirrornode.hedera.com";
 const JOB_POLL_MS = 2000;
 const MIRROR_POLL_MS = 2500;
+const JOB_TIMEOUT_MS = 8 * 60 * 1000;
+const MAX_STATUS_FAILURES = 5;
 const USER_BUYER_NAME = "You";
 
 interface JobSnapshot {
@@ -105,11 +116,62 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   useEffect(() => {
     if (!jobId || settlement !== "pending") return;
     let cancelled = false;
+    let finished = false;
+    let statusFailures = 0;
+    const startedAt = Date.now();
+
+    const failJob = (message: string) => {
+      if (cancelled || finished) return;
+      finished = true;
+      setSettlementError(message);
+      setSettlement("failed");
+    };
+
+    const applyResult = (jobResult: SettlementResult) => {
+      const purchase = resultRef.current;
+      if (!purchase) return;
+      const receipts = jobResult.receipts;
+      const totalSpentCents = receipts.reduce(
+        (sum, receipt) => sum + receipt.amountCents,
+        0,
+      );
+      setResult({
+        ...purchase,
+        receipts,
+        totalSpentCents,
+        ...(jobResult.hedera ? { hedera: jobResult.hedera } : {}),
+      });
+    };
 
     const tick = async () => {
+      if (cancelled || finished) return;
+      if (Date.now() - startedAt > JOB_TIMEOUT_MS) {
+        failJob(
+          "Hedera settlement exceeded eight minutes. The local coordinator may still be reconciling; inspect the terminal before retrying.",
+        );
+        return;
+      }
       try {
-        const response = await fetch(`/api/hedera/jobs/${jobId}`);
-        if (!response.ok) return;
+        const response = await fetch(`/api/hedera/jobs/${jobId}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          if (response.status === 404) {
+            failJob(
+              body.error ??
+                "The local settlement job was lost after a server restart.",
+            );
+            return;
+          }
+          throw new Error(
+            body.error ?? `Job status returned HTTP ${response.status}.`,
+          );
+        }
+        statusFailures = 0;
         const job = (await response.json()) as JobSnapshot;
         if (cancelled) return;
         if (job.mode) setMode(job.mode);
@@ -121,27 +183,24 @@ export function useSettlementJob(): LiveAuctionView | undefined {
         setLostCategories(job.lostCategories ?? []);
 
         if (job.status === "done" && job.result) {
-          const purchase = resultRef.current;
-          if (purchase) {
-            const receipts = job.result.receipts;
-            const totalSpentCents = receipts.reduce(
-              (sum, receipt) => sum + receipt.amountCents,
-              0,
-            );
-            setResult({
-              ...purchase,
-              receipts,
-              totalSpentCents,
-              ...(job.result.hedera ? { hedera: job.result.hedera } : {}),
-            });
-          }
+          finished = true;
+          applyResult(job.result);
           setSettlement("settled");
         } else if (job.status === "failed") {
-          setSettlementError(job.error ?? "Settlement failed.");
-          setSettlement("failed");
+          if (job.result) applyResult(job.result);
+          failJob(job.error ?? "Settlement failed.");
+        } else if (job.status === "done") {
+          failJob("Settlement finished without a result.");
         }
-      } catch {
-        // Transient network error; the next tick retries.
+      } catch (error) {
+        statusFailures += 1;
+        if (statusFailures >= MAX_STATUS_FAILURES) {
+          failJob(
+            error instanceof Error
+              ? `Could not read the local settlement job: ${error.message}`
+              : "Could not read the local settlement job.",
+          );
+        }
       }
     };
 
@@ -175,14 +234,22 @@ export function useSettlementJob(): LiveAuctionView | undefined {
       );
       if (!response.ok) return [];
       const data = (await response.json()) as {
-        messages?: Array<{ message: string; sequence_number: number }>;
+        messages?: Array<{
+          message: string;
+          payer_account_id: string;
+          sequence_number: number;
+        }>;
       };
-      const parsed: Array<{ body: Record<string, unknown>; sequence: number }> =
-        [];
+      const parsed: Array<{
+        body: Record<string, unknown>;
+        payer: string;
+        sequence: number;
+      }> = [];
       for (const item of data.messages ?? []) {
         try {
           parsed.push({
             body: JSON.parse(atob(item.message)) as Record<string, unknown>,
+            payer: item.payer_account_id,
             sequence: item.sequence_number,
           });
         } catch {
@@ -201,7 +268,13 @@ export function useSettlementJob(): LiveAuctionView | undefined {
               const messages = await readTopic(topicId);
               next[itemId] = messages
                 .filter(
-                  ({ body }) => body.type === "BID" && body.itemId === itemId,
+                  ({ body, payer }) =>
+                    body.type === "BID" &&
+                    body.itemId === itemId &&
+                    typeof body.bidder === "string" &&
+                    body.bidder === payer &&
+                    Number.isSafeInteger(body.amountCents) &&
+                    Number(body.amountCents) > 0,
                 )
                 .map(({ body, sequence }) => ({
                   bidder: String(body.bidder),
@@ -222,13 +295,41 @@ export function useSettlementJob(): LiveAuctionView | undefined {
 
       const next: Record<string, LiveSellerBid[]> = {};
       await Promise.all(
-        auctions.map(async ({ category, auctionId, topicId }) => {
+        auctions.map(async ({
+          category,
+          auctionId,
+          topicId,
+          authorizedListings,
+        }) => {
           try {
             const messages = await readTopic(topicId);
+            const authorized = new Map(
+              authorizedListings.map((listing) => [
+                listing.listingId,
+                listing,
+              ]),
+            );
             next[category] = messages
               .filter(
-                ({ body }) =>
-                  body.type === "BID" && body.auctionId === auctionId,
+                ({ body, payer }) => {
+                  if (
+                    body.type !== "BID" ||
+                    body.auctionId !== auctionId ||
+                    typeof body.listingId !== "string" ||
+                    typeof body.sellerId !== "string" ||
+                    typeof body.sellerName !== "string" ||
+                    typeof body.offering !== "string" ||
+                    !Number.isSafeInteger(body.amountCents) ||
+                    Number(body.amountCents) <= 0
+                  ) {
+                    return false;
+                  }
+                  const listing = authorized.get(body.listingId);
+                  return (
+                    listing?.sellerId === body.sellerId &&
+                    listing.accountId === payer
+                  );
+                },
               )
               .map(({ body, sequence }) => ({
                 sellerId: String(body.sellerId),

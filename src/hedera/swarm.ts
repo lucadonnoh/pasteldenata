@@ -51,6 +51,11 @@ export type SwarmEvent =
       category: string;
       auctionId: string;
       topicId: string;
+      authorizedListings: Array<{
+        listingId: string;
+        sellerId: string;
+        accountId: string;
+      }>;
     }
   | { type: "CATEGORY_SETTLED"; category: string };
 
@@ -335,13 +340,6 @@ async function runLeaf(
     requirements,
     mechanism: shared.live ? "live-reverse-english" : "recorded-english-winner",
   });
-  shared.onEvent({
-    type: "AUCTION_OPEN",
-    category: auction.category,
-    auctionId: auction.auctionId,
-    topicId: log.topicId,
-  });
-
   const wallet = await createAccount(ctx, LEAF_FEE_HBAR);
   const recoveryPath = persistLeafWallet(wallet, {
     planId: plan.planId,
@@ -406,6 +404,17 @@ async function runLeaf(
       sellerAccountId: account.accountId,
     }),
   );
+  shared.onEvent({
+    type: "AUCTION_OPEN",
+    category: auction.category,
+    auctionId: auction.auctionId,
+    topicId: log.topicId,
+    authorizedListings: liveListings.map(({ seller, item, account }) => ({
+      listingId: item.id,
+      sellerId: seller.id,
+      accountId: account.accountId,
+    })),
+  });
 
   const auctioneer = shared.live
     ? new LiveAuctioneer(

@@ -132,6 +132,14 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function marketItemId(
+  runSalt: string,
+  sellerId: string,
+  listingId: string,
+): string {
+  return `item_${hash(`${runSalt}|${sellerId}|${listingId}`).slice(0, 16)}`;
+}
+
 /**
  * Multi-buyer open market with one authenticated topic per scarce inventory
  * item. All leaves are awaited and ledger-reconciled before any error returns.
@@ -163,9 +171,7 @@ export async function runMarket(
               throw new Error(`No Hedera account for seller ${seller.id}.`);
             }
             const log = await AuctionLog.create(ctx.client);
-            const itemId = `item_${hash(
-              `${runSalt}|${seller.id}|${item.id}`,
-            ).slice(0, 16)}`;
+            const itemId = marketItemId(runSalt, seller.id, item.id);
             await log.publish({
               type: "LISTED",
               itemId,
@@ -506,7 +512,9 @@ function marketReceipt(run: MarketLeafRun): PaymentReceipt {
   return {
     id: result.transactionId,
     planId: run.runtime.buyer.plan.planId,
-    mandateId: `market_${run.runtime.allocation.category}`,
+    mandateId: `mandate_${hash(
+      `${run.runtime.buyer.plan.planId}|${run.runtime.allocation.category}`,
+    ).slice(0, 16)}`,
     sellerId: result.sellerId,
     sellerName: result.sellerName,
     listingId: result.listingId,

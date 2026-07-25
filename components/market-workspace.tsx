@@ -40,13 +40,14 @@ export function MarketWorkspace() {
           <FlaskConical size={15} aria-hidden="true" />
         </span>
         <div>
-          <strong>Trust boundary: local mock replay, then live proof</strong>
+          <strong>Trust boundary: private plan, mock market, live ledger</strong>
           <p>
-            Sellers, rivals, auctions, and settlement are deterministic local
-            simulation data. The verified 0G receipt follows the replay.
+            The prompt and 0G key stay in this tab. The derived plan drives
+            mocked sellers and rivals; the active bids and payments are read
+            from Hedera testnet when settlement is live.
           </p>
         </div>
-        <b>MOCK EXECUTION</b>
+        <b>{settlement === "idle" ? "MOCK EXECUTION" : "HEDERA TESTNET"}</b>
       </div>
 
       {settlement !== "idle" && (
