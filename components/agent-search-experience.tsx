@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Activity,
   CarFront,
   Check,
   CheckCircle2,
@@ -11,9 +12,12 @@ import {
   Gavel,
   Palette,
   RotateCcw,
+  Radio,
   Store,
+  Trophy,
   Users,
   UtensilsCrossed,
+  WalletCards,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -36,6 +40,7 @@ import {
   type MockAgentSearch,
   type MockAuctionReplay,
 } from "@/src/mock-agent-search";
+import { marketSettlementFromEvents } from "@/src/hedera/marketEvidence";
 import type { LiveAuctionView } from "@/components/use-settlement-job";
 
 import styles from "./agent-search-experience.module.css";
@@ -123,9 +128,9 @@ export function AgentSearchExperience({
 
 /**
  * The real thing: phases driven by the settlement job instead of timers.
- * Wallets appear as the swarm funds them, the bidding stage streams actual
- * HCS bids read from Mirror Node, and the result cards carry the on-chain
- * receipts.
+ * Wallets appear as the swarm funds them, the bidding stage streams the
+ * payer-authenticated HCS lifecycle from Mirror Node, and the result cards
+ * carry the on-chain receipts.
  */
 function LiveAgentSearchRun({
   result,
@@ -250,6 +255,13 @@ function shortAccount(accountId: string): string {
     : accountId;
 }
 
+function hashscanTransactionUrl(transactionId: string): string {
+  const [payer, timestamp] = transactionId.split("@");
+  return timestamp
+    ? `https://hashscan.io/testnet/transaction/${payer}-${timestamp.replace(".", "-")}`
+    : `https://hashscan.io/testnet/transaction/${transactionId}`;
+}
+
 function ActivityDiscovery({
   searches,
   resolvedCount,
@@ -325,6 +337,74 @@ function ActivityDiscovery({
   );
 }
 
+type MarketListing = LiveAuctionView["listings"][number];
+type MarketBid = LiveAuctionView["bidsByItem"][string][number];
+type MarketEvent =
+  LiveAuctionView["ledgerEventsByItem"][string][number];
+type MarketVisualState =
+  | "scanning"
+  | "live"
+  | "leading"
+  | "outbid"
+  | "won"
+  | "sold"
+  | "lost";
+
+function highestMarketBid(bids: MarketBid[]): MarketBid | undefined {
+  return bids.reduce<MarketBid | undefined>(
+    (best, bid) =>
+      !best ||
+      bid.amountCents > best.amountCents ||
+      (bid.amountCents === best.amountCents &&
+        bid.sequenceNumber < best.sequenceNumber)
+        ? bid
+        : best,
+    undefined,
+  );
+}
+
+function latestMarketSequence(
+  messages: Array<{ sequenceNumber: number }>,
+): number {
+  return messages.reduce(
+    (latest, message) => Math.max(latest, message.sequenceNumber),
+    0,
+  );
+}
+
+function listingVisualState(
+  listing: MarketListing,
+  bids: MarketBid[],
+  events: MarketEvent[],
+): MarketVisualState {
+  const settlement = marketSettlementFromEvents(events);
+  const high = highestMarketBid(bids);
+  if (settlement) return settlement.yours ? "won" : "sold";
+  if (listing.sold) return "sold";
+  if (high?.yours) return "leading";
+  if (bids.some((bid) => bid.yours)) return "outbid";
+  return bids.length > 0 ? "live" : "scanning";
+}
+
+function marketStateLabel(state: MarketVisualState): string {
+  switch (state) {
+    case "leading":
+      return "You lead";
+    case "outbid":
+      return "Outbid";
+    case "won":
+      return "Swap confirmed";
+    case "sold":
+      return "Settled";
+    case "lost":
+      return "Agent walked away";
+    case "live":
+      return "Bids incoming";
+    default:
+      return "Scanning";
+  }
+}
+
 function MarketBidStage({
   searches,
   live,
@@ -332,132 +412,635 @@ function MarketBidStage({
   searches: MockAgentSearch[];
   live: LiveAuctionView;
 }) {
-  const categories = new Set(
-    searches.map((search) => search.allocation.category),
+  const categories = useMemo(
+    () => searches.map((search) => search.allocation.category),
+    [searches],
   );
-  const visible = live.listings.filter((listing) =>
-    categories.has(listing.category as Category),
+  const categorySet = useMemo(() => new Set(categories), [categories]);
+  const visible = useMemo(
+    () =>
+      live.listings.filter((listing) =>
+        categorySet.has(listing.category as Category),
+      ),
+    [categorySet, live.listings],
   );
+  const [pinnedCategory, setPinnedCategory] = useState<Category | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const followedCategory = useMemo(
+    () =>
+      [...categories].sort((left, right) => {
+        const activityScore = (category: Category) => {
+          const bids = visible
+            .filter((listing) => listing.category === category)
+            .flatMap(
+              (listing) => live.bidsByItem[listing.itemId] ?? [],
+            );
+          const leading = visible.some((listing) => {
+            if (listing.category !== category) return false;
+            return (
+              listingVisualState(
+                listing,
+                live.bidsByItem[listing.itemId] ?? [],
+                live.ledgerEventsByItem[listing.itemId] ?? [],
+              ) === "leading"
+            );
+          });
+          return (
+            (leading ? 1_000_000 : 0) +
+            (bids.some((bid) => bid.yours) ? 100_000 : 0) +
+            bids.length
+          );
+        };
+        return activityScore(right) - activityScore(left);
+      })[0],
+    [
+      categories,
+      live.bidsByItem,
+      live.ledgerEventsByItem,
+      visible,
+    ],
+  );
+
+  const activeCategory =
+    pinnedCategory && categorySet.has(pinnedCategory)
+      ? pinnedCategory
+      : followedCategory;
+  const activeListings = visible.filter(
+    (listing) => listing.category === activeCategory,
+  );
+
+  const automaticFocus = [...activeListings].sort((left, right) => {
+    const score = (listing: MarketListing) => {
+      const bids = live.bidsByItem[listing.itemId] ?? [];
+      const events = live.ledgerEventsByItem[listing.itemId] ?? [];
+      const state = listingVisualState(listing, bids, events);
+      const stateWeight: Record<MarketVisualState, number> = {
+        won: 7,
+        leading: 6,
+        outbid: 5,
+        live: 4,
+        scanning: 3,
+        sold: 2,
+        lost: 1,
+      };
+      return (
+        stateWeight[state] * 1_000_000 +
+        latestMarketSequence(events)
+      );
+    };
+    return score(right) - score(left);
+  })[0];
+  const selectedFocus = activeListings.find(
+    (listing) => listing.itemId === selectedItemId,
+  );
+  const focus = selectedFocus ?? automaticFocus;
+
+  const focusBids = focus
+    ? (live.bidsByItem[focus.itemId] ?? [])
+    : [];
+  const focusEvents = focus
+    ? (live.ledgerEventsByItem[focus.itemId] ?? [])
+    : [];
+  const focusHigh = highestMarketBid(focusBids);
+  const focusSettlement = marketSettlementFromEvents(focusEvents);
+  const focusState =
+    activeCategory && live.lostCategories.includes(activeCategory)
+      ? "lost"
+      : focus
+        ? listingVisualState(focus, focusBids, focusEvents)
+        : "scanning";
+  const recentFocusEvents = [...focusEvents]
+    .sort(
+      (left, right) =>
+        right.sequenceNumber - left.sequenceNumber,
+    )
+    .slice(0, 7);
+  const focusSearch = searches.find(
+    (search) => search.allocation.category === activeCategory,
+  );
+  const focusAgent = live.agents.find(
+    (agent) =>
+      agent.buyerName === "You" &&
+      agent.category === activeCategory,
+  );
+  const initialFocusCap =
+    focusAgent?.initialCapCents ??
+    focusSearch?.allocation.maxBudgetCents ??
+    0;
+  const focusGranted = focusAgent?.grantedCents ?? 0;
+  const focusCap =
+    focusAgent?.effectiveCapCents ??
+    initialFocusCap + focusGranted;
+  const focusGrantTransaction =
+    focusAgent?.grantTransactions?.at(-1);
+  const currentPrice = focus
+    ? (focusSettlement?.amountCents ??
+      focusHigh?.amountCents ??
+      focus.floorCents)
+    : 0;
+  const priceProgress =
+    focus && focusCap > focus.floorCents
+      ? Math.max(
+          0,
+          Math.min(
+            100,
+            ((currentPrice - focus.floorCents) /
+              (focusCap - focus.floorCents)) *
+              100,
+          ),
+        )
+      : 0;
+  const yourLastBid = [...focusBids]
+    .reverse()
+    .find((bid) => bid.yours);
+  const totalBids = Object.values(live.bidsByItem).reduce(
+    (sum, bids) => sum + bids.length,
+    0,
+  );
+  const settledCount = new Set([
+    ...live.settledCategories,
+    ...live.lostCategories,
+  ]).size;
+  const otherListings = activeListings.filter(
+    (listing) => listing.itemId !== focus?.itemId,
+  );
+
+  function categoryState(category: Category): MarketVisualState {
+    if (live.lostCategories.includes(category)) return "lost";
+    if (live.settledCategories.includes(category)) return "won";
+    const listings = visible.filter(
+      (listing) => listing.category === category,
+    );
+    const states = listings.map((listing) =>
+      listingVisualState(
+        listing,
+        live.bidsByItem[listing.itemId] ?? [],
+        live.ledgerEventsByItem[listing.itemId] ?? [],
+      ),
+    );
+    if (states.includes("leading")) return "leading";
+    if (states.includes("outbid")) return "outbid";
+    if (states.includes("live")) return "live";
+    return "scanning";
+  }
 
   return (
-    <div className={styles.liveGrid}>
-      {visible.map((listing) => {
-        const bids = live.bidsByItem[listing.itemId] ?? [];
-        const high = bids.reduce<(typeof bids)[number] | undefined>(
-          (best, bid) =>
-            !best ||
-            bid.amountCents > best.amountCents ||
-            (bid.amountCents === best.amountCents &&
-              bid.sequenceNumber < best.sequenceNumber)
-              ? bid
-              : best,
-          undefined,
-        );
-        const recent = [...bids]
-          .sort(
-            (left, right) =>
-              right.sequenceNumber - left.sequenceNumber,
-          )
-          .slice(0, 5);
-        const CategoryIcon =
-          categoryIcons[listing.category as Category];
-        const badge = listing.sold
-          ? high?.yours
-            ? "Sold to you"
-            : "Sold"
-          : high?.yours
-            ? "You lead"
-            : high
-              ? "Rival leads"
-              : "At floor";
+    <section className={styles.marketCockpit}>
+      <div className={styles.chainPulse}>
+        <div className={styles.chainPulseTitle}>
+          <span>
+            <Radio size={14} aria-hidden="true" />
+          </span>
+          <div>
+            <small>HEDERA TESTNET · LIVE MARKET</small>
+            <strong>Authenticated activity, as it lands on-chain.</strong>
+          </div>
+        </div>
+        <dl>
+          <div>
+            <dt>HCS topics</dt>
+            <dd>{visible.length}</dd>
+          </div>
+          <div>
+            <dt>Bid messages</dt>
+            <dd>{totalBids}</dd>
+          </div>
+          <div>
+            <dt>Wallets live</dt>
+            <dd>{live.agents.length}</dd>
+          </div>
+          <div>
+            <dt>Agents resolved</dt>
+            <dd>
+              {settledCount}/{searches.length}
+            </dd>
+          </div>
+        </dl>
+      </div>
 
-        return (
-          <article
-            key={listing.itemId}
-            className={styles.livePanel}
-            data-settled={listing.sold || undefined}
-            data-won={(listing.sold && high?.yours) || undefined}
-          >
-            <header>
-              <span>
-                <CategoryIcon size={13} aria-hidden="true" />
-                {listing.sellerName}
+      <nav
+        className={styles.marketAgentRail}
+        aria-label="Choose an allocation buyer agent"
+      >
+        {categories.map((category) => {
+          const search = searches.find(
+            (candidate) =>
+              candidate.allocation.category === category,
+          );
+          const agent = live.agents.find(
+            (candidate) =>
+              candidate.buyerName === "You" &&
+              candidate.category === category,
+          );
+          const state = categoryState(category);
+          const CategoryIcon = categoryIcons[category];
+          const active = category === activeCategory;
+          const initialCap =
+            agent?.initialCapCents ??
+            search?.allocation.maxBudgetCents ??
+            0;
+          const granted = agent?.grantedCents ?? 0;
+          const effectiveCap =
+            agent?.effectiveCapCents ?? initialCap + granted;
+
+          return (
+            <button
+              type="button"
+              key={category}
+              className={active ? styles.marketAgentActive : ""}
+              data-state={state}
+              aria-pressed={active}
+              onClick={() => {
+                setPinnedCategory(category);
+                setSelectedItemId(null);
+              }}
+            >
+              <span className={styles.marketAgentIcon}>
+                {state === "won" ? (
+                  <Trophy size={14} aria-hidden="true" />
+                ) : (
+                  <CategoryIcon size={14} aria-hidden="true" />
+                )}
               </span>
-              <b>{badge}</b>
-            </header>
-            <div className={styles.liveBest}>
-              <span>Floor {formatUsd(listing.floorCents)}</span>
-              <strong>
-                {formatUsd(high?.amountCents ?? listing.floorCents)}
-              </strong>
-              <small>{listing.offering}</small>
-            </div>
-            {listing.sold && high?.yours && (
-              <div className={styles.liveWinReceipt} role="status">
-                <span className={styles.winCheck}>
-                  <Check size={12} aria-hidden="true" />
+              <span>
+                <small>{marketStateLabel(state)}</small>
+                <strong>{category}</strong>
+                <code>
+                  {agent
+                    ? shortAccount(agent.accountId)
+                    : "wallet funding…"}
+                </code>
+              </span>
+              <span
+                className={styles.marketAgentCap}
+                title={
+                  granted > 0
+                    ? `${formatUsd(initialCap)} initial mandate plus ${formatUsd(granted)} on-chain contingency`
+                    : `${formatUsd(initialCap)} funded mandate`
+                }
+              >
+                <b>{formatUsd(effectiveCap)}</b>
+                {granted > 0 && (
+                  <small>+{formatUsd(granted)} grant</small>
+                )}
+              </span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className={styles.liveFollowButton}
+          data-following={!pinnedCategory || undefined}
+          onClick={() => {
+            setPinnedCategory(null);
+            setSelectedItemId(null);
+          }}
+        >
+          <Activity size={13} aria-hidden="true" />
+          {pinnedCategory ? "Follow market pulse" : "Following market pulse"}
+        </button>
+      </nav>
+
+      {focus ? (
+        <>
+          <div className={styles.marketFocus}>
+            <article
+              className={styles.focusAuction}
+              data-state={focusState}
+              aria-live="polite"
+            >
+              <header>
+                <div>
+                  <span>
+                    <Gavel size={13} aria-hidden="true" />
+                    {activeCategory} auction · HCS live
+                  </span>
+                  <code>{focus.itemId}</code>
+                </div>
+                <b>{marketStateLabel(focusState)}</b>
+              </header>
+
+              <div className={styles.focusIdentity}>
+                <span className={styles.focusIcon}>
+                  {(() => {
+                    const CategoryIcon =
+                      categoryIcons[activeCategory ?? "experience"];
+                    return <CategoryIcon size={24} aria-hidden="true" />;
+                  })()}
                 </span>
                 <div>
-                  <small>AUCTION WON</small>
-                  <strong>Secured by your agent</strong>
+                  <small>{focus.sellerName}</small>
+                  <h3>{focus.offering}</h3>
                 </div>
-                <b>{formatUsd(high.amountCents)}</b>
               </div>
-            )}
-            <ul className={styles.liveFeed}>
-              {recent.map((bid, index) => (
-                <li
-                  key={bid.sequenceNumber}
-                  className={
-                    index === 0 ? styles.liveNewest : undefined
-                  }
-                >
+
+              <div className={styles.focusPrice}>
+                <span>
+                  {focusSettlement
+                    ? "Final clearing price"
+                    : focus.sold
+                      ? "Settlement indexing"
+                      : "Highest bid"}
+                </span>
+                <strong>{formatUsd(currentPrice)}</strong>
+                <small>
+                  {focusBids.length} authenticated HCS bid
+                  {focusBids.length === 1 ? "" : "s"}
+                </small>
+              </div>
+
+              <div className={styles.priceRange}>
+                <div>
+                  <span>Seller floor</span>
+                  <strong>{formatUsd(focus.floorCents)}</strong>
+                </div>
+                <div className={styles.priceRail}>
+                  <i style={{ width: `${priceProgress}%` }} />
+                  <b style={{ left: `${priceProgress}%` }} />
+                </div>
+                <div>
                   <span>
-                    {bid.yours
-                      ? "your agent"
-                      : `rival ${shortAccount(bid.bidder)}`}
+                    {focusGranted > 0
+                      ? "Effective cap"
+                      : "Agent mandate"}
                   </span>
-                  <b>{formatUsd(bid.amountCents)}</b>
-                </li>
-              ))}
-              {recent.length === 0 && (
-                <li>
-                  <span>No bids yet — the floor stands</span>
-                </li>
+                  <strong>{formatUsd(focusCap)}</strong>
+                  {focusGranted > 0 && (
+                    <small>
+                      {formatUsd(initialFocusCap)} initial · +
+                      {formatUsd(focusGranted)} contingency
+                    </small>
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.agentPosition}>
+                <span>
+                  <WalletCards size={15} aria-hidden="true" />
+                </span>
+                <div>
+                  <small>YOUR SCOPED AGENT</small>
+                  <strong>
+                    {focusAgent?.accountId ?? "Wallet is funding…"}
+                  </strong>
+                </div>
+                <div>
+                  <small>LAST BID</small>
+                  <strong>
+                    {yourLastBid
+                      ? formatUsd(yourLastBid.amountCents)
+                      : "Watching"}
+                  </strong>
+                </div>
+              </div>
+
+              {focusSettlement?.yours && (
+                <div className={styles.focusSettlement}>
+                  <span>
+                    <Check size={15} aria-hidden="true" />
+                  </span>
+                  <div>
+                    <small>ATOMIC HTS SWAP CONFIRMED</small>
+                    <strong>
+                      NATA payment sent · claim NFT received
+                    </strong>
+                    <code>{focusSettlement.transactionId}</code>
+                  </div>
+                  <b>{formatUsd(focusSettlement.amountCents)}</b>
+                </div>
               )}
-            </ul>
-            <footer>
-              {(() => {
-                const yourAgent = live.agents.find(
-                  (agent) =>
-                    agent.buyerName === "You" &&
-                    agent.category === listing.category,
-                );
-                return yourAgent ? (
+
+              <footer className={styles.focusChainLinks}>
+                {focusAgent && (
                   <a
-                    href={`https://hashscan.io/testnet/account/${yourAgent.accountId}`}
+                    href={`https://hashscan.io/testnet/account/${focusAgent.accountId}`}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    your agent {yourAgent.accountId}
+                    <WalletCards size={12} aria-hidden="true" />
+                    Agent wallet
+                    <ExternalLink size={9} aria-hidden="true" />
                   </a>
-                ) : (
-                  <span>{listing.category}</span>
+                )}
+                <a
+                  href={`https://hashscan.io/testnet/topic/${focus.topicId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Radio size={12} aria-hidden="true" />
+                  Live HCS topic
+                  <ExternalLink size={9} aria-hidden="true" />
+                </a>
+                {focusSettlement && (
+                  <a
+                    href={hashscanTransactionUrl(
+                      focusSettlement.transactionId,
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Check size={12} aria-hidden="true" />
+                    Atomic swap
+                    <ExternalLink size={9} aria-hidden="true" />
+                  </a>
+                )}
+                {focusGrantTransaction && (
+                  <a
+                    href={hashscanTransactionUrl(
+                      focusGrantTransaction.transactionId,
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <WalletCards size={12} aria-hidden="true" />
+                    Budget grant
+                    <ExternalLink size={9} aria-hidden="true" />
+                  </a>
+                )}
+                <span>
+                  Bids match their payer; lifecycle events match clearing.
+                </span>
+              </footer>
+            </article>
+
+            <aside className={styles.marketActivity}>
+              <header>
+                <div>
+                  <Activity size={13} aria-hidden="true" />
+                  <span>LEDGER ACTIVITY</span>
+                </div>
+                <b>
+                  <i />
+                  LIVE
+                </b>
+              </header>
+              <ol>
+                {recentFocusEvents.map((event, index) => {
+                  const yours =
+                    "yours" in event && event.yours;
+                  const amount =
+                    "amountCents" in event
+                      ? event.amountCents
+                      : undefined;
+                  const title =
+                    event.type === "LISTED"
+                      ? "Clearing opened the listing"
+                      : event.type === "CLOSED"
+                        ? "Clearing closed bidding"
+                        : event.type === "FORFEITED"
+                          ? yours
+                            ? "Your claim window expired"
+                            : `Bidder ${shortAccount(event.bidder)} forfeited`
+                          : event.type === "SETTLED"
+                            ? yours
+                              ? "Your atomic swap settled"
+                              : `Bidder ${shortAccount(event.bidder)} settled`
+                            : yours
+                              ? "Your agent placed a bid"
+                              : `Rival ${shortAccount(event.bidder)} raised`;
+                  const detail =
+                    event.type === "SETTLED"
+                      ? event.transactionId
+                      : "bidder" in event
+                        ? event.bidder
+                        : event.payerAccountId;
+
+                  return (
+                    <li
+                      key={event.sequenceNumber}
+                      className={
+                        yours ? styles.yourMarketEvent : ""
+                      }
+                      data-kind={event.type.toLowerCase()}
+                      data-newest={index === 0 || undefined}
+                    >
+                      <span>
+                        {event.type === "SETTLED" ? (
+                          <CheckCircle2 size={11} aria-hidden="true" />
+                        ) : event.type === "FORFEITED" ? (
+                          <X size={11} aria-hidden="true" />
+                        ) : event.type === "CLOSED" ? (
+                          <Gavel size={11} aria-hidden="true" />
+                        ) : event.type === "LISTED" ? (
+                          <Radio size={11} aria-hidden="true" />
+                        ) : yours ? (
+                          <Check size={11} aria-hidden="true" />
+                        ) : (
+                          <Store size={11} aria-hidden="true" />
+                        )}
+                      </span>
+                      <div>
+                        <small>
+                          HCS {event.type} #{event.sequenceNumber}
+                        </small>
+                        <strong>{title}</strong>
+                        <code>{detail}</code>
+                      </div>
+                      {amount !== undefined && (
+                        <b>{formatUsd(amount)}</b>
+                      )}
+                    </li>
+                  );
+                })}
+                {recentFocusEvents.length === 0 && (
+                  <li className={styles.awaitingBid}>
+                    <span>
+                      <Clock3 size={12} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <small>TOPIC OPEN</small>
+                      <strong>Waiting for authenticated HCS evidence</strong>
+                      <code>{focus.topicId}</code>
+                    </div>
+                  </li>
+                )}
+              </ol>
+              <footer>
+                <span>
+                  Latest {Math.min(7, recentFocusEvents.length)} of{" "}
+                  {focusEvents.length} authenticated events
+                </span>
+                <a
+                  href={`https://hashscan.io/testnet/topic/${focus.topicId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Inspect full log
+                  <ExternalLink size={9} aria-hidden="true" />
+                </a>
+              </footer>
+            </aside>
+          </div>
+
+          <section className={styles.marketListings}>
+            <header>
+              <div>
+                <span>OTHER {activeCategory} INVENTORY</span>
+                <strong>
+                  {activeListings.length} scarce listing
+                  {activeListings.length === 1 ? "" : "s"} on separate
+                  HCS topics
+                </strong>
+              </div>
+              <small>
+                Select a listing to pin its live ledger activity
+              </small>
+            </header>
+            <div>
+              {otherListings.map((listing) => {
+                const bids = live.bidsByItem[listing.itemId] ?? [];
+                const events =
+                  live.ledgerEventsByItem[listing.itemId] ?? [];
+                const high = highestMarketBid(bids);
+                const settlement =
+                  marketSettlementFromEvents(events);
+                const state = listingVisualState(
+                  listing,
+                  bids,
+                  events,
                 );
-              })()}
-              <a
-                href={`https://hashscan.io/testnet/topic/${listing.topicId}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                HCS topic
-                <ExternalLink size={9} aria-hidden="true" />
-              </a>
-            </footer>
-          </article>
-        );
-      })}
-    </div>
+                return (
+                  <button
+                    type="button"
+                    key={listing.itemId}
+                    data-state={state}
+                    onClick={() => setSelectedItemId(listing.itemId)}
+                  >
+                    <span>
+                      <Store size={12} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <small>{listing.sellerName}</small>
+                      <strong>{listing.offering}</strong>
+                    </div>
+                    <div>
+                      <small>{marketStateLabel(state)}</small>
+                      <strong>
+                        {formatUsd(
+                          settlement?.amountCents ??
+                            high?.amountCents ??
+                            listing.floorCents,
+                        )}
+                      </strong>
+                    </div>
+                    <b>{bids.length} HCS</b>
+                  </button>
+                );
+              })}
+              {otherListings.length === 0 && (
+                <p>This is the only listing in the selected category.</p>
+              )}
+            </div>
+          </section>
+        </>
+      ) : (
+        <div className={styles.marketWaiting}>
+          <Clock3 size={18} aria-hidden="true" />
+          <strong>Opening authenticated HCS auction topics…</strong>
+          <span>The first scarce listing will appear here.</span>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1073,11 +1656,7 @@ function BundleGrid({
   searches: MockAgentSearch[];
   result: DemoResult;
   lostCategories?: string[];
-  agentAccounts?: Array<{
-    category: string;
-    accountId: string;
-    buyerName: string;
-  }>;
+  agentAccounts?: LiveAuctionView["agents"];
 }) {
   const isLost = (search: MockAgentSearch) =>
     !result.receipts.some(
@@ -1128,10 +1707,12 @@ function BundleGrid({
         );
         const onChain = receipt?.status === "hedera-settled";
         const lost = isLost(search);
-        const agentAccountId = agentAccounts.find(
+        const agent = agentAccounts.find(
           (agent) =>
             agent.category === search.allocation.category,
-        )?.accountId;
+        );
+        const agentAccountId = agent?.accountId;
+        const grantTransaction = agent?.grantTransactions?.at(-1);
         const CategoryIcon = categoryIcons[search.allocation.category];
         const visibleTags =
           search.matchedTags.length > 0
@@ -1223,6 +1804,23 @@ function BundleGrid({
                       rel="noreferrer"
                     >
                       HCS auction proof
+                      <ExternalLink size={9} aria-hidden="true" />
+                      </a>
+                    )}
+                  {receipt.liveGrantedCents !== undefined && (
+                    <span>
+                      +{formatUsd(receipt.liveGrantedCents)} contingency
+                    </span>
+                  )}
+                  {grantTransaction && (
+                    <a
+                      href={hashscanTransactionUrl(
+                        grantTransaction.transactionId,
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Budget grant
                       <ExternalLink size={9} aria-hidden="true" />
                     </a>
                   )}

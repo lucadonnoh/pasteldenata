@@ -3,7 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { SettlementResult } from "@/src/orchestrator";
+import {
+  decodeMirrorMessageBody,
+  fetchAllMirrorTopicMessages,
+  marketBidsFromEvents,
+  parseMarketLedgerEvents,
+  type MarketBid,
+  type MarketLedgerEvent,
+} from "@/src/hedera/marketEvidence";
 import { usePurchaseSession } from "@/components/purchase-session";
+
+export type { MarketBid, MarketLedgerEvent };
 
 export interface LiveSellerBid {
   sellerId: string;
@@ -13,12 +23,17 @@ export interface LiveSellerBid {
   sequenceNumber: number;
 }
 
-export interface MarketBid {
-  bidder: string;
-  amountCents: number;
-  sequenceNumber: number;
-  /** True when the bidder is one of the user's own agents. */
-  yours: boolean;
+export interface LiveAgentView {
+  category: string;
+  accountId: string;
+  buyerName: string;
+  initialCapCents?: number;
+  grantedCents?: number;
+  effectiveCapCents?: number;
+  grantTransactions?: Array<{
+    amountCents: number;
+    transactionId: string;
+  }>;
 }
 
 export interface MarketListingView {
@@ -34,8 +49,10 @@ export interface MarketListingView {
 
 export interface LiveAuctionView {
   mode: "live" | "market";
+  /** Local coordinator account that authenticates lifecycle HCS messages. */
+  clearingAccountId?: string;
   /** Real leaf wallets, as the coordinators create them. */
-  agents: Array<{ category: string; accountId: string; buyerName: string }>;
+  agents: LiveAgentView[];
   /** Live mode: one HCS topic per category auction. */
   auctions: Array<{
     category: string;
@@ -52,6 +69,7 @@ export interface LiveAuctionView {
   /** Market mode: scarce listings and the ascending bids on each. */
   listings: MarketListingView[];
   bidsByItem: Record<string, MarketBid[]>;
+  ledgerEventsByItem: Record<string, MarketLedgerEvent[]>;
   rivals: string[];
   settledCategories: string[];
   lostCategories: string[];
@@ -69,6 +87,7 @@ const USER_BUYER_NAME = "You";
 interface JobSnapshot {
   status: "running" | "done" | "failed";
   mode?: "live" | "market";
+  clearingAccountId?: string;
   agents?: LiveAuctionView["agents"];
   auctions?: LiveAuctionView["auctions"];
   listings?: MarketListingView[];
@@ -81,9 +100,9 @@ interface JobSnapshot {
 
 /**
  * Drives a running settlement job: polls the job for real agent wallets,
- * topics, and listings, streams the actual bids from Mirror Node (the
- * browser reads the public ledger directly), and merges the receipts into
- * the session when the coordinator finishes.
+ * topics, and listings, streams the payer-authenticated auction lifecycle
+ * from Mirror Node (the browser reads the public ledger directly), and merges
+ * the receipts into the session when the coordinator finishes.
  */
 export function useSettlementJob(): LiveAuctionView | undefined {
   const {
@@ -100,6 +119,9 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   }, [result]);
 
   const [mode, setMode] = useState<"live" | "market">("market");
+  const [clearingAccountId, setClearingAccountId] = useState<
+    string | undefined
+  >();
   const [agents, setAgents] = useState<LiveAuctionView["agents"]>([]);
   const [auctions, setAuctions] = useState<LiveAuctionView["auctions"]>([]);
   const [listings, setListings] = useState<MarketListingView[]>([]);
@@ -112,6 +134,9 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   const [bidsByItem, setBidsByItem] = useState<Record<string, MarketBid[]>>(
     {},
   );
+  const [ledgerEventsByItem, setLedgerEventsByItem] = useState<
+    Record<string, MarketLedgerEvent[]>
+  >({});
 
   useEffect(() => {
     if (!jobId || settlement !== "pending") return;
@@ -175,6 +200,9 @@ export function useSettlementJob(): LiveAuctionView | undefined {
         const job = (await response.json()) as JobSnapshot;
         if (cancelled) return;
         if (job.mode) setMode(job.mode);
+        if (job.clearingAccountId) {
+          setClearingAccountId(job.clearingAccountId);
+        }
         setAgents(job.agents ?? []);
         setAuctions(job.auctions ?? []);
         setListings(job.listings ?? []);
@@ -226,125 +254,117 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   useEffect(() => {
     if (!topicsKey || settlement !== "pending") return;
     let cancelled = false;
+    let reading = false;
     const mine = new Set(yourAgentIds.split(",").filter(Boolean));
 
-    const readTopic = async (topicId: string) => {
-      const response = await fetch(
-        `${MIRROR_BASE}/api/v1/topics/${topicId}/messages?limit=100&order=asc`,
-      );
-      if (!response.ok) return [];
-      const data = (await response.json()) as {
-        messages?: Array<{
-          message: string;
-          payer_account_id: string;
-          sequence_number: number;
-        }>;
-      };
-      const parsed: Array<{
-        body: Record<string, unknown>;
-        payer: string;
-        sequence: number;
-      }> = [];
-      for (const item of data.messages ?? []) {
-        try {
-          parsed.push({
-            body: JSON.parse(atob(item.message)) as Record<string, unknown>,
-            payer: item.payer_account_id,
-            sequence: item.sequence_number,
-          });
-        } catch {
-          // Not JSON; skip.
-        }
-      }
-      return parsed;
-    };
-
     const tick = async () => {
-      if (mode === "market") {
-        const next: Record<string, MarketBid[]> = {};
+      if (reading) return;
+      reading = true;
+      try {
+        if (mode === "market") {
+          if (!clearingAccountId) return;
+          const nextBids: Record<string, MarketBid[]> = {};
+          const nextEvents: Record<string, MarketLedgerEvent[]> = {};
+          await Promise.all(
+            listings.map(async ({ itemId, topicId }) => {
+              try {
+                const messages = await fetchAllMirrorTopicMessages(
+                  MIRROR_BASE,
+                  topicId,
+                );
+                const events = parseMarketLedgerEvents(
+                  messages,
+                  itemId,
+                  clearingAccountId,
+                  mine,
+                );
+                nextEvents[itemId] = events;
+                nextBids[itemId] = marketBidsFromEvents(events);
+              } catch {
+                // Mirror hiccup; keep the previous view for this item.
+              }
+            }),
+          );
+          if (!cancelled && Object.keys(nextEvents).length > 0) {
+            setLedgerEventsByItem((previous) => ({
+              ...previous,
+              ...nextEvents,
+            }));
+            setBidsByItem((previous) => ({ ...previous, ...nextBids }));
+          }
+          return;
+        }
+
+        const next: Record<string, LiveSellerBid[]> = {};
         await Promise.all(
-          listings.map(async ({ itemId, topicId }) => {
+          auctions.map(async ({
+            category,
+            auctionId,
+            topicId,
+            authorizedListings,
+          }) => {
             try {
-              const messages = await readTopic(topicId);
-              next[itemId] = messages
+              const messages = await fetchAllMirrorTopicMessages(
+                MIRROR_BASE,
+                topicId,
+              );
+              const authorized = new Map(
+                authorizedListings.map((listing) => [
+                  listing.listingId,
+                  listing,
+                ]),
+              );
+              next[category] = messages
+                .flatMap((item) => {
+                  const body = decodeMirrorMessageBody(item.message);
+                  return body
+                    ? [
+                        {
+                          body,
+                          payer: item.payer_account_id,
+                          sequence: item.sequence_number,
+                        },
+                      ]
+                    : [];
+                })
                 .filter(
-                  ({ body, payer }) =>
-                    body.type === "BID" &&
-                    body.itemId === itemId &&
-                    typeof body.bidder === "string" &&
-                    body.bidder === payer &&
-                    Number.isSafeInteger(body.amountCents) &&
-                    Number(body.amountCents) > 0,
+                  ({ body, payer }) => {
+                    if (
+                      body.type !== "BID" ||
+                      body.auctionId !== auctionId ||
+                      typeof body.listingId !== "string" ||
+                      typeof body.sellerId !== "string" ||
+                      typeof body.sellerName !== "string" ||
+                      typeof body.offering !== "string" ||
+                      !Number.isSafeInteger(body.amountCents) ||
+                      Number(body.amountCents) <= 0
+                    ) {
+                      return false;
+                    }
+                    const listing = authorized.get(body.listingId);
+                    return (
+                      listing?.sellerId === body.sellerId &&
+                      listing.accountId === payer
+                    );
+                  },
                 )
                 .map(({ body, sequence }) => ({
-                  bidder: String(body.bidder),
+                  sellerId: String(body.sellerId),
+                  sellerName: String(body.sellerName),
+                  offering: String(body.offering),
                   amountCents: Number(body.amountCents),
                   sequenceNumber: sequence,
-                  yours: mine.has(String(body.bidder)),
                 }));
             } catch {
-              // Mirror hiccup; keep the previous view for this item.
+              // Mirror hiccup; keep the previous view for this topic.
             }
           }),
         );
         if (!cancelled && Object.keys(next).length > 0) {
-          setBidsByItem((previous) => ({ ...previous, ...next }));
+          setBidsByCategory((previous) => ({ ...previous, ...next }));
         }
-        return;
-      }
-
-      const next: Record<string, LiveSellerBid[]> = {};
-      await Promise.all(
-        auctions.map(async ({
-          category,
-          auctionId,
-          topicId,
-          authorizedListings,
-        }) => {
-          try {
-            const messages = await readTopic(topicId);
-            const authorized = new Map(
-              authorizedListings.map((listing) => [
-                listing.listingId,
-                listing,
-              ]),
-            );
-            next[category] = messages
-              .filter(
-                ({ body, payer }) => {
-                  if (
-                    body.type !== "BID" ||
-                    body.auctionId !== auctionId ||
-                    typeof body.listingId !== "string" ||
-                    typeof body.sellerId !== "string" ||
-                    typeof body.sellerName !== "string" ||
-                    typeof body.offering !== "string" ||
-                    !Number.isSafeInteger(body.amountCents) ||
-                    Number(body.amountCents) <= 0
-                  ) {
-                    return false;
-                  }
-                  const listing = authorized.get(body.listingId);
-                  return (
-                    listing?.sellerId === body.sellerId &&
-                    listing.accountId === payer
-                  );
-                },
-              )
-              .map(({ body, sequence }) => ({
-                sellerId: String(body.sellerId),
-                sellerName: String(body.sellerName),
-                offering: String(body.offering),
-                amountCents: Number(body.amountCents),
-                sequenceNumber: sequence,
-              }));
-          } catch {
-            // Mirror hiccup; keep the previous view for this topic.
-          }
-        }),
-      );
-      if (!cancelled && Object.keys(next).length > 0) {
-        setBidsByCategory((previous) => ({ ...previous, ...next }));
+      } finally {
+        reading = false;
       }
     };
 
@@ -355,18 +375,26 @@ export function useSettlementJob(): LiveAuctionView | undefined {
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicsKey, yourAgentIds, mode, settlement]);
+  }, [
+    topicsKey,
+    yourAgentIds,
+    clearingAccountId,
+    mode,
+    settlement,
+  ]);
 
   if (!jobId || settlement === "idle" || settlement === "failed") {
     return undefined;
   }
   return {
     mode,
+    ...(clearingAccountId ? { clearingAccountId } : {}),
     agents,
     auctions,
     bidsByCategory,
     listings,
     bidsByItem,
+    ledgerEventsByItem,
     rivals,
     settledCategories,
     lostCategories,
