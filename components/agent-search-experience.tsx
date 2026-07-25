@@ -52,6 +52,128 @@ interface LiveAgentSearch {
   allocation: PlanAllocation;
 }
 
+interface MarketProgressCopy {
+  stage: string;
+  title: string;
+  description: string;
+  counter: string;
+  percent: number;
+}
+
+function ratioPercent(completed: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(100, (completed / total) * 100));
+}
+
+function describeMarketProgress(
+  live: LiveAuctionView,
+  yourResolved: number,
+  yourTotal: number,
+): MarketProgressCopy {
+  const progress = live.progress;
+  const yourPurchases = live.settledCategories.length;
+  const finalAuditStage =
+    yourPurchases > 0
+      ? "PURCHASES CONFIRMED · FINAL AUDIT"
+      : "YOUR PLAN RESOLVED · FINAL AUDIT";
+  const finalOutcomeCopy =
+    yourPurchases > 0
+      ? "Your confirmed swaps are final."
+      : "Your agents have finished without overspending.";
+  switch (progress.phase) {
+    case "preparing-market":
+      return {
+        stage: "OPENING AUTHENTICATED MARKET",
+        title: "Creating HCS topics and funding scoped wallets.",
+        description:
+          "The coordinator is preparing the real Hedera market. No auction result is being simulated.",
+        counter: `${live.listings.length}/${progress.totalTopics || "—"} topics`,
+        percent: ratioPercent(live.listings.length, progress.totalTopics),
+      };
+    case "reconciling-wallets":
+      return {
+        stage: finalAuditStage,
+        title: "Reconciling every buyer-agent wallet.",
+        description: `${finalOutcomeCopy} The coordinator is now matching each wallet spend to its receipt and sweeping unused balances.`,
+        counter: `${progress.reconciledWallets}/${progress.totalWallets} wallets`,
+        percent: ratioPercent(
+          progress.reconciledWallets,
+          progress.totalWallets,
+        ),
+      };
+    case "refunding-buyers":
+      return {
+        stage: finalAuditStage,
+        title: "Returning every unused budget balance.",
+        description:
+          "Wallet reconciliation passed. Unspent mandate and contingency funds are being returned to the buyer wallets.",
+        counter: `${progress.refundedBuyers}/${progress.totalBuyers} buyers`,
+        percent: ratioPercent(
+          progress.refundedBuyers,
+          progress.totalBuyers,
+        ),
+      };
+    case "verifying-hcs":
+      return {
+        stage: finalAuditStage,
+        title: "Replaying the public HCS audit trail.",
+        description:
+          "The coordinator is independently reading every auction topic from Mirror Node before declaring the shared market complete.",
+        counter: `${progress.verifiedTopics}/${progress.totalTopics} topics`,
+        percent: ratioPercent(
+          progress.verifiedTopics,
+          progress.totalTopics,
+        ),
+      };
+    case "complete":
+      return {
+        stage: "MARKET AUDIT COMPLETE",
+        title: "Every wallet and HCS topic was reconciled.",
+        description:
+          "The shared market has closed and all confirmed receipts are ready.",
+        counter: "Complete",
+        percent: 100,
+      };
+    default: {
+      const allYourAgentsResolved =
+        yourTotal > 0 && yourResolved === yourTotal;
+      const remainingAgents = Math.max(
+        0,
+        progress.totalAgents - progress.resolvedAgents,
+      );
+      if (allYourAgentsResolved) {
+        return {
+          stage: "YOUR PLAN RESOLVED · SHARED MARKET CLOSING",
+          title:
+            yourPurchases > 0
+              ? `${yourPurchases} Hedera swap${yourPurchases === 1 ? "" : "s"} confirmed.`
+              : "Your agents finished without overspending.",
+          description:
+            remainingAgents > 0
+              ? `Your outcome is final. Waiting for ${remainingAgents} rival buyer agent${remainingAgents === 1 ? "" : "s"} to finish before wallet reconciliation starts.`
+              : "All buyer agents have finished. Wallet reconciliation starts next.",
+          counter: `${progress.resolvedAgents}/${progress.totalAgents} all agents`,
+          percent: ratioPercent(
+            progress.resolvedAgents,
+            progress.totalAgents,
+          ),
+        };
+      }
+      return {
+        stage: "ASCENDING AUCTIONS · ON-CHAIN",
+        title: "Buyer agents are competing for scarce items.",
+        description:
+          "Authenticated bids raise seller floors. Each agent can spend only the mandate held by its isolated Hedera wallet.",
+        counter: `${progress.resolvedAgents}/${progress.totalAgents || "—"} all agents`,
+        percent: ratioPercent(
+          progress.resolvedAgents,
+          progress.totalAgents,
+        ),
+      };
+    }
+  }
+}
+
 export function AgentSearchExperience({
   result,
   live,
@@ -107,10 +229,6 @@ function LiveAgentSearchRun({
   searches: LiveAgentSearch[];
   live: LiveAuctionView;
 }) {
-  const totalBids = Object.values(live.bidsByItem).reduce(
-    (sum, bids) => sum + bids.length,
-    0,
-  );
   const yourAgents = live.agents.filter(
     (agent) => agent.buyerName === "You",
   );
@@ -126,6 +244,15 @@ function LiveAgentSearchRun({
   const wonCount = result.receipts.filter(
     (receipt) => receipt.status === "hedera-settled",
   ).length;
+  const yourResolved = new Set([
+    ...live.settledCategories,
+    ...live.lostCategories,
+  ]).size;
+  const marketProgress = describeMarketProgress(
+    live,
+    yourResolved,
+    searches.length,
+  );
 
   const phaseCopy = {
     searching: {
@@ -136,11 +263,10 @@ function LiveAgentSearchRun({
       status: `${yourAgents.length}/${searches.length} wallets live`,
     },
     bidding: {
-      eyebrow: "ASCENDING AUCTIONS · ON-CHAIN",
-      title: "Buyers are competing for scarce items.",
-      description:
-        "The seller price is the floor; authenticated buyer-agent bids are the only thing that raises it.",
-      status: `${totalBids} bids on-chain`,
+      eyebrow: marketProgress.stage,
+      title: marketProgress.title,
+      description: marketProgress.description,
+      status: marketProgress.counter,
     },
     complete: {
       eyebrow: `MARKET CLOSED · WON ${wonCount}/${searches.length} ON HEDERA`,
@@ -541,6 +667,11 @@ function MarketBidStage({
     ...live.settledCategories,
     ...live.lostCategories,
   ]).size;
+  const progressCopy = describeMarketProgress(
+    live,
+    settledCount,
+    searches.length,
+  );
   const otherListings = activeListings.filter(
     (listing) => listing.itemId !== focus?.itemId,
   );
@@ -572,8 +703,8 @@ function MarketBidStage({
             <Radio size={14} aria-hidden="true" />
           </span>
           <div>
-            <small>HEDERA TESTNET · LIVE MARKET</small>
-            <strong>Authenticated activity, as it lands on-chain.</strong>
+            <small>HEDERA TESTNET · {progressCopy.stage}</small>
+            <strong>{progressCopy.title}</strong>
           </div>
         </div>
         <dl>
@@ -586,13 +717,14 @@ function MarketBidStage({
             <dd>{totalBids}</dd>
           </div>
           <div>
-            <dt>Wallets live</dt>
+            <dt>Wallets funded</dt>
             <dd>{live.agents.length}</dd>
           </div>
           <div>
-            <dt>Agents resolved</dt>
+            <dt>All agents resolved</dt>
             <dd>
-              {settledCount}/{searches.length}
+              {live.progress.resolvedAgents}/
+              {live.progress.totalAgents || "—"}
             </dd>
           </div>
         </dl>
@@ -622,6 +754,16 @@ function MarketBidStage({
           const granted = agent?.grantedCents ?? 0;
           const effectiveCap =
             agent?.effectiveCapCents ?? initialCap + granted;
+          const categorySettlement = visible
+            .filter((listing) => listing.category === category)
+            .map((listing) =>
+              marketSettlementFromEvents(
+                live.ledgerEventsByItem[listing.itemId] ?? [],
+              ),
+            )
+            .find((settlement) => settlement?.yours);
+          const displayedAmount =
+            categorySettlement?.amountCents ?? effectiveCap;
 
           return (
             <button
@@ -654,14 +796,20 @@ function MarketBidStage({
               <span
                 className={styles.marketAgentCap}
                 title={
-                  granted > 0
+                  categorySettlement
+                    ? `${formatUsd(categorySettlement.amountCents)} final clearing price; ${formatUsd(effectiveCap)} mandate cap`
+                    : granted > 0
                     ? `${formatUsd(initialCap)} initial mandate plus ${formatUsd(granted)} on-chain contingency`
                     : `${formatUsd(initialCap)} funded mandate`
                 }
               >
-                <b>{formatUsd(effectiveCap)}</b>
-                {granted > 0 && (
+                <b>{formatUsd(displayedAmount)}</b>
+                {categorySettlement ? (
+                  <small>clearing price</small>
+                ) : granted > 0 ? (
                   <small>+{formatUsd(granted)} grant</small>
+                ) : (
+                  <small>mandate cap</small>
                 )}
               </span>
             </button>
@@ -680,6 +828,31 @@ function MarketBidStage({
           {pinnedCategory ? "Follow market pulse" : "Following market pulse"}
         </button>
       </nav>
+
+      <div
+        className={styles.marketRunProgress}
+        data-phase={live.progress.phase}
+        aria-live="polite"
+      >
+        <span className={styles.marketRunProgressIcon}>
+          {live.progress.phase === "running-auctions" ? (
+            <Activity size={16} aria-hidden="true" />
+          ) : (
+            <ShieldCheck size={16} aria-hidden="true" />
+          )}
+        </span>
+        <div className={styles.marketRunProgressCopy}>
+          <small>{progressCopy.stage}</small>
+          <strong>{progressCopy.title}</strong>
+          <p>{progressCopy.description}</p>
+        </div>
+        <div className={styles.marketRunProgressMeter}>
+          <code>{progressCopy.counter}</code>
+          <span>
+            <i style={{ width: `${progressCopy.percent}%` }} />
+          </span>
+        </div>
+      </div>
 
       {focus ? (
         <>

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { sellersForLocation } from "../catalog";
-import type { PrivatePlan, SettlementResult } from "../domain";
+import type {
+  MarketProgress,
+  PrivatePlan,
+  SettlementResult,
+} from "../domain";
 import { connectHedera } from "../hedera/client";
 import { ensureInfra, type HederaInfra } from "../hedera/infra";
 import {
@@ -80,6 +84,8 @@ export interface SettlementJob {
   listings: JobListing[];
   /** Demo rival buyers competing against the user. */
   rivals: string[];
+  /** Shared-market and final audit progress shown by the live UI. */
+  progress: MarketProgress;
   settledCategories: string[];
   /** Categories where the user's agent was outbid everywhere. */
   lostCategories: string[];
@@ -212,11 +218,23 @@ export async function startSettlementJob(
   prune();
   assertNoActiveJob();
   const buyers = await createMarketBuyers(plan);
+  const totalAgents = buyers.reduce(
+    (sum, buyer) => sum + buyer.plan.allocations.length,
+    0,
+  );
   await assertOperatorRunway(
-    buyers.reduce((sum, buyer) => sum + buyer.plan.allocations.length, 0),
+    totalAgents,
   );
   // The awaits above allow another local request to start first.
   assertNoActiveJob();
+  const marketCategories = new Set(
+    buyers.flatMap((buyer) =>
+      buyer.plan.allocations.map((allocation) => allocation.category),
+    ),
+  );
+  const totalTopics = sellersForLocation(plan.location)
+    .filter((seller) => marketCategories.has(seller.category))
+    .reduce((sum, seller) => sum + seller.inventory.length, 0);
   const job: SettlementJob = {
     id: randomUUID(),
     status: "running",
@@ -224,6 +242,17 @@ export async function startSettlementJob(
     agents: [],
     listings: [],
     rivals: RIVAL_PERSONAS.map((persona) => persona.name),
+    progress: {
+      phase: "preparing-market",
+      resolvedAgents: 0,
+      totalAgents,
+      reconciledWallets: 0,
+      totalWallets: totalAgents,
+      refundedBuyers: 0,
+      totalBuyers: buyers.length,
+      verifiedTopics: 0,
+      totalTopics,
+    },
     settledCategories: [],
     lostCategories: [],
     world: {
@@ -352,6 +381,7 @@ async function execute(
       syncWorldStats();
     };
 
+    const resolvedAgentKeys = new Set<string>();
     const market = await runMarket(buyers, { ...ctx, infra }, {
       authorizePurchase: async ({ itemId, buyerName, leafWallet }) => {
         await Promise.all(enrollments);
@@ -369,6 +399,27 @@ async function execute(
       authorizationIssuerPublicKey: gateway.issuerPublicKey,
       onEvent: (event) => {
         switch (event.type) {
+          case "MARKET_PHASE":
+            job.progress.phase = event.phase;
+            break;
+          case "WALLET_RECONCILED":
+            job.progress.reconciledWallets = Math.min(
+              job.progress.totalWallets,
+              job.progress.reconciledWallets + 1,
+            );
+            break;
+          case "BUYER_REFUNDED":
+            job.progress.refundedBuyers = Math.min(
+              job.progress.totalBuyers,
+              job.progress.refundedBuyers + 1,
+            );
+            break;
+          case "HCS_TOPIC_VERIFIED":
+            job.progress.verifiedTopics = Math.min(
+              job.progress.totalTopics,
+              job.progress.verifiedTopics + 1,
+            );
+            break;
           case "LISTING_OPEN":
             job.listings.push({
               itemId: event.itemId,
@@ -425,11 +476,19 @@ async function execute(
               reason: event.reason,
             });
             break;
-          case "BUYER_DONE":
+          case "BUYER_DONE": {
+            const agentKey = `${event.buyerName}|${event.category}`;
+            if (!resolvedAgentKeys.has(agentKey)) {
+              resolvedAgentKeys.add(agentKey);
+              job.progress.resolvedAgents = resolvedAgentKeys.size;
+            }
             if (event.buyerName !== USER_BUYER_NAME) break;
-            if (event.lost) job.lostCategories.push(event.category);
-            else job.settledCategories.push(event.category);
+            const target = event.lost
+              ? job.lostCategories
+              : job.settledCategories;
+            if (!target.includes(event.category)) target.push(event.category);
             break;
+          }
         }
       },
     });
@@ -468,6 +527,7 @@ async function execute(
         clearingAccountId: ctx.operatorId.toString(),
       },
     };
+    job.progress.phase = "complete";
     job.status = "done";
   } catch (error) {
     if (error instanceof HederaPartialSettlementError && infra && ctx) {

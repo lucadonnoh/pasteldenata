@@ -180,6 +180,30 @@ export interface SettlementResult {
   hedera?: HederaSummary;
 }
 
+export type MarketProgressPhase =
+  | "preparing-market"
+  | "running-auctions"
+  | "reconciling-wallets"
+  | "refunding-buyers"
+  | "verifying-hcs"
+  | "complete";
+
+/**
+ * Coordinator progress exposed to the browser so a confirmed user purchase is
+ * not confused with completion of the shared-market audit.
+ */
+export interface MarketProgress {
+  phase: MarketProgressPhase;
+  resolvedAgents: number;
+  totalAgents: number;
+  reconciledWallets: number;
+  totalWallets: number;
+  refundedBuyers: number;
+  totalBuyers: number;
+  verifiedTopics: number;
+  totalTopics: number;
+}
+
 /**
  * Browser product state. The verified plan goes directly to the Hedera market
  * and only ledger-confirmed receipts are ever added.

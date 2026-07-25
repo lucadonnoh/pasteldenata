@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { SettlementResult } from "@/src/domain";
+import type {
+  MarketProgress,
+  SettlementResult,
+} from "@/src/domain";
 import {
   fetchAllMirrorTopicMessages,
   marketBidsFromEvents,
@@ -49,6 +52,7 @@ export interface LiveAuctionView {
   bidsByItem: Record<string, MarketBid[]>;
   ledgerEventsByItem: Record<string, MarketLedgerEvent[]>;
   rivals: string[];
+  progress: MarketProgress;
   settledCategories: string[];
   lostCategories: string[];
   active: boolean;
@@ -70,6 +74,7 @@ interface JobSnapshot {
   agents?: LiveAuctionView["agents"];
   listings?: MarketListingView[];
   rivals?: string[];
+  progress?: MarketProgress;
   settledCategories?: string[];
   lostCategories?: string[];
   result?: SettlementResult;
@@ -103,6 +108,17 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   const [agents, setAgents] = useState<LiveAuctionView["agents"]>([]);
   const [listings, setListings] = useState<MarketListingView[]>([]);
   const [rivals, setRivals] = useState<string[]>([]);
+  const [progress, setProgress] = useState<MarketProgress>({
+    phase: "preparing-market",
+    resolvedAgents: 0,
+    totalAgents: 0,
+    reconciledWallets: 0,
+    totalWallets: 0,
+    refundedBuyers: 0,
+    totalBuyers: 0,
+    verifiedTopics: 0,
+    totalTopics: 0,
+  });
   const [settledCategories, setSettledCategories] = useState<string[]>([]);
   const [lostCategories, setLostCategories] = useState<string[]>([]);
   const [bidsByItem, setBidsByItem] = useState<Record<string, MarketBid[]>>(
@@ -179,6 +195,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
         setAgents(job.agents ?? []);
         setListings(job.listings ?? []);
         setRivals(job.rivals ?? []);
+        if (job.progress) setProgress(job.progress);
         setSettledCategories(job.settledCategories ?? []);
         setLostCategories(job.lostCategories ?? []);
 
@@ -289,6 +306,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     bidsByItem,
     ledgerEventsByItem,
     rivals,
+    progress,
     settledCategories,
     lostCategories,
     active: settlement === "pending",

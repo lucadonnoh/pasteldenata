@@ -33,6 +33,7 @@ export async function GET(
     listings: job.listings,
     ...(job.world ? { world: job.world } : {}),
     rivals: job.rivals,
+    progress: job.progress,
     settledCategories: job.settledCategories,
     lostCategories: job.lostCategories,
     ...(job.result ? { result: job.result } : {}),
