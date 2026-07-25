@@ -1487,7 +1487,10 @@
   display: grid;
   gap: 10px;
   margin-top: 15px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(230px, 100%), 1fr)
+  );
 }
 
 .resultCard {
@@ -1583,11 +1586,11 @@
   top: 12px;
   left: 13px;
   color: rgba(255, 255, 255, 0.66);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .resultBody {
-  padding: 11px;
+  padding: 13px;
 }
 
 .resultBody > header {
@@ -1599,7 +1602,7 @@
 
 .resultBody > header > span {
   color: rgba(34, 38, 44, 0.42);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -1610,45 +1613,45 @@
   align-items: center;
   gap: 4px;
   color: #568738;
-  font-size: 6px;
+  font-size: 8px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .resultBody h3 {
-  min-height: 31px;
-  margin: 6px 0 4px;
-  font-size: 15px;
-  font-weight: 570;
+  min-height: 38px;
+  margin: 9px 0 5px;
+  font-size: 18px;
+  font-weight: 590;
   letter-spacing: -0.04em;
   line-height: 1.05;
 }
 
 .resultBody p {
-  min-height: 33px;
+  min-height: 39px;
   margin: 0;
   color: rgba(34, 38, 44, 0.48);
-  font-size: 8px;
-  line-height: 1.5;
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .tags {
   display: flex;
-  min-height: 22px;
+  min-height: 26px;
   flex-wrap: wrap;
   gap: 4px;
   margin: 8px 0 9px;
 }
 
 .tags span {
-  height: 20px;
-  padding: 0 7px;
+  height: 24px;
+  padding: 0 8px;
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.24);
   color: rgba(34, 38, 44, 0.48);
-  font-size: 6px;
-  line-height: 18px;
+  font-size: 8px;
+  line-height: 22px;
 }
 
 .resultFooter {
@@ -1668,17 +1671,17 @@
 .resultFooter span {
   margin-bottom: 3px;
   color: rgba(34, 38, 44, 0.36);
-  font-size: 6px;
+  font-size: 8px;
 }
 
 .resultFooter code {
   color: rgba(34, 38, 44, 0.5);
-  font-size: 6px;
+  font-size: 9px;
 }
 
 .resultFooter strong {
-  font-size: 15px;
-  font-weight: 570;
+  font-size: 20px;
+  font-weight: 610;
   letter-spacing: -0.03em;
 }
 
@@ -1695,7 +1698,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
   color: rgba(33, 36, 42, 0.5);
   cursor: pointer;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 @keyframes orbit {
