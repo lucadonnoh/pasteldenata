@@ -32,6 +32,7 @@ import styles from "./agent-search-experience.module.css";
 const DISCOVERY_DURATION_MS = 4200;
 const BID_INTERVAL_MS = 1050;
 const LOST_AUCTION_HOLD_MS = 3400;
+const WON_AUCTION_HOLD_MS = 2500;
 const RETRY_OFFER_HOLD_MS = 1800;
 const AUCTION_SETTLE_MS = 1500;
 
@@ -53,6 +54,10 @@ const recoveryTargets: Record<Category, string> = {
 
 function shortWallet(wallet: string): string {
   return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
+}
+
+function categoryLabel(category: Category): string {
+  return `${category.charAt(0).toUpperCase()}${category.slice(1)}`;
 }
 
 function createBidEvents(competitions: MockBuyerCompetition[]) {
@@ -160,13 +165,13 @@ function AgentSearchRun({
     const isLastEvent = bidTick >= bidEvents.length - 1;
     const isRoundResolution =
       event.bidIndex === competition.bids.length - 1;
-    const delay = isLastEvent
-      ? AUCTION_SETTLE_MS
-      : isRoundResolution && competition.outcome === "lost"
+    const delay = isRoundResolution
+      ? competition.outcome === "lost"
         ? LOST_AUCTION_HOLD_MS
-        : competition.attempt > 1 && event.bidIndex === 0
-          ? RETRY_OFFER_HOLD_MS
-          : BID_INTERVAL_MS;
+        : WON_AUCTION_HOLD_MS
+      : competition.attempt > 1 && event.bidIndex === 0
+        ? RETRY_OFFER_HOLD_MS
+        : BID_INTERVAL_MS;
     const bidTimer = window.setTimeout(() => {
       if (isLastEvent) {
         setPhase("complete");
@@ -193,6 +198,9 @@ function AgentSearchRun({
   const lostAuctionResolved =
     activeCompetition?.outcome === "lost" &&
     activeBidNumber === activeCompetition.bids.length;
+  const wonAuctionResolved =
+    activeCompetition?.outcome === "won" &&
+    activeBidNumber === activeCompetition.bids.length;
   const retryOfferFound =
     (activeCompetition?.attempt ?? 1) > 1 &&
     activeBidNumber === 1;
@@ -208,22 +216,36 @@ function AgentSearchRun({
     bidding: {
       eyebrow: lostAuctionResolved
         ? "AUCTION LOST · MANDATE PROTECTED"
-        : retryOfferFound
-          ? "ALTERNATIVE SELLER FOUND"
-          : "BUYER AGENTS · LIVE AUCTION",
+        : wonAuctionResolved
+          ? "AUCTION WON · ACTIVITY SECURED"
+          : retryOfferFound
+            ? "ALTERNATIVE SELLER FOUND"
+            : "BUYER AGENTS · LIVE AUCTION",
       title: lostAuctionResolved
         ? "Outbid. Walking away."
-        : retryOfferFound
-          ? "New offer. Bidding again."
-          : "Buyer agents are competing.",
+        : wonAuctionResolved
+          ? `${categoryLabel(
+              activeCompetition.search.allocation.category,
+            )} secured.`
+          : retryOfferFound
+            ? "New offer. Bidding again."
+            : "Buyer agents are competing.",
       description: lostAuctionResolved
         ? "The market passed this wallet’s cap. It will not overspend."
-        : retryOfferFound
-          ? "The same buyer wallet found another seller inside its mandate."
-          : "The seller offer stays fixed while three buyer wallets raise the price.",
-      status: `Activity ${Math.max(activeAuctionNumber, 1)}/${
-        searches.length
-      } · Try ${activeCompetition?.attempt ?? 1} · Bid ${activeBidNumber}`,
+        : wonAuctionResolved
+          ? `${activeCompetition.offer.sellerName} cleared at ${formatUsd(
+              activeCompetition.bids.at(-1)?.amountCents ?? 0,
+            )}, inside the buyer wallet’s mandate.`
+          : retryOfferFound
+            ? "The same buyer wallet found another seller inside its mandate."
+            : "The seller offer stays fixed while three buyer wallets raise the price.",
+      status: wonAuctionResolved
+        ? `Activity ${Math.max(activeAuctionNumber, 1)}/${
+            searches.length
+          } · WON`
+        : `Activity ${Math.max(activeAuctionNumber, 1)}/${
+            searches.length
+          } · Try ${activeCompetition?.attempt ?? 1} · Bid ${activeBidNumber}`,
     },
     complete: {
       eyebrow: "BUNDLE ASSEMBLED",
@@ -430,6 +452,8 @@ function BidAuctionStage({
     visibleBidCount === activeCompetition.bids.length;
   const roundIsLost =
     activeCompetition.outcome === "lost" && roundIsResolved;
+  const roundIsWon =
+    activeCompetition.outcome === "won" && roundIsResolved;
   const marketWallets = activeCompetition.bids
     .filter((bid) => bid.kind === "market")
     .map((bid) => bid.wallet)
@@ -446,15 +470,25 @@ function BidAuctionStage({
           <Gavel size={13} />
           {roundIsLost
             ? "MANDATE CAP REACHED · FINDING ANOTHER SELLER"
-            : activeCompetition.attempt > 1
-              ? "ALTERNATIVE OFFER · SECOND ATTEMPT"
-              : "MULTI-AGENT PROCUREMENT"}
+            : roundIsWon
+              ? "AUCTION CLEARED · ACTIVITY SECURED"
+              : activeCompetition.attempt > 1
+                ? "ALTERNATIVE OFFER · SECOND ATTEMPT"
+                : "MULTI-AGENT PROCUREMENT"}
         </span>
         <b>
-          {roundIsLost ? <ShieldCheck size={11} /> : <Radio size={11} />}
+          {roundIsLost ? (
+            <ShieldCheck size={11} />
+          ) : roundIsWon ? (
+            <Check size={11} />
+          ) : (
+            <Radio size={11} />
+          )}
           {roundIsLost
             ? "BUDGET PROTECTED"
-            : `LIVE BID ${visibleEventCount.toString().padStart(2, "0")}`}
+            : roundIsWon
+              ? "WON"
+              : `LIVE BID ${visibleEventCount.toString().padStart(2, "0")}`}
         </b>
       </div>
 
@@ -480,6 +514,8 @@ function BidAuctionStage({
                 isActive ? styles.activityTabActive : ""
               } ${isComplete ? styles.activityTabComplete : ""} ${
                 isActive && roundIsLost ? styles.activityTabLost : ""
+              } ${
+                isActive && roundIsWon ? styles.activityTabWon : ""
               }`}
               key={search.id}
             >
@@ -501,6 +537,11 @@ function BidAuctionStage({
                     <X size={11} />
                     LOST
                   </>
+                ) : isActive && roundIsWon ? (
+                  <>
+                    <Check size={11} />
+                    WON
+                  </>
                 ) : isActive ? (
                   <>
                     <Radio size={10} />
@@ -518,10 +559,12 @@ function BidAuctionStage({
       <div
         className={`${styles.focusAuction} ${
           roundIsLost ? styles.focusAuctionRecovering : ""
-        }`}
+        } ${roundIsWon ? styles.focusAuctionWon : ""}`}
       >
         <section
-          className={styles.sellerOffer}
+          className={`${styles.sellerOffer} ${
+            roundIsWon ? styles.sellerOfferWon : ""
+          }`}
           data-category={activeCompetition.search.allocation.category}
           data-attempt={activeCompetition.attempt}
           key={activeCompetition.offer.sellerId}
@@ -571,7 +614,9 @@ function BidAuctionStage({
         </section>
 
         <section
-          className={styles.buyerCompetition}
+          className={`${styles.buyerCompetition} ${
+            roundIsWon ? styles.buyerCompetitionWon : ""
+          }`}
           aria-hidden={roundIsLost}
         >
           {currentBid && (
@@ -580,28 +625,38 @@ function BidAuctionStage({
                 currentBid.kind === "user"
                   ? styles.liveLeaderUser
                   : ""
-              } ${roundIsLost ? styles.liveLeaderLost : ""}`}
+              } ${roundIsLost ? styles.liveLeaderLost : ""} ${
+                roundIsWon ? styles.liveLeaderWon : ""
+              }`}
               key={currentBid.id}
             >
               <div className={styles.leaderIdentity}>
                 <span>
                   {roundIsLost ? (
                     <ShieldCheck size={12} />
+                  ) : roundIsWon ? (
+                    <Check size={12} />
                   ) : (
                     <Radio size={12} />
                   )}
                   {roundIsLost
                     ? "MARKET AGENT WINS · YOUR AGENT STOPS"
-                    : currentBid.kind === "user"
-                    ? "YOUR AGENT TAKES THE LEAD"
-                    : "A MARKET AGENT TAKES THE LEAD"}
+                    : roundIsWon
+                      ? "YOUR AGENT WINS · AUCTION CLEARED"
+                      : currentBid.kind === "user"
+                        ? "YOUR AGENT TAKES THE LEAD"
+                        : "A MARKET AGENT TAKES THE LEAD"}
                 </span>
                 <strong>{buyerLabel(currentBid)}</strong>
                 <code>{shortWallet(currentBid.wallet)}</code>
               </div>
               <div className={styles.currentPrice}>
                 <span>
-                  {roundIsLost ? "FINAL MARKET BID" : "CURRENT BID"}
+                  {roundIsLost
+                    ? "FINAL MARKET BID"
+                    : roundIsWon
+                      ? "WINNING BID"
+                      : "CURRENT BID"}
                 </span>
                 <strong>{formatUsd(currentBid.amountCents)}</strong>
                 <small>
@@ -610,7 +665,12 @@ function BidAuctionStage({
                         activeCompetition.search.allocation
                           .maxBudgetCents,
                       )}`
-                    : `Bid ${(activeEvent?.bidIndex ?? 0) + 1}`}
+                    : roundIsWon
+                      ? `Within ${formatUsd(
+                          activeCompetition.search.allocation
+                            .maxBudgetCents,
+                        )} cap`
+                      : `Bid ${(activeEvent?.bidIndex ?? 0) + 1}`}
                 </small>
               </div>
             </div>
@@ -685,6 +745,31 @@ function BidAuctionStage({
                 <i />
               </div>
               <small>SCANNING ELIGIBLE SELLERS</small>
+            </div>
+          </div>
+        )}
+
+        {roundIsWon && currentBid && (
+          <div className={styles.winCelebration} role="status">
+            <span className={styles.winCheck}>
+              <Check size={24} strokeWidth={2.8} />
+            </span>
+
+            <div className={styles.winCopy}>
+              <small>ACTIVITY SECURED</small>
+              <h3>{activeCompetition.offer.sellerName}</h3>
+              <p>
+                {activeCompetition.search.allocation.category} added to
+                your bundle
+              </p>
+            </div>
+
+            <div className={styles.winPrice}>
+              <span>FINAL PRICE</span>
+              <strong>{formatUsd(currentBid.amountCents)}</strong>
+              <small>
+                {shortWallet(activeCompetition.search.wallet)}
+              </small>
             </div>
           </div>
         )}

@@ -689,6 +689,23 @@
   color: #b34c46;
 }
 
+.activityTabWon {
+  border-color: rgba(103, 169, 75, 0.52);
+  background: rgba(242, 253, 237, 0.56);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 26px rgba(76, 124, 53, 0.12);
+}
+
+.activityTabWon > b {
+  color: #4f8138;
+}
+
+.activityTabWon > b svg {
+  animation: winCheckPops 620ms both
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .focusAuction {
   position: relative;
   display: grid;
@@ -696,6 +713,25 @@
   gap: 10px;
   grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.5fr);
   isolation: isolate;
+}
+
+.focusAuctionWon::before {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid rgba(130, 197, 93, 0.42);
+  border-radius: 24px;
+  background: radial-gradient(
+    circle at 46% 100%,
+    rgba(174, 225, 143, 0.26),
+    transparent 53%
+  );
+  box-shadow:
+    0 0 0 5px rgba(158, 214, 124, 0.06),
+    0 20px 52px rgba(71, 110, 50, 0.1);
+  content: "";
+  inset: -3px;
+  pointer-events: none;
+  animation: winHaloBreathes 1.8s ease-in-out both;
 }
 
 .focusAuctionRecovering > .sellerOffer,
@@ -845,6 +881,158 @@
   letter-spacing: 0.09em;
 }
 
+.winCelebration {
+  position: absolute;
+  z-index: 7;
+  display: grid;
+  min-height: 92px;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 17px;
+  overflow: hidden;
+  border: 1px solid rgba(202, 239, 181, 0.88);
+  border-radius: 19px;
+  background:
+    radial-gradient(
+      circle at 12% 20%,
+      rgba(223, 255, 205, 0.92),
+      transparent 38%
+    ),
+    linear-gradient(
+      128deg,
+      rgba(247, 255, 242, 0.9),
+      rgba(232, 248, 225, 0.75)
+    );
+  box-shadow:
+    0 18px 38px rgba(66, 105, 45, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.96);
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  right: 14px;
+  bottom: 14px;
+  left: 14px;
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  animation: winBannerRises 720ms both
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.winCelebration::after {
+  position: absolute;
+  width: 34%;
+  height: 180%;
+  top: -40%;
+  left: -44%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.7),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+  transform: rotate(13deg);
+  animation: winGlassSweep 1.15s 450ms both ease-out;
+}
+
+.winCheck {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 50px;
+  height: 50px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #8dcb69, #65a944);
+  box-shadow:
+    0 9px 20px rgba(74, 125, 44, 0.24),
+    inset 0 1px 1px rgba(255, 255, 255, 0.45);
+  color: white;
+  animation: winCheckPops 680ms 180ms both
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.winCheck::after {
+  position: absolute;
+  border: 1px solid rgba(104, 168, 69, 0.4);
+  border-radius: inherit;
+  content: "";
+  inset: -7px;
+  animation: winCheckRing 1.25s 350ms both ease-out;
+}
+
+.winCopy {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.winCopy small,
+.winCopy h3,
+.winCopy p {
+  display: block;
+}
+
+.winCopy small {
+  color: #5d8b46;
+  font-size: 7px;
+  font-weight: 780;
+  letter-spacing: 0.12em;
+}
+
+.winCopy h3 {
+  margin: 5px 0 2px;
+  overflow: hidden;
+  font-size: clamp(18px, 2.2vw, 24px);
+  font-weight: 610;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.winCopy p {
+  margin: 0;
+  color: rgba(43, 57, 36, 0.5);
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.winPrice {
+  position: relative;
+  z-index: 1;
+  min-width: 112px;
+  text-align: right;
+}
+
+.winPrice span,
+.winPrice strong,
+.winPrice small {
+  display: block;
+}
+
+.winPrice span {
+  color: rgba(52, 78, 39, 0.48);
+  font-size: 7px;
+  font-weight: 730;
+  letter-spacing: 0.09em;
+}
+
+.winPrice strong {
+  margin: 3px 0 1px;
+  color: #416d2d;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.winPrice small {
+  color: rgba(52, 66, 45, 0.42);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 7px;
+}
+
 .sellerOffer {
   display: flex;
   min-width: 0;
@@ -860,6 +1048,13 @@
   -webkit-backdrop-filter: blur(24px) saturate(165%);
   animation: offerArrives 620ms both
     cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sellerOfferWon {
+  border-color: rgba(131, 194, 94, 0.5);
+  box-shadow:
+    0 18px 42px rgba(70, 111, 47, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .sellerOffer[data-attempt="2"] {
@@ -996,6 +1191,13 @@
   -webkit-backdrop-filter: blur(26px) saturate(170%);
 }
 
+.buyerCompetitionWon {
+  border-color: rgba(131, 194, 94, 0.5);
+  box-shadow:
+    0 18px 42px rgba(70, 111, 47, 0.13),
+    inset 0 1px 1px rgba(255, 255, 255, 0.92);
+}
+
 .liveLeader {
   display: grid;
   min-height: 105px;
@@ -1039,6 +1241,20 @@
       transparent 43%
     ),
     rgba(255, 245, 243, 0.36);
+}
+
+.liveLeaderWon {
+  border-color: rgba(112, 184, 73, 0.58);
+  background:
+    radial-gradient(
+      circle at 82% 18%,
+      rgba(151, 220, 111, 0.3),
+      transparent 45%
+    ),
+    rgba(246, 255, 241, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 28px rgba(75, 124, 47, 0.12);
 }
 
 .liveLeaderLost .leaderIdentity > span {
@@ -1988,6 +2204,69 @@
   }
 }
 
+@keyframes winBannerRises {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateY(34px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes winCheckPops {
+  from {
+    opacity: 0;
+    transform: scale(0.25) rotate(-18deg);
+  }
+  64% {
+    opacity: 1;
+    transform: scale(1.12) rotate(3deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes winCheckRing {
+  from {
+    opacity: 0.7;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.55);
+  }
+}
+
+@keyframes winGlassSweep {
+  from {
+    left: -44%;
+  }
+  to {
+    left: 120%;
+  }
+}
+
+@keyframes winHaloBreathes {
+  0% {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.006);
+  }
+  100% {
+    opacity: 0.68;
+    transform: scale(1);
+  }
+}
+
 @keyframes newestBidArrives {
   0% {
     opacity: 0;
@@ -2176,6 +2455,39 @@
     margin-inline: auto;
   }
 
+  .winCelebration {
+    gap: 10px;
+    padding: 12px 13px;
+    grid-template-columns: 45px minmax(0, 1fr);
+  }
+
+  .winCheck {
+    width: 42px;
+    height: 42px;
+  }
+
+  .winCopy h3 {
+    font-size: 18px;
+  }
+
+  .winPrice {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    justify-content: space-between;
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+
+  .winPrice strong {
+    margin-left: auto;
+    font-size: 23px;
+  }
+
+  .winPrice small {
+    margin-left: 7px;
+  }
+
   .sellerOffer {
     min-height: 250px;
   }
@@ -2300,6 +2612,12 @@
   .lostStamp,
   .recoverySearch,
   .recoveryTrack i,
+  .activityTabWon > b svg,
+  .focusAuctionWon::before,
+  .winCelebration,
+  .winCelebration::after,
+  .winCheck,
+  .winCheck::after,
   .resultCard {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
