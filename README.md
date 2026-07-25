@@ -62,15 +62,17 @@ The web product has one fail-closed path:
 | Product claim | Real testnet `NATAC` NFT delivered atomically with payment |
 | Fulfillment | Not implemented |
 
-The homepage requires an explicitly verified private 0G route and a
-conservative live Hedera balance estimate before it enables the intent. Once
-launched, the verified plan goes directly to the Hedera market. If the live
-job fails, the interface reports failure or confirmed partial receipts; it
-never substitutes an in-process auction or simulated purchase.
+The homepage requires either an explicitly verified browser-owned 0G key or a
+configured hosted demo key, plus a conservative live Hedera balance estimate,
+before it enables the intent. Every returned plan must still pass Router and
+independent TEE checks before it reaches the Hedera market. If the live job
+fails, the interface reports failure or confirmed partial receipts; it never
+substitutes an in-process auction or simulated purchase.
 
 No real merchant is paid. `NATA` has no economic value and all Hedera activity
-uses testnet. A real 0G inference request may still consume credit associated
-with the user's own 0G Router key.
+uses testnet. A real 0G inference request still consumes Router credit:
+user-owned credit in local BYOK mode or the shared project credit in hosted
+demo mode.
 
 The sellers, their inventory, floor prices, and rival buyer strategies are
 mocked. The Hedera accounts, HCS consensus messages, HTS transfers, transaction
@@ -80,24 +82,25 @@ signatures, and claim NFTs are real testnet operations.
 
 ```text
 USER'S BROWSER
-  private intent + hard budget + user-owned 0G key
-                         |
-                         | HTTPS JSON request
-                         v
-                    0G ROUTER
+  private intent + hard budget
+          |                         \
+          | hosted demo              \ local BYOK
+          v                           v
+ RAILWAY COORDINATOR           0G ROUTER directly
+ (shared 0G key; sees prompt)          |
+          |                            |
+          +-------------> 0G ROUTER <-+
              private-provider routing
                          |
                          v
                 TeeML model provider
                          |
-              verified structured plan
+               verified plan + proof
                          v
-        browser policy and mock market preview
+                 local policy
                          |
-                         | derived plan + auction shape only
-                         | original prompt and 0G key are omitted
                          v
-          LOCALHOST HEDERA COORDINATOR
+             HEDERA COORDINATOR
               /          |          \
        flowers agent  cinema agent  dinner agent
           scoped wallet + mandate + category cap
@@ -112,11 +115,14 @@ USER'S BROWSER
           ATOMIC HTS PAYMENT <-> CLAIM NFT
 ```
 
-### 1. Browser and 0G planner
+### 1. Browser, hosted demo, and 0G planner
 
-The browser holds the user's 0G key in React memory for the current tab. It
-calls the 0G Router directly and requests only private TeeML providers. The
-application does not proxy the prompt or key through its own server.
+Local BYOK mode holds the user's 0G key in React memory for the current tab and
+calls the 0G Router directly. Hosted demo mode removes the key field: Railway
+holds the shared `ZEROG_KEY` as a server-only secret and forwards the plaintext
+intent to the same private TeeML route. The hosted mode avoids browser CORS and
+key setup for judges, but Railway is consequently inside the prompt
+confidentiality boundary. The key is never included in client JavaScript.
 
 The planner receives more than the free-form text. The request contains:
 
@@ -365,10 +371,10 @@ production-grade custody.
 
 | Actor or component | Trusted for | Enforced or auditable boundary |
 | --- | --- | --- |
-| User's browser | Holding the 0G key, validating the plan, enforcing the frontend flow | Key is memory-only; accepted proof and policy adjustments are displayed |
+| User's browser | Holding the key in local BYOK mode and enforcing the frontend flow | A BYOK key is memory-only; hosted secrets never enter client JavaScript |
 | 0G Router | Handling request plaintext confidentially, private routing, and exact response verification | Private mode, `verify_tee`, complete trace, and fail-closed checks |
 | TeeML provider and TEE stack | Confidential model execution and signed proof production | Provider service record and EIP-191 signer are independently checked |
-| Local coordinator | Availability, orchestration, wallet funding, mocked seller signing, and correct progression | Plan validation, public HCS history, exact transaction checks, and ledger reconciliation make deviations observable |
+| Coordinator | Hosted-mode prompt forwarding, availability, orchestration, wallet funding, mocked seller signing, and correct progression | Plan validation, public HCS history, exact transaction checks, and ledger reconciliation make deviations observable |
 | User's own buyer agents | Choosing listings and authorizing spend within their mandates | Each wallet contains its scoped cap plus only explicitly granted contingency; parent policy revalidates results |
 | Other buyers | Not trusted | Bids are payer-bound, ranking is deterministic, and non-settling winners time out |
 | World AgentBook | Correct human-backed address lookup | The user must also prove control of that public address |
@@ -426,28 +432,32 @@ seller would run or control its own signing service.
 
 ### Privacy and verification
 
-- The app excludes its own server from the original prompt path, but does not
-  implement browser-to-enclave cryptographic E2EE.
+- Local BYOK excludes the application server from the original prompt path.
+  Hosted demo mode intentionally sends the plaintext prompt through Railway.
+- Neither mode implements browser-to-enclave cryptographic E2EE.
 - Request confidentiality still trusts the 0G Router and its private inference
   path.
 - Independent EIP-191 verification proves the registered signer, while exact
   response-to-plan content binding still trusts Router `tee_verified`.
-- The derived plan is intentionally disclosed to the localhost coordinator.
+- The derived plan is intentionally disclosed to the coordinator.
 - HCS auction metadata is public and linkable.
 - Process isolation limits accidental data sharing but is not a security
   sandbox, and the coordinator creates the child keys.
 
 ### Deployment and operations
 
-- The Hedera endpoint is protected for a localhost demo by loopback,
-  same-origin, and request-marker checks; it has no production authentication
-  or authorization.
+- Local settlement defaults to loopback-only. Hosted demo mode explicitly
+  allows remote same-origin requests and adds per-caller and global hourly
+  budgets, but the unadvertised Railway URL is not production authentication.
 - Settlement jobs and progress state are in memory.
-- Hedera keys are plaintext local testnet keys.
+- Hedera keys and generated child keys are plaintext testnet secrets. Railway
+  deployments persist generated infrastructure and wallet recovery files on
+  an attached volume.
 - The app relies on 0G Router, the provider signature endpoint, 0G RPC, Hedera
   consensus, and Hedera Mirror Node availability.
-- A deployed frontend origin needs 0G CORS approval. Adding an application
-  proxy would expose the user's 0G key and prompt to that proxy.
+- Local BYOK from a new deployed origin depends on 0G CORS. Hosted mode uses a
+  same-origin application route instead, so no browser-to-0G CORS grant is
+  required; the tradeoff is that Railway sees the prompt.
 - The 30-second claim window and other auction timings are prototype constants,
   not production service-level parameters.
 
@@ -494,6 +504,28 @@ Only that city's mock sellers are provisioned. Accounts are checkpointed
 one at a time, and another city is added lazily when first used. The operator
 needs enough faucet HBAR to create and fund the selected sellers, buyer, and
 scoped agent accounts.
+
+### Railway judge demo
+
+The hosted judge mode uses one Next.js service, one replica, and an attached
+volume mounted at `/data`. Configure these server-only variables:
+
+```dotenv
+HOSTED_DEMO_MODE=true
+ZEROG_SERVER_DEMO=true
+ZEROG_KEY=sk-your-project-key
+HEDERA_ALLOW_REMOTE=true
+HEDERA_OPERATOR_ID=0.0.your-testnet-account
+HEDERA_OPERATOR_KEY=your-testnet-private-key
+DEMO_MAX_RUNS_PER_IP_PER_HOUR=10
+DEMO_MAX_RUNS_PER_HOUR=30
+```
+
+Railway supplies `PORT` and `RAILWAY_VOLUME_MOUNT_PATH`; neither should be
+hardcoded. `railway.json` pins one replica because settlement jobs are
+in-memory and configures `/api/health` without performing billable or external
+checks. The browser calls only same-origin application routes in hosted mode,
+and those routes reject cross-origin browser requests.
 
 ### Hedera market CLI
 
@@ -547,7 +579,7 @@ src/hedera/leafAgent.ts        isolated scoped buyer agent
 src/server/world-identity-auth.ts
                                one-time browser identity challenge verification
 src/server/world-gateway.ts    AgentBook lookup and signed auction credentials
-src/server/settlement-jobs.ts  localhost settlement job coordinator
+src/server/settlement-jobs.ts  settlement job coordinator
 components/execution-details.tsx
                                visible 0G and Hedera proof details
 ```

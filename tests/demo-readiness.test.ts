@@ -87,3 +87,32 @@ test("demo readiness never returns Hedera credential values", async () => {
   assert.doesNotMatch(serialized, /0\.0\.9999999999/);
   assert.doesNotMatch(serialized, /secret-private-key/);
 });
+
+test("hosted demo readiness reports the server key without exposing it", async () => {
+  const result = await getDemoReadiness(
+    {
+      HOSTED_DEMO_MODE: "true",
+      ZEROG_SERVER_DEMO: "true",
+      ZEROG_KEY: "sk-secret-hosted-demo-key",
+      HEDERA_OPERATOR_ID: "0.0.123",
+      HEDERA_OPERATOR_KEY: "hedera-secret",
+    },
+    mirrorBalance(10_000),
+  );
+
+  assert.deepEqual(result.zeroG, {
+    mode: "hosted-demo",
+    serverKeyConfigured: true,
+    ready: true,
+  });
+  assert.doesNotMatch(JSON.stringify(result), /sk-secret-hosted-demo-key/);
+});
+
+test("browser-key mode remains the default", async () => {
+  const result = await getDemoReadiness({}, mirrorBalance(0));
+  assert.deepEqual(result.zeroG, {
+    mode: "browser-key",
+    serverKeyConfigured: false,
+    ready: false,
+  });
+});

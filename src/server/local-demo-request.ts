@@ -5,9 +5,9 @@ export class LocalDemoRequestError extends Error {
 }
 
 /**
- * The Hedera operator key is intentionally a local demo credential. Keep the
- * spending API bound to the machine running Next unless the operator makes an
- * explicit deployment decision, and reject cross-origin browser requests.
+ * Keep spending APIs bound to the machine running Next unless the operator
+ * makes an explicit deployment decision, and always reject cross-origin
+ * browser requests. Hosted mode remains a public demo, not production auth.
  */
 export function assertLocalDemoRequest(
   request: Request,
@@ -31,9 +31,20 @@ export function assertLocalDemoRequest(
     } catch {
       throw new LocalDemoRequestError("Invalid request origin.");
     }
-    if (originUrl.origin !== url.origin) {
+    const forwardedHost = request.headers
+      .get("x-forwarded-host")
+      ?.split(",")[0]
+      ?.trim();
+    const forwardedProto =
+      request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ||
+      "https";
+    const acceptedOrigins = new Set([
+      url.origin,
+      ...(forwardedHost ? [`${forwardedProto}://${forwardedHost}`] : []),
+    ]);
+    if (!acceptedOrigins.has(originUrl.origin)) {
       throw new LocalDemoRequestError(
-        "Cross-origin Hedera settlement requests are not allowed.",
+        "Cross-origin demo requests are not allowed.",
       );
     }
   }

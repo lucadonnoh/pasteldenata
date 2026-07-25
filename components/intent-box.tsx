@@ -61,6 +61,11 @@ interface StoredWorldIdentity {
 }
 
 interface DemoReadiness {
+  zeroG: {
+    mode: "browser-key" | "hosted-demo";
+    serverKeyConfigured: boolean;
+    ready: boolean;
+  };
   hedera: {
     network: "testnet";
     operatorIdConfigured: boolean;
@@ -151,15 +156,18 @@ export function IntentBox() {
     hasUsableKey && credentialPanelState === "closing";
   const credentialsCollapsed =
     hasUsableKey && credentialPanelState === "collapsed";
+  const hostedDemo = demoReadiness?.zeroG.mode === "hosted-demo";
+  const zeroGReady = hostedDemo
+    ? demoReadiness.zeroG.ready
+    : zerogStatus === "ok";
   const hederaStatus = demoReadiness?.hedera;
   const canSubmit =
     !loading &&
     intent.trim().length >= 3 &&
-    hasUsableKey &&
-    zerogStatus === "ok" &&
+    zeroGReady &&
     Boolean(hederaStatus?.ready);
   const presentPrerequisites =
-    Number(zerogStatus === "ok") +
+    Number(zeroGReady) +
     Number(worldVerified) +
     Number(hederaStatus?.ready ?? false);
   const allPrerequisitesPresent = presentPrerequisites === 3;
@@ -240,8 +248,9 @@ export function IntentBox() {
     setDeparting(false);
 
     try {
-      const planner = new ZeroGPrivatePlanner(apiKey.trim());
-      const planned = await planner.plan(intent.trim());
+      const planned = hostedDemo
+        ? await requestHostedPlan(intent.trim())
+        : await new ZeroGPrivatePlanner(apiKey.trim()).plan(intent.trim());
       requireVerifiedPrivateTee(planned.attestation);
       const jobId = await startHederaMarket(planned.plan);
       const purchase: PurchaseSessionResult = {
@@ -283,10 +292,53 @@ export function IntentBox() {
     }
   }
 
+  async function requestHostedPlan(intentValue: string) {
+    const response = await fetch("/api/zerog/plan", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Pastel-Local-Demo": "1",
+      },
+      body: JSON.stringify({ intent: intentValue }),
+    });
+    const body = (await response.json()) as
+      | {
+          plan: PrivatePlan;
+          attestation: PlannerAttestation;
+        }
+      | {
+          code?: string;
+          error?: string;
+          location?: string;
+          available?: string[];
+          attestation?: PlannerAttestation;
+        };
+    if (!response.ok) {
+      if (
+        "code" in body &&
+        body.code === "UNKNOWN_CITY" &&
+        body.location &&
+        body.attestation
+      ) {
+        throw new VerifiedUnknownCityError(
+          new UnknownCityError(body.location),
+          body.attestation,
+        );
+      }
+      throw new Error(
+        ("error" in body && body.error) || "Private planning failed.",
+      );
+    }
+    if (!("plan" in body) || !("attestation" in body)) {
+      throw new Error("The hosted planner returned an invalid response.");
+    }
+    return body;
+  }
+
   /**
-   * Start the real testnet market in the trusted local coordinator. Only the
-   * derived verified plan leaves browser memory; the original prompt and 0G
-   * key do not. No local auction or simulated receipt is created.
+   * Start the real testnet market in the trusted coordinator. Local BYOK sends
+   * only the verified plan here; hosted demo planning already ran here. No
+   * in-process auction or simulated receipt is created in either mode.
    */
   async function startHederaMarket(plan: PrivatePlan): Promise<string> {
       let identityProof:
@@ -397,7 +449,7 @@ export function IntentBox() {
           id="zerog-credentials-panel"
           aria-label="0G credentials"
         >
-          {credentialsCollapsed && (
+          {!hostedDemo && credentialsCollapsed && (
             <button
               className="credential-sidebar-toggle"
               type="button"
@@ -420,7 +472,7 @@ export function IntentBox() {
               <small>0G CONNECTION</small>
               <strong>Private compute</strong>
             </div>
-            {zerogStatus === "ok" && (
+            {!hostedDemo && zerogStatus === "ok" && (
               <button
                 className="credential-sidebar-close"
                 type="button"
@@ -432,48 +484,62 @@ export function IntentBox() {
             )}
           </header>
 
-          <label className="sidebar-key-field" htmlFor="zerog-key">
-            <span>ROUTER API KEY</span>
-            <div>
-              <KeyRound size={13} aria-hidden="true" />
-              <input
-                id="zerog-key"
-                type="password"
-                value={apiKey}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => {
-                  const nextKey = event.target.value;
-                  zerogProbeId.current += 1;
-                  setApiKey(nextKey);
-                  setZerogStatus("idle");
-                  setZerogReason("");
-                  setCredentialPanelState("open");
-                }}
-                onBlur={(event) => {
-                  if (
-                    isUsableZeroGKey(event.currentTarget.value) &&
-                    zerogStatus === "ok"
-                  ) {
-                    closeCredentialPanel();
-                  }
-                }}
-                placeholder="sk-…"
-                aria-describedby="zerog-key-help"
-              />
+          {hostedDemo ? (
+            <div className="sidebar-key-field sidebar-hosted-key">
+              <span>HOSTED DEMO CREDENTIAL</span>
+              <div>
+                <ShieldCheck size={13} aria-hidden="true" />
+                <strong>Railway secret loaded</strong>
+              </div>
             </div>
-          </label>
+          ) : (
+            <label className="sidebar-key-field" htmlFor="zerog-key">
+              <span>ROUTER API KEY</span>
+              <div>
+                <KeyRound size={13} aria-hidden="true" />
+                <input
+                  id="zerog-key"
+                  type="password"
+                  value={apiKey}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    const nextKey = event.target.value;
+                    zerogProbeId.current += 1;
+                    setApiKey(nextKey);
+                    setZerogStatus("idle");
+                    setZerogReason("");
+                    setCredentialPanelState("open");
+                  }}
+                  onBlur={(event) => {
+                    if (
+                      isUsableZeroGKey(event.currentTarget.value) &&
+                      zerogStatus === "ok"
+                    ) {
+                      closeCredentialPanel();
+                    }
+                  }}
+                  placeholder="sk-…"
+                  aria-describedby="zerog-key-help"
+                />
+              </div>
+            </label>
+          )}
 
           <div
             className={`credential-status ${
-              zerogStatus === "ok" ? "credential-ready" : ""
+              zeroGReady ? "credential-ready" : ""
             }`}
             aria-live="polite"
           >
             <i />
             <div>
               <strong>
-                {zerogStatus === "ok"
+                {hostedDemo
+                  ? zeroGReady
+                    ? "Hosted private route ready"
+                    : "Hosted key unavailable"
+                  : zerogStatus === "ok"
                   ? "Private route verified"
                   : zerogStatus === "checking"
                     ? "Checking TeeML…"
@@ -484,7 +550,11 @@ export function IntentBox() {
                         : "Key required"}
               </strong>
               <span>
-                {zerogStatus === "ok"
+                {hostedDemo
+                  ? zeroGReady
+                    ? "TEE proof is checked on every submitted plan"
+                    : "Railway has no 0G Router key"
+                  : zerogStatus === "ok"
                   ? "Ready for private inference"
                   : zerogStatus === "failed"
                     ? zerogReason
@@ -495,22 +565,26 @@ export function IntentBox() {
             </div>
           </div>
 
-          <button
-            className="zerog-verify-button"
-            type="button"
-            disabled={!hasUsableKey || zerogStatus === "checking"}
-            onClick={() => void verifyZeroGKey()}
-          >
-            {zerogStatus === "checking"
-              ? "Checking private route…"
-              : zerogStatus === "ok"
-                ? "Verify again"
-                : "Verify private route"}
-          </button>
+          {!hostedDemo && (
+            <button
+              className="zerog-verify-button"
+              type="button"
+              disabled={!hasUsableKey || zerogStatus === "checking"}
+              onClick={() => void verifyZeroGKey()}
+            >
+              {zerogStatus === "checking"
+                ? "Checking private route…"
+                : zerogStatus === "ok"
+                  ? "Verify again"
+                  : "Verify private route"}
+            </button>
+          )}
 
           <footer id="zerog-key-help">
             <ShieldCheck size={13} />
-            Held only in this browser tab. Never stored by Pastel.
+            {hostedDemo
+              ? "Shared demo key stays server-side and never enters the browser."
+              : "Held only in this browser tab. Never stored by Pastel."}
           </footer>
         </aside>
 
@@ -598,7 +672,9 @@ export function IntentBox() {
             <div className="composer-footer">
               <div className="privacy-note">
                 <ShieldCheck size={13} />
-                Direct to 0G · verified TEE required
+                {hostedDemo
+                  ? "Hosted demo key · verified 0G TEE required"
+                  : "Direct to 0G · verified TEE required"}
               </div>
               <Link
                 className={worldVerified ? "world-note world-note-ok" : "world-note"}
@@ -623,11 +699,13 @@ export function IntentBox() {
             className={`demo-readiness ${
               allPrerequisitesPresent ? "demo-readiness-complete" : ""
             }`}
-            aria-label="Local demo prerequisites"
+            aria-label={
+              hostedDemo ? "Hosted demo prerequisites" : "Local demo prerequisites"
+            }
           >
             <header>
               <div>
-                <span>LOCAL DEMO PREFLIGHT</span>
+                <span>{hostedDemo ? "HOSTED DEMO PREFLIGHT" : "LOCAL DEMO PREFLIGHT"}</span>
                 <strong>{presentPrerequisites}/3 present</strong>
               </div>
               <small>
@@ -639,10 +717,12 @@ export function IntentBox() {
             <div className="readiness-items">
               <div
                 className={`readiness-item ${
-                  zerogStatus === "ok" ? "readiness-item-ready" : ""
+                  zeroGReady ? "readiness-item-ready" : ""
                 }`}
                 title={
-                  zerogStatus === "failed"
+                  hostedDemo
+                    ? "The shared Router key stays server-side. Full TEE verification runs with every submitted plan."
+                    : zerogStatus === "failed"
                     ? zerogReason
                     : "A one-token live inference verifies the key and the router balance before you can prompt."
                 }
@@ -651,7 +731,9 @@ export function IntentBox() {
                 <span>
                   <b>0G Router key</b>
                   <small>
-                    {zerogStatus === "ok"
+                    {hostedDemo
+                      ? "Shared demo key"
+                      : zerogStatus === "ok"
                       ? "Private TeeML verified live"
                       : zerogStatus === "failed"
                         ? zerogReason
@@ -661,7 +743,11 @@ export function IntentBox() {
                   </small>
                 </span>
                 <em>
-                  {zerogStatus === "ok"
+                  {hostedDemo
+                    ? zeroGReady
+                      ? "Configured"
+                      : "Missing"
+                    : zerogStatus === "ok"
                     ? "Verified"
                     : zerogStatus === "checking"
                       ? "Checking…"
@@ -693,15 +779,15 @@ export function IntentBox() {
                 <i />
                 <span>
                   <b>Hedera testnet</b>
-                  <small>Local coordinator</small>
+                  <small>{hostedDemo ? "Hosted coordinator" : "Local coordinator"}</small>
                 </span>
                 <em>{hederaStatusLabel}</em>
               </div>
             </div>
             <p>
-              0G private routing and Hedera testnet runway are checked live.
-              The full TEE proof, signatures, auctions, and atomic swaps are
-              still independently verified during execution.
+              {hostedDemo
+                ? "The shared key and Hedera runway are checked without exposing either secret. Full TEE proof, signatures, auctions, and atomic swaps are verified during execution."
+                : "0G private routing and Hedera testnet runway are checked live. The full TEE proof, signatures, auctions, and atomic swaps are still independently verified during execution."}
             </p>
           </section>
 
@@ -732,8 +818,8 @@ export function IntentBox() {
                 <span>REQUESTING + VERIFYING 0G PRIVATE COMPUTE</span>
                 <strong>Turning your intent into market mandates</strong>
                 <p>
-                  Auctions wait for local decryption, the on-chain signer, and
-                  exact request + response hash matches
+                  The plan waits for the on-chain signer and independent TEE
+                  verification before any auction starts
                 </p>
               </div>
             </div>

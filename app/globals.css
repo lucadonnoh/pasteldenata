@@ -490,6 +490,18 @@ main {
   color: rgba(35, 39, 45, 0.28);
 }
 
+.sidebar-hosted-key strong {
+  color: rgba(42, 70, 28, 0.78);
+  font-size: 9px;
+  font-weight: 680;
+}
+
+.sidebar-hosted-key > div {
+  border-color: rgba(110, 167, 74, 0.27);
+  background: rgba(227, 247, 214, 0.24);
+  color: #6c9f49;
+}
+
 .credential-status {
   display: flex;
   min-height: 53px;

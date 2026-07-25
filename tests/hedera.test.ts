@@ -893,3 +893,30 @@ test("local settlement request guard rejects remote and cross-origin callers", (
     /Cross-origin/,
   );
 });
+
+test("request guard accepts the public origin supplied by a trusted proxy", () => {
+  const previous = process.env.HEDERA_ALLOW_REMOTE;
+  process.env.HEDERA_ALLOW_REMOTE = "true";
+  try {
+    assert.doesNotThrow(() =>
+      assertLocalDemoRequest(
+        new Request("http://internal:8080/api/hedera/jobs", {
+          method: "POST",
+          headers: {
+            Origin: "https://judge-demo.up.railway.app",
+            "X-Forwarded-Host": "judge-demo.up.railway.app",
+            "X-Forwarded-Proto": "https",
+            "X-Pastel-Local-Demo": "1",
+          },
+        }),
+        { mutating: true },
+      ),
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.HEDERA_ALLOW_REMOTE;
+    } else {
+      process.env.HEDERA_ALLOW_REMOTE = previous;
+    }
+  }
+});
