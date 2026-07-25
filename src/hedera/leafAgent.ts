@@ -301,7 +301,11 @@ async function contestedRun(
 ): Promise<void> {
   const contested = init.contested;
   if (!contested) throw new Error("Market mode requires listings.");
-  const { mirrorBaseUrl, listings } = contested;
+  const {
+    mirrorBaseUrl,
+    listings,
+    retargetOnLoss = true,
+  } = contested;
   const me = init.wallet.accountId;
   let capCents = init.mandate.maxAmountCents;
   let grantedCents = 0;
@@ -312,9 +316,10 @@ async function contestedRun(
   const lastNewBidAt = new Map<string, number>();
   /** My published bids not yet visible on the mirror, per item. */
   const pending = new Map<string, number>();
+  let targetItemId: string | undefined;
 
   const increment = (floorCents: number) =>
-    Math.max(100, Math.round(floorCents * 0.05));
+    Math.max(25, Math.round(floorCents * 0.01));
 
   const report = async (outcome: {
     listing?: ContestedListing;
@@ -422,7 +427,13 @@ async function contestedRun(
     await sleep(POLL_MS);
     const now = Date.now();
     const elapsed = now - startedAt;
-    const open = listings.filter((listing) => !closed.has(listing.itemId));
+    const open = listings.filter(
+      (listing) =>
+        !closed.has(listing.itemId) &&
+        (retargetOnLoss ||
+          targetItemId === undefined ||
+          listing.itemId === targetItemId),
+    );
     if (open.length === 0) {
       console.log(`${tag} lost: every affordable listing sold to someone else`);
       return report({});
@@ -461,10 +472,18 @@ async function contestedRun(
           const won = await trySettle(listing, ownBid.amountCents);
           if (won) return;
         }
+        if (!retargetOnLoss && listing.itemId === targetItemId) {
+          console.log(`${tag} lost its preferred listing and exits`);
+          return report({});
+        }
         closed.add(listing.itemId);
         continue;
       }
       if (state.settlement) {
+        if (!retargetOnLoss && listing.itemId === targetItemId) {
+          console.log(`${tag} preferred listing settled to another buyer`);
+          return report({});
+        }
         closed.add(listing.itemId);
         continue;
       }
@@ -499,6 +518,7 @@ async function contestedRun(
       ) {
         const won = await trySettle(leading.listing, leading.amountCents);
         if (won) return;
+        if (!retargetOnLoss) return report({});
         closed.add(leading.listing.itemId);
       }
       continue; // Hold while leading: the cap backs exactly one bid.
@@ -523,6 +543,7 @@ async function contestedRun(
           fallback.ownBid.amountCents,
         );
         if (won) return;
+        if (!retargetOnLoss) return report({});
         closed.add(fallback.listing.itemId);
         continue;
       }
@@ -602,6 +623,7 @@ async function contestedRun(
     console.log(
       `${tag} bidding ${usd(target.priceCents)} on ${target.listing.sellerName}`,
     );
+    targetItemId ??= target.listing.itemId;
     await publishToTopic(
       client,
       target.listing.topicId,

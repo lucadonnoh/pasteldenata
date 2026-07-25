@@ -16,6 +16,9 @@ async function main() {
     console.log(`Claim NFT collection ${infra.claimTokenId}`);
     console.log(`Buyer account        ${infra.buyer.accountId}`);
     console.log(`Seller accounts      ${Object.keys(infra.sellers).length}`);
+    console.log(`Buyer wallets        ${infra.marketBuyers?.length ?? 0}`);
+    console.log(`Agent wallets        ${infra.marketAgents?.length ?? 0}`);
+    console.log(`Fresh HCS topics     ${infra.marketTopics?.length ?? 0}`);
     console.log(
       `\nDetails saved to ${runtimeDataDirectory()}/hedera-infra.json (not committed).\n`,
     );

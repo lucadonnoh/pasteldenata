@@ -223,8 +223,10 @@ scarce listing a fresh HCS topic:
 1. `LISTED` records the inventory and seller floor.
 2. `BID` records a bidder account and amount. A bid is valid only when Mirror
    Node identifies the same Hedera payer account named in the message.
-3. `CLOSED` freezes the auction after the configured minimum duration and
-   quiet period, or at the hard deadline. Later bids are ignored.
+3. `CLOSED` freezes the auction after at least 40 seconds of bidding and an
+   8-second quiet period, with a 50-second hard deadline. These windows target
+   an 80–90 second complete demo while leaving enough consensus time for
+   repeated counter-bids. Later bids are ignored.
 4. The fixed ranking keeps the highest bid from each distinct account, orders
    higher amounts first, and breaks equal bids by earlier HCS consensus
    sequence.
@@ -236,6 +238,16 @@ scarce listing a fresh HCS topic:
    records an authenticated `FORFEITED` event after the deadline. The next
    distinct account in the fixed ranking becomes eligible.
 8. `SETTLED` records the successful Hedera transaction ID.
+
+The coordinator keeps a persisted pool of ten fresh, empty topics—enough for
+two live sellers in every supported category. A run reserves and removes only
+the topics it needs before publishing `LISTED`, so a topic and its submit key
+are never reused. When the run finishes, the pool is replenished for the next
+prompt. The same idempotent preparation check runs when a queued job starts:
+after a restart or interrupted refill it creates only the missing resources
+instead of failing the demo. Railway runs that preparation before starting the
+web process, so a successful deployment is already seeded before it can pass
+its health check.
 
 Seller policy independently replays the payer-bound listing, bids, close,
 deadlines, and forfeitures before it signs. A premature forfeiture, incorrect
@@ -251,7 +263,10 @@ The testnet infrastructure creates:
 - `NATA`, a fungible HTS demo token with two decimals;
 - `NATAC`, an HTS NFT collection for reservation and ticket claims;
 - mocked seller accounts;
-- buyer funding accounts and fresh scoped bidding-agent accounts.
+- five persistent buyer funding accounts;
+- ten pre-warmed bidding-agent accounts, each given a fresh scoped mandate per
+  run;
+- ten one-use HCS topics replenished after every run.
 
 The winning buyer constructs and signs one frozen `TransferTransaction`. Before
 adding the seller signature, seller policy requires all of the following:
@@ -510,7 +525,7 @@ npm run hedera:setup -- Tokyo
 ```
 
 Only that city's mock sellers are provisioned. Accounts are checkpointed
-one at a time, including a dedicated pool of 8 testnet bidding accounts so
+one at a time, including a dedicated pool of 10 testnet bidding accounts so
 account creation never sits on the judge-run critical path. Another city is
 added lazily when first used. The operator needs enough faucet HBAR to create
 and fund the selected sellers, buyer, and scoped agent accounts.

@@ -17,6 +17,8 @@ import {
 } from "../src/hedera/client";
 import {
   type HederaInfra,
+  replenishMarketTopics,
+  reserveMarketTopics,
   upgradeInfra,
 } from "../src/hedera/infra";
 import {
@@ -101,10 +103,15 @@ test("Hedera seller provisioning checkpoints progress and resumes", async () => 
       { accountId: "0.0.11", privateKey: "pool-2" },
       { accountId: "0.0.12", privateKey: "pool-3" },
       { accountId: "0.0.13", privateKey: "pool-4" },
+      { accountId: "0.0.14", privateKey: "pool-5" },
     ],
-    marketAgents: Array.from({ length: 8 }, (_, index) => ({
+    marketAgents: Array.from({ length: 10 }, (_, index) => ({
       accountId: `0.0.${20 + index}`,
       privateKey: `agent-pool-${index + 1}`,
+    })),
+    marketTopics: Array.from({ length: 10 }, (_, index) => ({
+      topicId: `0.0.${30 + index}`,
+      submitKey: `topic-key-${index + 1}`,
     })),
   };
   const checkpoints: HederaInfra[] = [];
@@ -141,6 +148,69 @@ test("Hedera seller provisioning checkpoints progress and resumes", async () => 
   assert.equal(resumedCreations.length, 1);
   assert.equal(infra.sellers["seller-a"]?.accountId, "0.0.101");
   assert.equal(infra.sellers["seller-b"]?.accountId, "0.0.200");
+});
+
+test("prepared HCS topics are consumed once and checkpointed", () => {
+  const infra = {
+    network: "testnet",
+    paymentTokenId: "0.0.1",
+    claimTokenId: "0.0.2",
+    buyer: { accountId: "0.0.3", privateKey: "buyer-key" },
+    sellers: {},
+    marketTopics: [
+      { topicId: "0.0.10", submitKey: "key-1" },
+      { topicId: "0.0.11", submitKey: "key-2" },
+    ],
+  } satisfies HederaInfra;
+  const checkpoints: HederaInfra[] = [];
+
+  const reserved = reserveMarketTopics(
+    infra,
+    1,
+    (value) => checkpoints.push(structuredClone(value)),
+  );
+
+  assert.deepEqual(reserved, [
+    { topicId: "0.0.10", submitKey: "key-1" },
+  ]);
+  assert.deepEqual(infra.marketTopics, [
+    { topicId: "0.0.11", submitKey: "key-2" },
+  ]);
+  assert.deepEqual(
+    checkpoints[0]?.marketTopics,
+    infra.marketTopics,
+  );
+});
+
+test("an interrupted topic refill resumes without reusing consumed topics", async () => {
+  const infra = {
+    network: "testnet",
+    paymentTokenId: "0.0.1",
+    claimTokenId: "0.0.2",
+    buyer: { accountId: "0.0.3", privateKey: "buyer-key" },
+    sellers: {},
+    marketTopics: [
+      { topicId: "0.0.20", submitKey: "existing-key" },
+    ],
+  } satisfies HederaInfra;
+  const checkpoints: HederaInfra[] = [];
+  let created = 0;
+
+  await replenishMarketTopics({} as HederaContext, infra, {
+    createStoredTopic: async () => {
+      created += 1;
+      return {
+        topicId: `0.0.${20 + created}`,
+        submitKey: `fresh-key-${created}`,
+      };
+    },
+    persist: (value) => checkpoints.push(structuredClone(value)),
+  });
+
+  assert.equal(created, 9);
+  assert.equal(infra.marketTopics?.length, 10);
+  assert.equal(checkpoints.length, 9);
+  assert.equal(checkpoints.at(-1)?.marketTopics?.length, 10);
 });
 
 async function withMirrorMessages<T>(
@@ -466,6 +536,7 @@ test("browser market evidence uses the authenticated settled bidder", () => {
     ],
   );
   assert.deepEqual(marketSettlementFromEvents(events), {
+    consensusTimestamp: "1700000009.000000000",
     type: "SETTLED",
     sequenceNumber: 9,
     payerAccountId: "0.0.clearing",
@@ -542,6 +613,7 @@ test("browser evidence accepts only clearing-authenticated World credentials pin
     ),
     [
       {
+        consensusTimestamp: "1700000001.000000000",
         type: "LISTED",
         sequenceNumber: 1,
         payerAccountId: "0.0.clearing",
@@ -549,6 +621,7 @@ test("browser evidence accepts only clearing-authenticated World credentials pin
         authorizationIssuerPublicKey: "issuer-key",
       },
       {
+        consensusTimestamp: "1700000004.000000000",
         type: "AUTHORIZED",
         sequenceNumber: 4,
         payerAccountId: "0.0.clearing",
@@ -599,7 +672,7 @@ test("seller policy independently derives the winner before signing", () => {
       { buyerAccountId: "0.0.202", amountCents: 2600 },
       1_013_000,
     ),
-    1_000,
+    17_000,
   );
   assert.throws(
     () =>
@@ -612,11 +685,11 @@ test("seller policy independently derives the winner before signing", () => {
   );
 
   assert.equal(
-    marketCloseDelayMs(
-      open,
-      { buyerAccountId: "0.0.201", amountCents: 2500 },
-      1_015_000,
-    ),
+      marketCloseDelayMs(
+        open,
+        { buyerAccountId: "0.0.201", amountCents: 2500 },
+        1_040_000,
+      ),
     0,
   );
 

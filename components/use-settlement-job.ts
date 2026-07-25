@@ -42,6 +42,15 @@ export interface MarketListingView {
   sold: boolean;
 }
 
+export interface LiveMarketActivity {
+  itemId: string;
+  topicId: string;
+  category: string;
+  sellerName: string;
+  offering: string;
+  event: MarketLedgerEvent;
+}
+
 export interface LiveAuctionView {
   /** Local coordinator account that authenticates lifecycle HCS messages. */
   clearingAccountId?: string;
@@ -51,6 +60,8 @@ export interface LiveAuctionView {
   listings: MarketListingView[];
   bidsByItem: Record<string, MarketBid[]>;
   ledgerEventsByItem: Record<string, MarketLedgerEvent[]>;
+  /** Real authenticated events across every listing, newest consensus first. */
+  activity: LiveMarketActivity[];
   rivals: string[];
   progress: MarketProgress;
   settledCategories: string[];
@@ -78,7 +89,7 @@ export interface LiveAuctionView {
 
 const MIRROR_BASE = "https://testnet.mirrornode.hedera.com";
 const JOB_POLL_MS = 2000;
-const MIRROR_POLL_MS = 2500;
+const MIRROR_POLL_MS = 1500;
 const JOB_TIMEOUT_MS = 8 * 60 * 1000;
 const MAX_STATUS_FAILURES = 5;
 const USER_BUYER_NAME = "You";
@@ -326,12 +337,36 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   if (!jobId || settlement === "idle") {
     return undefined;
   }
+  const activity = listings
+    .flatMap((listing) =>
+      (ledgerEventsByItem[listing.itemId] ?? []).map((event) => ({
+        itemId: listing.itemId,
+        topicId: listing.topicId,
+        category: listing.category,
+        sellerName: listing.sellerName,
+        offering: listing.offering,
+        event,
+      })),
+    )
+    .sort((left, right) => {
+      const leftConsensus = left.event.consensusTimestamp;
+      const rightConsensus = right.event.consensusTimestamp;
+      if (leftConsensus && rightConsensus) {
+        return rightConsensus.localeCompare(leftConsensus);
+      }
+      if (leftConsensus) return -1;
+      if (rightConsensus) return 1;
+      return right.event.sequenceNumber - left.event.sequenceNumber;
+    })
+    .slice(0, 80);
+
   return {
     ...(clearingAccountId ? { clearingAccountId } : {}),
     agents,
     listings,
     bidsByItem,
     ledgerEventsByItem,
+    activity,
     rivals,
     progress,
     settledCategories,

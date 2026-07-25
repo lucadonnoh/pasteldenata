@@ -70,7 +70,12 @@ export interface LeafInit {
     authorizedOffers: AuthorizedLiveOffer[];
   };
   /** Present in market mode: ascending auctions over scarce listings. */
-  contested?: { mirrorBaseUrl: string; listings: ContestedListing[] };
+  contested?: {
+    mirrorBaseUrl: string;
+    listings: ContestedListing[];
+    /** False for a single-item collector that exits after losing its target. */
+    retargetOnLoss?: boolean;
+  };
   /** Display label for multi-buyer runs, e.g. the buyer persona name. */
   buyerLabel?: string;
 }

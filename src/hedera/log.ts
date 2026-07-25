@@ -6,6 +6,11 @@ import {
 } from "@hashgraph/sdk";
 import { hashscanTopicUrl, parsePrivateKey } from "./client";
 
+export interface StoredAuctionTopic {
+  topicId: string;
+  submitKey: string;
+}
+
 export async function publishToTopic(
   client: Client,
   topicId: string,
@@ -48,12 +53,30 @@ export class AuctionLog {
     return new AuctionLog(receipt.topicId.toString(), submitKey, client);
   }
 
+  static fromStored(
+    client: Client,
+    topic: StoredAuctionTopic,
+  ): AuctionLog {
+    return new AuctionLog(
+      topic.topicId,
+      parsePrivateKey(topic.submitKey),
+      client,
+    );
+  }
+
   async publish(message: Record<string, unknown>): Promise<void> {
     await publishToTopic(this.client, this.topicId, this.submitKey, message);
   }
 
   get submitKeyDer(): string {
     return this.submitKey.toStringDer();
+  }
+
+  get stored(): StoredAuctionTopic {
+    return {
+      topicId: this.topicId,
+      submitKey: this.submitKeyDer,
+    };
   }
 
   get url(): string {

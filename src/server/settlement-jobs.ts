@@ -7,7 +7,11 @@ import type {
   SettlementResult,
 } from "../domain";
 import { connectHedera } from "../hedera/client";
-import { ensureInfra, type HederaInfra } from "../hedera/infra";
+import {
+  ensureInfra,
+  replenishMarketTopics,
+  type HederaInfra,
+} from "../hedera/infra";
 import {
   marketMandateId,
   runMarket,
@@ -110,22 +114,29 @@ const RIVAL_PERSONAS = [
   {
     name: "Bruno",
     intent: "Organize me a date tomorrow in Lisbon. My budget is $180.",
-    category: "dinner" as Category,
+    categories: ["dinner", "cinema"] as Category[],
     identityAgent: "0x000000000000000000000000000000000000b001",
     mockHumanSeed: "bruno",
   },
   {
     name: "Chiara",
     intent: "Organize me a date tomorrow in Lisbon. My budget is $165.",
-    category: "cinema" as Category,
+    categories: ["cinema"] as Category[],
     identityAgent: "0x000000000000000000000000000000000000c001",
   },
   {
     name: "Emma",
     intent: "Organize me a date tomorrow in Lisbon. My budget is $150.",
-    category: "flowers" as Category,
+    categories: ["flowers"] as Category[],
     identityAgent: "0x000000000000000000000000000000000000e001",
     mockHumanSeed: "emma",
+  },
+  {
+    name: "Diego",
+    intent: "Organize me a date tomorrow in Lisbon. My budget is $190.",
+    categories: ["cinema"] as Category[],
+    identityAgent: "0x000000000000000000000000000000000000d001",
+    mockHumanSeed: "diego",
   },
 ];
 
@@ -167,27 +178,43 @@ async function createMarketBuyers(
   const rivals = await Promise.all(
     RIVAL_PERSONAS.map(async (persona) => {
       const planned = (await planner.plan(persona.intent, new Date())).plan;
-      const allocation = planned.allocations.find(
-        (candidate) => candidate.category === persona.category,
+      const allocations = persona.categories.map((category) =>
+        planned.allocations.find(
+          (candidate) => candidate.category === category,
+        ),
       );
-      if (!allocation) {
+      const missingIndex = allocations.findIndex(
+        (allocation) => !allocation,
+      );
+      if (missingIndex >= 0) {
         throw new Error(
-          `${persona.name}'s demo plan has no ${persona.category} allocation.`,
+          `${persona.name}'s demo plan has no ${persona.categories[missingIndex]} allocation.`,
         );
       }
+      const scopedAllocations = allocations.map((allocation) => ({
+        ...allocation!,
+      }));
+      const scopedBudget = scopedAllocations.reduce(
+        (sum, allocation) => sum + allocation.maxBudgetCents,
+        0,
+      );
       return {
         name: persona.name,
+        retargetOnLoss: false,
         plan: {
           ...planned,
           location: plan.location,
-          totalBudgetCents: allocation.maxBudgetCents,
-          allocations: [{ ...allocation }],
+          totalBudgetCents: scopedBudget,
+          allocations: scopedAllocations,
           unallocatedBudgetCents: 0,
         },
       };
     }),
   );
-  return [{ name: USER_BUYER_NAME, plan }, ...rivals];
+  return [
+    { name: USER_BUYER_NAME, plan, retargetOnLoss: true },
+    ...rivals,
+  ];
 }
 
 /**
@@ -598,6 +625,18 @@ async function execute(
     job.error = error instanceof Error ? error.message : "Settlement failed.";
     job.status = "failed";
   } finally {
+    if (ctx && infra) {
+      try {
+        await replenishMarketTopics(ctx, infra);
+      } catch (error) {
+        // The completed run remains valid. A later ensureInfra call retries
+        // the refill before another run can reserve topics.
+        console.error(
+          "Could not replenish the prepared HCS topic pool:",
+          error,
+        );
+      }
+    }
     ctx?.client.close();
   }
 }

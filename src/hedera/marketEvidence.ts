@@ -1,10 +1,17 @@
 export interface PublicMirrorMessage {
+  consensus_timestamp?: string;
   message: string;
   payer_account_id: string;
   sequence_number: number;
 }
 
-export type MarketLedgerEvent =
+interface MarketLedgerEvidence {
+  /** Hedera consensus time supplied by Mirror Node, when available. */
+  consensusTimestamp?: string;
+}
+
+export type MarketLedgerEvent = MarketLedgerEvidence &
+  (
   | {
       type: "LISTED";
       sequenceNumber: number;
@@ -54,7 +61,8 @@ export type MarketLedgerEvent =
       transactionId: string;
       claimNftSerial?: number;
       yours: boolean;
-    };
+    }
+  );
 
 export interface MarketBid {
   bidder: string;
@@ -153,6 +161,9 @@ export function parseMarketLedgerEvents(
   for (const item of messages) {
     const body = decodeMirrorMessageBody(item.message);
     if (!body || body.itemId !== itemId) continue;
+    const consensusEvidence = nonEmptyString(item.consensus_timestamp)
+      ? { consensusTimestamp: item.consensus_timestamp }
+      : {};
 
     if (
       body.type === "LISTED" &&
@@ -164,6 +175,7 @@ export function parseMarketLedgerEvents(
         ? body.authorizationIssuerPublicKey
         : undefined;
       events.push({
+        ...consensusEvidence,
         type: "LISTED",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
@@ -186,6 +198,7 @@ export function parseMarketLedgerEvents(
       positiveCents(body.amountCents)
     ) {
       events.push({
+        ...consensusEvidence,
         type: "BID",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
@@ -210,6 +223,7 @@ export function parseMarketLedgerEvents(
       nonEmptyString(body.signature)
     ) {
       events.push({
+        ...consensusEvidence,
         type: "AUTHORIZED",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
@@ -231,6 +245,7 @@ export function parseMarketLedgerEvents(
     ) {
       closed = true;
       events.push({
+        ...consensusEvidence,
         type: "CLOSED",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
@@ -246,6 +261,7 @@ export function parseMarketLedgerEvents(
       positiveCents(body.amountCents)
     ) {
       events.push({
+        ...consensusEvidence,
         type: "FORFEITED",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
@@ -264,6 +280,7 @@ export function parseMarketLedgerEvents(
       nonEmptyString(body.transactionId)
     ) {
       events.push({
+        ...consensusEvidence,
         type: "SETTLED",
         sequenceNumber: item.sequence_number,
         payerAccountId: item.payer_account_id,
