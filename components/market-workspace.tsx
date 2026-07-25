@@ -40,7 +40,7 @@ export function MarketWorkspace() {
 
   return (
     <section className={styles.marketWorkspace}>
-      {settlement !== "idle" && (
+      {(settlement === "settled" || settlement === "failed") && (
         <div
           className={`${styles.settlementStrip} ${
             settlement === "settled" || partial
@@ -56,7 +56,6 @@ export function MarketWorkspace() {
           </span>
           <div>
             <strong>
-              {settlement === "pending" && "Hedera settlement in progress"}
               {settlement === "settled" && "Settled on Hedera testnet"}
               {settlement === "failed" &&
                 (partial
@@ -64,8 +63,6 @@ export function MarketWorkspace() {
                   : "Hedera settlement unavailable — showing the simulation")}
             </strong>
             <p>
-              {settlement === "pending" &&
-                "Isolated agents are paying sellers with real atomic HTS transfers…"}
               {settlement === "settled" &&
                 (result.hedera
                   ? `NATA ${result.hedera.paymentTokenId} · buyer wallet ${result.hedera.buyerAccountId} · receipts link to HashScan below`
@@ -78,11 +75,7 @@ export function MarketWorkspace() {
             </p>
           </div>
           <b>
-            {settlement === "pending"
-              ? "LIVE"
-              : settlement === "settled" || partial
-                ? "ON-CHAIN"
-                : "SIMULATED"}
+            {settlement === "settled" || partial ? "ON-CHAIN" : "SIMULATED"}
           </b>
         </div>
       )}
