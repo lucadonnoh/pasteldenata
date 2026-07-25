@@ -921,6 +921,20 @@ a.readiness-item:hover {
   color: #568738;
 }
 
+.readiness-item-intentional {
+  border-color: rgba(196, 151, 98, 0.3);
+  background: rgba(251, 241, 222, 0.28);
+}
+
+.readiness-item-intentional > i {
+  background: #c49762;
+  box-shadow: 0 0 8px rgba(196, 151, 98, 0.42);
+}
+
+.readiness-item-intentional em {
+  color: #a26534;
+}
+
 .readiness-item-unavailable > i {
   background: #9c9fa4;
   box-shadow: none;
@@ -935,6 +949,86 @@ a.readiness-item:hover {
   color: rgba(34, 38, 44, 0.38);
   font-size: 7px;
   line-height: 1.4;
+}
+
+.hosted-world-choice,
+.world-path-picker {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hosted-world-choice {
+  margin-top: 9px;
+}
+
+.hosted-world-choice button,
+.world-path-picker button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(37, 40, 46, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.25);
+  color: rgba(36, 39, 44, 0.62);
+  cursor: pointer;
+  text-align: left;
+}
+
+.hosted-world-choice button {
+  padding: 8px 9px;
+}
+
+.hosted-world-choice button.selected,
+.world-path-picker button.selected {
+  border-color: rgba(86, 135, 56, 0.28);
+  background: rgba(227, 247, 214, 0.3);
+  color: #4f7e33;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.hosted-world-choice button > svg,
+.world-path-picker button > svg {
+  flex: 0 0 auto;
+}
+
+.hosted-world-choice button span,
+.hosted-world-choice button b,
+.hosted-world-choice button small,
+.world-path-picker button span,
+.world-path-picker button b,
+.world-path-picker button small {
+  display: block;
+  min-width: 0;
+}
+
+.hosted-world-choice button b {
+  font-size: 8px;
+  font-weight: 680;
+}
+
+.hosted-world-choice button small {
+  overflow: hidden;
+  margin-top: 2px;
+  color: rgba(34, 38, 44, 0.42);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hosted-world-choice > a {
+  align-self: center;
+  color: #568738;
+  font-size: 8px;
+  font-weight: 650;
+  grid-column: 1 / -1;
+  justify-self: end;
+  text-decoration: none;
+}
+
+.hosted-world-choice > a:hover {
+  text-decoration: underline;
 }
 
 .suggestions {
@@ -2874,6 +2968,30 @@ a.readiness-item:hover {
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
+}
+
+.world-path-picker button {
+  padding: 11px;
+  background: rgba(255, 255, 255, 0.25);
+  color: rgba(36, 39, 44, 0.62);
+}
+
+.world-path-picker button b {
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.world-path-picker button small {
+  margin-top: 2px;
+  color: rgba(36, 39, 44, 0.46);
+  font-size: 8px;
+  line-height: 1.3;
+}
+
+.world-registration-status > button.world-fresh-visitor {
+  border: 1px solid rgba(37, 40, 46, 0.12);
+  background: rgba(255, 255, 255, 0.3);
+  color: rgba(36, 39, 44, 0.66);
 }
 
 .world-scan {

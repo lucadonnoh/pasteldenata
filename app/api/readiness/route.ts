@@ -14,9 +14,18 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     assertLocalDemoRequest(request);
-    return NextResponse.json(await getDemoReadiness(), {
+    const sessionId = new URL(request.url).searchParams.get("worldSession");
+    return NextResponse.json(
+      await getDemoReadiness(
+        undefined,
+        undefined,
+        undefined,
+        sessionId ? { mode: "visitor", sessionId } : undefined,
+      ),
+      {
       headers: { "Cache-Control": "no-store" },
-    });
+      },
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Readiness check failed.";

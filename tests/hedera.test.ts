@@ -829,8 +829,27 @@ test("settlement API accepts only a complete plan, never a mock auction trace", 
   );
   const parsed = parseSettlementRequest({
     plan: purchase.plan,
+    hostedWorldIdentity: {
+      mode: "visitor",
+      sessionId: "dd67b9cb-c9bc-49fa-a7fe-fe2bfd6ecc9a",
+    },
   });
   assert.deepEqual(parsed.plan, purchase.plan);
+  assert.deepEqual(parsed.hostedWorldIdentity, {
+    mode: "visitor",
+    sessionId: "dd67b9cb-c9bc-49fa-a7fe-fe2bfd6ecc9a",
+  });
+  assert.throws(
+    () =>
+      parseSettlementRequest({
+        plan: purchase.plan,
+        hostedWorldIdentity: {
+          mode: "visitor",
+          sessionId: "shared",
+        },
+      }),
+    /Invalid uuid/,
+  );
   assert.throws(
     () =>
       parseSettlementRequest({

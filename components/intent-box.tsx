@@ -33,6 +33,13 @@ import {
   verifyZeroGPrivateReadiness,
   zeroGReadinessErrorMessage,
 } from "@/src/zerog-readiness";
+import {
+  hostedWorldDemoChoice,
+  hostedWorldReadinessUrl,
+  hostedWorldSessionId,
+  saveHostedWorldDemoChoice,
+  type HostedWorldDemoChoice,
+} from "@/src/hosted-world-demo";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   PrivacyDetails,
@@ -65,6 +72,22 @@ interface DemoReadiness {
     mode: "browser-key" | "hosted-demo";
     serverKeyConfigured: boolean;
     ready: boolean;
+  };
+  world: {
+    mode: "browser" | "hosted-demo";
+    identityAgent?: `0x${string}`;
+    configured: boolean;
+    verified: boolean;
+    identities?: {
+      verified: {
+        identityAgent?: `0x${string}`;
+        verified: boolean;
+      };
+      visitor?: {
+        identityAgent: `0x${string}`;
+        verified: boolean;
+      };
+    };
   };
   hedera: {
     network: "testnet";
@@ -100,6 +123,9 @@ export function IntentBox() {
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
   const [worldVerified, setWorldVerified] = useState(false);
+  const [hostedWorldChoice, setHostedWorldChoice] =
+    useState<HostedWorldDemoChoice>("verified");
+  const [hostedWorldSession, setHostedWorldSession] = useState("");
   const [demoReadiness, setDemoReadiness] = useState<DemoReadiness | null>(
     null,
   );
@@ -129,25 +155,40 @@ export function IntentBox() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      let readinessUrl = "/api/readiness";
+      try {
+        const sessionId = hostedWorldSessionId();
+        setHostedWorldSession(sessionId);
+        setHostedWorldChoice(hostedWorldDemoChoice());
+        readinessUrl = hostedWorldReadinessUrl(sessionId);
+      } catch {
+        // Browser storage can be unavailable in hardened modes. The readiness
+        // response still exposes the shared verified path.
+      }
 
-    void fetch("/api/readiness", {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Readiness check failed.");
-        setDemoReadiness((await response.json()) as DemoReadiness);
+      void fetch(readinessUrl, {
+        cache: "no-store",
+        signal: controller.signal,
       })
-      .catch((readinessError: unknown) => {
-        if (
-          !(readinessError instanceof DOMException) ||
-          readinessError.name !== "AbortError"
-        ) {
-          setReadinessUnavailable(true);
-        }
-      });
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Readiness check failed.");
+          setDemoReadiness((await response.json()) as DemoReadiness);
+        })
+        .catch((readinessError: unknown) => {
+          if (
+            !(readinessError instanceof DOMException) ||
+            readinessError.name !== "AbortError"
+          ) {
+            setReadinessUnavailable(true);
+          }
+        });
+    }, 0);
 
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, []);
   const [credentialPanelState, setCredentialPanelState] =
     useState<CredentialPanelState>("open");
@@ -160,15 +201,27 @@ export function IntentBox() {
   const zeroGReady = hostedDemo
     ? demoReadiness.zeroG.ready
     : zerogStatus === "ok";
+  const selectedHostedIdentity = hostedDemo
+    ? hostedWorldChoice === "verified"
+      ? demoReadiness.world.identities?.verified
+      : demoReadiness.world.identities?.visitor
+    : undefined;
+  const selectedWorldHumanVerified = hostedDemo
+    ? Boolean(selectedHostedIdentity?.verified)
+    : worldVerified;
+  const worldPathReady = hostedDemo
+    ? Boolean(selectedHostedIdentity?.identityAgent)
+    : worldVerified;
   const hederaStatus = demoReadiness?.hedera;
   const canSubmit =
     !loading &&
     intent.trim().length >= 3 &&
     zeroGReady &&
+    worldPathReady &&
     Boolean(hederaStatus?.ready);
   const presentPrerequisites =
     Number(zeroGReady) +
-    Number(worldVerified) +
+    Number(worldPathReady) +
     Number(hederaStatus?.ready ?? false);
   const allPrerequisitesPresent = presentPrerequisites === 3;
   const hederaStatusLabel = readinessUnavailable
@@ -349,13 +402,15 @@ export function IntentBox() {
           }
         | undefined;
       let stored: StoredWorldIdentity | null = null;
-      try {
-        const raw = window.localStorage.getItem("pastel-world-identity");
-        stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
-      } catch {
-        // Corrupt optional identity state must not block open listings.
+      if (!hostedDemo) {
+        try {
+          const raw = window.localStorage.getItem("pastel-world-identity");
+          stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
+        } catch {
+          // Corrupt optional identity state must not block open listings.
+        }
       }
-      if (stored?.humanId && stored.address && stored.privateKey) {
+      if (!hostedDemo && stored?.humanId && stored.address && stored.privateKey) {
         const account = privateKeyToAccount(stored.privateKey);
         if (account.address.toLowerCase() !== stored.address.toLowerCase()) {
           throw new Error("Stored World identity key does not match its address.");
@@ -402,6 +457,17 @@ export function IntentBox() {
         },
         body: JSON.stringify({
           plan,
+          ...(hostedDemo
+            ? {
+                hostedWorldIdentity:
+                  hostedWorldChoice === "visitor"
+                    ? {
+                        mode: "visitor" as const,
+                        sessionId: hostedWorldSession,
+                      }
+                    : { mode: "verified" as const },
+              }
+            : {}),
           ...(identityProof ? { identityProof } : {}),
         }),
       });
@@ -677,16 +743,24 @@ export function IntentBox() {
                   : "Direct to 0G · verified TEE required"}
               </div>
               <Link
-                className={worldVerified ? "world-note world-note-ok" : "world-note"}
+                className={selectedWorldHumanVerified ? "world-note world-note-ok" : "world-note"}
                 href="/world"
                 title={
-                  worldVerified
-                    ? "Your agents are backed by your World ID"
+                  selectedWorldHumanVerified
+                    ? hostedDemo
+                      ? "The selected identity is registered in World AgentBook"
+                      : "Your agents are backed by your World ID"
                     : "Scarce listings are one-per-human — verify to bid on them"
                 }
               >
                 <UserCheck size={13} />
-                {worldVerified ? "Human-backed · World ID" : "Not verified · scarce listings locked"}
+                {selectedWorldHumanVerified
+                  ? hostedDemo
+                    ? hostedWorldChoice === "verified"
+                      ? "Demo human · World verified"
+                      : "Visitor · World verified"
+                    : "Human-backed · World ID"
+                  : "Visitor unverified · protected listings reject"}
               </Link>
               <div className="character-count">
                 <span>⌘ ENTER</span>
@@ -756,20 +830,37 @@ export function IntentBox() {
                         : "Missing"}
                 </em>
               </div>
-              <Link
+              <div
                 className={`readiness-item ${
-                  worldVerified ? "readiness-item-ready" : ""
+                  worldPathReady ? "readiness-item-ready" : ""
+                } ${
+                  hostedDemo &&
+                  hostedWorldChoice === "visitor" &&
+                  !selectedWorldHumanVerified
+                    ? "readiness-item-intentional"
+                    : ""
                 }`}
-                href="/world"
-                title="A complete locally stored World identity is required for scarce listings. Its proof is verified during settlement."
+                title="Pick a verified human for the happy path or a fresh visitor address to demonstrate seller-side rejection."
               >
                 <i />
                 <span>
                   <b>World identity</b>
-                  <small>Scarce listings</small>
+                  <small>
+                    {hostedDemo && hostedWorldChoice === "visitor"
+                      ? selectedWorldHumanVerified
+                        ? "This visitor verified with World App"
+                        : "Fresh address · protected listings reject"
+                      : "Human-backed · protected listings allowed"}
+                  </small>
                 </span>
-                <em>{worldVerified ? "Present" : "Set up"}</em>
-              </Link>
+                <em>
+                  {selectedWorldHumanVerified
+                    ? "Verified"
+                    : hostedDemo
+                      ? "Unverified"
+                      : "Set up"}
+                </em>
+              </div>
               <div
                 className={`readiness-item ${
                   hederaStatus?.ready ? "readiness-item-ready" : ""
@@ -784,6 +875,55 @@ export function IntentBox() {
                 <em>{hederaStatusLabel}</em>
               </div>
             </div>
+            {hostedDemo && (
+              <div
+                className="hosted-world-choice"
+                role="radiogroup"
+                aria-label="World identity demo path"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={hostedWorldChoice === "verified"}
+                  className={
+                    hostedWorldChoice === "verified" ? "selected" : ""
+                  }
+                  onClick={() => {
+                    saveHostedWorldDemoChoice("verified");
+                    setHostedWorldChoice("verified");
+                  }}
+                >
+                  <UserCheck size={15} aria-hidden="true" />
+                  <span>
+                    <b>Verified human</b>
+                    <small>Receives World auction passes</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={hostedWorldChoice === "visitor"}
+                  className={
+                    hostedWorldChoice === "visitor" ? "selected" : ""
+                  }
+                  onClick={() => {
+                    saveHostedWorldDemoChoice("visitor");
+                    setHostedWorldChoice("visitor");
+                  }}
+                >
+                  <KeyRound size={15} aria-hidden="true" />
+                  <span>
+                    <b>Unverified visitor</b>
+                    <small>Demonstrates protected-listing rejection</small>
+                  </span>
+                </button>
+                <Link href="/world">
+                  {hostedWorldChoice === "visitor"
+                    ? "Inspect or verify this address"
+                    : "Inspect World proof"}
+                </Link>
+              </div>
+            )}
             <p>
               {hostedDemo
                 ? "The shared key and Hedera runway are checked without exposing either secret. Full TEE proof, signatures, auctions, and atomic swaps are verified during execution."

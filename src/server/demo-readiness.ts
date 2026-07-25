@@ -1,10 +1,31 @@
 import { HOMEPAGE_REQUIRED_HBAR } from "./market-runway";
+import {
+  hostedWorldIdentity,
+  type HostedWorldIdentitySelection,
+} from "./hosted-world-identity";
+import { createHumanResolver } from "./world-gateway";
 
 export interface DemoReadiness {
   zeroG: {
     mode: "browser-key" | "hosted-demo";
     serverKeyConfigured: boolean;
     ready: boolean;
+  };
+  world: {
+    mode: "browser" | "hosted-demo";
+    identityAgent?: `0x${string}`;
+    configured: boolean;
+    verified: boolean;
+    identities?: {
+      verified: {
+        identityAgent?: `0x${string}`;
+        verified: boolean;
+      };
+      visitor?: {
+        identityAgent: `0x${string}`;
+        verified: boolean;
+      };
+    };
   };
   hedera: {
     network: "testnet";
@@ -45,6 +66,7 @@ interface HederaEnvironment {
   HOSTED_DEMO_MODE?: string | undefined;
   ZEROG_SERVER_DEMO?: string | undefined;
   ZEROG_KEY?: string | undefined;
+  WORLD_DEMO_PRIVATE_KEY?: string | undefined;
 }
 
 function isConfigured(value: string | undefined): boolean {
@@ -62,8 +84,12 @@ export async function getDemoReadiness(
     HOSTED_DEMO_MODE: process.env.HOSTED_DEMO_MODE,
     ZEROG_SERVER_DEMO: process.env.ZEROG_SERVER_DEMO,
     ZEROG_KEY: process.env.ZEROG_KEY,
+    WORLD_DEMO_PRIVATE_KEY: process.env.WORLD_DEMO_PRIVATE_KEY,
   },
   fetcher: typeof fetch = fetch,
+  worldLookup: (address: string) => Promise<string | null> = async (address) =>
+    (await createHumanResolver()).lookupHuman(address),
+  visitorSelection?: Extract<HostedWorldIdentitySelection, { mode: "visitor" }>,
 ): Promise<DemoReadiness> {
   const operatorIdConfigured = isConfigured(environment.HEDERA_OPERATOR_ID);
   const operatorKeyConfigured = isConfigured(environment.HEDERA_OPERATOR_KEY);
@@ -77,6 +103,30 @@ export async function getDemoReadiness(
     environment.HOSTED_DEMO_MODE === "true" &&
     environment.ZEROG_SERVER_DEMO === "true";
   const serverKeyConfigured = hostedDemo && isConfigured(environment.ZEROG_KEY);
+  const sharedWorldIdentity = hostedWorldIdentity(environment);
+  const visitorWorldIdentity = visitorSelection
+    ? hostedWorldIdentity(environment, visitorSelection)
+    : undefined;
+  let worldVerified = false;
+  if (sharedWorldIdentity?.configured && sharedWorldIdentity.address) {
+    try {
+      worldVerified = Boolean(
+        await worldLookup(sharedWorldIdentity.address),
+      );
+    } catch {
+      worldVerified = false;
+    }
+  }
+  let visitorVerified = false;
+  if (visitorWorldIdentity?.configured && visitorWorldIdentity.address) {
+    try {
+      visitorVerified = Boolean(
+        await worldLookup(visitorWorldIdentity.address),
+      );
+    } catch {
+      visitorVerified = false;
+    }
+  }
 
   return {
     zeroG: {
@@ -84,6 +134,36 @@ export async function getDemoReadiness(
       serverKeyConfigured,
       ready: serverKeyConfigured,
     },
+    world: sharedWorldIdentity
+      ? {
+          mode: "hosted-demo",
+          ...(sharedWorldIdentity.address
+            ? { identityAgent: sharedWorldIdentity.address }
+            : {}),
+          configured: sharedWorldIdentity.configured,
+          verified: worldVerified,
+          identities: {
+            verified: {
+              ...(sharedWorldIdentity.address
+                ? { identityAgent: sharedWorldIdentity.address }
+                : {}),
+              verified: worldVerified,
+            },
+            ...(visitorWorldIdentity?.address
+              ? {
+                  visitor: {
+                    identityAgent: visitorWorldIdentity.address,
+                    verified: visitorVerified,
+                  },
+                }
+              : {}),
+          },
+        }
+      : {
+          mode: "browser",
+          configured: false,
+          verified: false,
+        },
     hedera: {
       network: "testnet",
       operatorIdConfigured,

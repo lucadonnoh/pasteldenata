@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { privateKeyToAccount } from "viem/accounts";
 import { getDemoReadiness } from "../src/server/demo-readiness";
 import {
   HOMEPAGE_REQUIRED_HBAR,
@@ -115,4 +116,78 @@ test("browser-key mode remains the default", async () => {
     serverKeyConfigured: false,
     ready: false,
   });
+});
+
+test("hosted readiness verifies the shared World address without exposing its key", async () => {
+  const privateKey =
+    "0x1111111111111111111111111111111111111111111111111111111111111111";
+  const account = privateKeyToAccount(privateKey);
+  const lookedUp: string[] = [];
+  const result = await getDemoReadiness(
+    {
+      HOSTED_DEMO_MODE: "true",
+      ZEROG_SERVER_DEMO: "true",
+      ZEROG_KEY: "sk-demo",
+      WORLD_DEMO_PRIVATE_KEY: privateKey,
+    },
+    mirrorBalance(0),
+    async (address) => {
+      lookedUp.push(address);
+      return "anonymous-human-id";
+    },
+  );
+
+  assert.deepEqual(lookedUp, [account.address]);
+  assert.deepEqual(result.world, {
+    mode: "hosted-demo",
+    identityAgent: account.address,
+    configured: true,
+    verified: true,
+    identities: {
+      verified: {
+        identityAgent: account.address,
+        verified: true,
+      },
+    },
+  });
+  assert.doesNotMatch(JSON.stringify(result), /1111111111111111/);
+  assert.doesNotMatch(JSON.stringify(result), /anonymous-human-id/);
+});
+
+test("hosted readiness reports a fresh visitor separately from the verified identity", async () => {
+  const privateKey =
+    "0x5555555555555555555555555555555555555555555555555555555555555555";
+  const shared = privateKeyToAccount(privateKey);
+  const lookedUp: string[] = [];
+  const result = await getDemoReadiness(
+    {
+      HOSTED_DEMO_MODE: "true",
+      ZEROG_SERVER_DEMO: "true",
+      ZEROG_KEY: "sk-demo",
+      WORLD_DEMO_PRIVATE_KEY: privateKey,
+    },
+    mirrorBalance(0),
+    async (address) => {
+      lookedUp.push(address);
+      return address.toLowerCase() === shared.address.toLowerCase()
+        ? "shared-human"
+        : null;
+    },
+    {
+      mode: "visitor",
+      sessionId: "dd67b9cb-c9bc-49fa-a7fe-fe2bfd6ecc9a",
+    },
+  );
+
+  assert.equal(result.world.identities?.verified.verified, true);
+  assert.equal(result.world.identities?.visitor?.verified, false);
+  assert.match(
+    result.world.identities?.visitor?.identityAgent ?? "",
+    /^0x[a-fA-F0-9]{40}$/,
+  );
+  assert.notEqual(
+    result.world.identities?.visitor?.identityAgent,
+    shared.address,
+  );
+  assert.equal(lookedUp.length, 2);
 });

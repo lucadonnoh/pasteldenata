@@ -54,6 +54,10 @@ export interface JobWorld {
   scalperMode: boolean;
   /** True only after the browser proves control of its AgentBook address. */
   userIdentityProved: boolean;
+  /** Canonical AgentBook result for the user's selected hosted identity. */
+  userHumanStatus: "pending" | "verified" | "unverified";
+  /** Auction-scoped credentials issued specifically to the user's agents. */
+  userPassesIssued: number;
   /** Explicit demo personas; these never replace the real user's identity. */
   mockBuyers: Array<{
     name: string;
@@ -259,6 +263,8 @@ export async function startSettlementJob(
       enabled: true,
       scalperMode: options.scalperMode === true,
       userIdentityProved: Boolean(options.identityAgent),
+      userHumanStatus: options.identityAgent ? "pending" : "unverified",
+      userPassesIssued: 0,
       mockBuyers: [],
       passesIssued: 0,
       sybilRejections: 0,
@@ -353,6 +359,9 @@ async function execute(
           listing.humanPolicy === "one-per-human",
       );
       if (!identityAgent) {
+        if (buyerName === USER_BUYER_NAME && job.world) {
+          job.world.userHumanStatus = "unverified";
+        }
         for (const listing of protectedItems) {
           gateway.noteMissingIdentity();
           refusals.set(
@@ -371,7 +380,14 @@ async function execute(
         });
         if (enrollment.ok && enrollment.pass) {
           passes.set(`${listing.itemId}|${leafWallet}`, enrollment.pass);
+          if (buyerName === USER_BUYER_NAME && job.world) {
+            job.world.userHumanStatus = "verified";
+            job.world.userPassesIssued += 1;
+          }
         } else {
+          if (buyerName === USER_BUYER_NAME && job.world) {
+            job.world.userHumanStatus = "unverified";
+          }
           refusals.set(
             `${listing.itemId}|${leafWallet}`,
             enrollment.reason ?? "enrollment refused",

@@ -4,10 +4,18 @@ import { createWorldBridgeStore } from "@worldcoin/idkit-core";
 import { solidityEncode } from "@worldcoin/idkit-core/hashing";
 import { ExternalLink, KeyRound, ShieldCheck, UserCheck } from "lucide-react";
 import QRCode from "qrcode";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPublicClient, decodeAbiParameters, http } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { worldchain } from "viem/chains";
+import {
+  freshHostedWorldSessionId,
+  hostedWorldDemoChoice,
+  hostedWorldReadinessUrl,
+  hostedWorldSessionId,
+  saveHostedWorldDemoChoice,
+  type HostedWorldDemoChoice,
+} from "@/src/hosted-world-demo";
 
 const AGENT_BOOK_CONTRACT = "0xA23aB2712eA7BBa896930544C7d6636a96b944dA";
 const AGENT_BOOK_ABI = [
@@ -33,9 +41,14 @@ const WORLDSCAN_URL = "https://worldscan.org";
 
 interface StoredIdentity {
   address: `0x${string}`;
-  privateKey: `0x${string}`;
+  privateKey?: `0x${string}`;
   humanId?: string;
   txHash?: `0x${string}`;
+}
+
+interface HostedIdentityOptions {
+  verified?: { identityAgent?: `0x${string}`; verified: boolean };
+  visitor?: { identityAgent: `0x${string}`; verified: boolean };
 }
 
 function loadIdentity(): StoredIdentity | null {
@@ -47,7 +60,9 @@ function loadIdentity(): StoredIdentity | null {
   }
 }
 
-function saveIdentity(identity: StoredIdentity): void {
+function saveIdentity(
+  identity: StoredIdentity & { privateKey: `0x${string}` },
+): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(identity));
 }
 
@@ -82,32 +97,110 @@ type Phase =
   | { name: "connecting" }
   | { name: "scan"; qrDataUrl: string; connectorURI: string }
   | { name: "registering" }
-  | { name: "registered"; humanId: string; txHash?: string }
+  | { name: "registered"; humanId?: string; txHash?: string }
   | { name: "error"; message: string };
 
 /**
  * In-product AgentBook registration: the same flow as the AgentKit CLI —
  * nonce from the AgentBook contract, a World ID bridge session, a QR the
  * human scans with World App, and the signed proof relayed on-chain. The
- * identity key never leaves this browser; the human's World ID never leaves
- * their phone.
+ * In local mode the identity key never leaves this browser. Hosted mode asks
+ * the server for a session-derived public address and never returns its key.
+ * In both modes the human's World ID never leaves their phone.
  */
 export function WorldVerify() {
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
+  const [hostedDemo, setHostedDemo] = useState(false);
+  const [hostedChoice, setHostedChoice] =
+    useState<HostedWorldDemoChoice>("verified");
+  const [hostedSession, setHostedSession] = useState("");
+  const [hostedIdentities, setHostedIdentities] =
+    useState<HostedIdentityOptions>({});
+
+  const applyHostedIdentity = useCallback(function applyHostedIdentity(
+    choice: HostedWorldDemoChoice,
+    identities: HostedIdentityOptions,
+  ) {
+    const selected =
+      choice === "verified" ? identities.verified : identities.visitor;
+    setHostedChoice(choice);
+    saveHostedWorldDemoChoice(choice);
+    setIdentity(
+      selected?.identityAgent ? { address: selected.identityAgent } : null,
+    );
+    setPhase(selected?.verified ? { name: "registered" } : { name: "idle" });
+  }, []);
+
+  const loadHostedIdentity = useCallback(async function loadHostedIdentity(
+    sessionId: string,
+    choice: HostedWorldDemoChoice,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const response = await fetch(hostedWorldReadinessUrl(sessionId), {
+      cache: "no-store",
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) return false;
+    const readiness = (await response.json()) as {
+      world?: {
+        mode?: "browser" | "hosted-demo";
+        identities?: {
+          verified?: {
+            identityAgent?: `0x${string}`;
+            verified: boolean;
+          };
+          visitor?: {
+            identityAgent: `0x${string}`;
+            verified: boolean;
+          };
+        };
+      };
+    };
+    if (
+      readiness.world?.mode !== "hosted-demo" ||
+      !readiness.world.identities
+    ) {
+      return false;
+    }
+    setHostedDemo(true);
+    setHostedSession(sessionId);
+    setHostedIdentities(readiness.world.identities);
+    applyHostedIdentity(choice, readiness.world.identities);
+    return true;
+  }, [applyHostedIdentity]);
 
   useEffect(() => {
     // Defer past the initial effect flush; localStorage is browser-only and
     // the lint rule forbids synchronous setState inside effects.
-    const timer = window.setTimeout(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const sessionId = hostedWorldSessionId();
+        const choice = hostedWorldDemoChoice();
+        if (
+          await loadHostedIdentity(sessionId, choice, controller.signal)
+        ) {
+          return;
+        }
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+        // Fall back to the local browser identity flow.
+      }
       let stored = loadIdentity();
       if (!stored) {
         const privateKey = generatePrivateKey();
-        stored = {
+        const generated = {
           address: privateKeyToAccount(privateKey).address,
           privateKey,
         };
-        saveIdentity(stored);
+        saveIdentity(generated);
+        stored = generated;
       }
       setIdentity(stored);
       if (stored.humanId) {
@@ -119,8 +212,11 @@ export function WorldVerify() {
         });
       }
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [loadHostedIdentity]);
 
   async function verify() {
     if (!identity) return;
@@ -138,13 +234,25 @@ export function WorldVerify() {
       });
       if (existing !== 0n) {
         const humanId = `0x${existing.toString(16)}`;
-        saveIdentity({ ...identity, humanId });
+        if (!hostedDemo && identity.privateKey) {
+          saveIdentity({ ...identity, privateKey: identity.privateKey, humanId });
+        }
         const txHash = transactionHash(identity.txHash);
         setPhase({
           name: "registered",
           humanId,
           ...(txHash ? { txHash } : {}),
         });
+        if (hostedDemo) {
+          setHostedIdentities((current) => ({
+            ...current,
+            [hostedChoice]: {
+              ...(current[hostedChoice] ?? {}),
+              identityAgent: identity.address,
+              verified: true,
+            },
+          }));
+        }
         return;
       }
 
@@ -192,6 +300,17 @@ export function WorldVerify() {
               nullifierHash: result.nullifier_hash,
               proof,
               contract: AGENT_BOOK_CONTRACT,
+              ...(hostedDemo
+                ? {
+                    hostedWorldIdentity:
+                      hostedChoice === "visitor"
+                        ? {
+                            mode: "visitor" as const,
+                            sessionId: hostedSession,
+                          }
+                        : { mode: "verified" as const },
+                  }
+                : {}),
             }),
           });
           const body = (await response.json()) as {
@@ -217,16 +336,29 @@ export function WorldVerify() {
             );
           }
           const txHash = transactionHash(body.txHash);
-          saveIdentity({
-            ...identity,
-            humanId,
-            ...(txHash ? { txHash } : {}),
-          });
+          if (!hostedDemo && identity.privateKey) {
+            saveIdentity({
+              ...identity,
+              privateKey: identity.privateKey,
+              humanId,
+              ...(txHash ? { txHash } : {}),
+            });
+          }
           setPhase({
             name: "registered",
             humanId,
             ...(txHash ? { txHash } : {}),
           });
+          if (hostedDemo) {
+            setHostedIdentities((current) => ({
+              ...current,
+              [hostedChoice]: {
+                ...(current[hostedChoice] ?? {}),
+                identityAgent: identity.address,
+                verified: true,
+              },
+            }));
+          }
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -252,11 +384,61 @@ export function WorldVerify() {
       </header>
 
       <p>
-        Scarce listings in this market are <b>one allocation per human</b>.
-        Registering links your buyer&apos;s identity agent to your anonymous
-        World ID in the AgentBook on World Chain — your agents earn bidding
-        rights; sellers only ever see auction-scoped nullifiers.
+        {hostedDemo ? (
+          <>
+            Choose the pre-verified human for the successful path, or a fresh
+            visitor to watch protected sellers refuse an unverified bidder.
+            The visitor can verify this address without changing what the next
+            judge sees.
+          </>
+        ) : (
+          <>
+            Scarce listings in this market are <b>one allocation per human</b>.
+            Registering links your buyer&apos;s identity agent to your anonymous
+            World ID in the AgentBook on World Chain — your agents earn bidding
+            rights; sellers only ever see auction-scoped nullifiers.
+          </>
+        )}
       </p>
+
+      {hostedDemo && (
+        <div
+          className="world-path-picker"
+          role="radiogroup"
+          aria-label="World identity demo path"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={hostedChoice === "verified"}
+            className={hostedChoice === "verified" ? "selected" : ""}
+            onClick={() => applyHostedIdentity("verified", hostedIdentities)}
+          >
+            <UserCheck size={15} aria-hidden="true" />
+            <span>
+              <b>Already verified</b>
+              <small>Happy path · auction passes issued</small>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={hostedChoice === "visitor"}
+            className={hostedChoice === "visitor" ? "selected" : ""}
+            onClick={() => applyHostedIdentity("visitor", hostedIdentities)}
+          >
+            <KeyRound size={15} aria-hidden="true" />
+            <span>
+              <b>Fresh visitor</b>
+              <small>
+                {hostedIdentities.visitor?.verified
+                  ? "Verified by this visitor"
+                  : "Unverified · protected bids refused"}
+              </small>
+            </span>
+          </button>
+        </div>
+      )}
 
       <dl>
         <div>
@@ -273,9 +455,15 @@ export function WorldVerify() {
           </dt>
           <dd>
             {phase.name === "registered" ? (
-              <>
-                registered · human <code>{phase.humanId.slice(0, 12)}…</code>
-              </>
+              phase.humanId ? (
+                <>
+                  registered · human <code>{phase.humanId.slice(0, 12)}…</code>
+                </>
+              ) : (
+                hostedChoice === "visitor"
+                  ? "registered · this visitor"
+                  : "registered · shared demo identity"
+              )
             ) : (
               "not registered"
             )}
@@ -285,7 +473,11 @@ export function WorldVerify() {
 
       {phase.name === "idle" && (
         <button type="button" onClick={() => void verify()}>
-          Verify with World App
+          {hostedDemo
+            ? hostedChoice === "visitor"
+              ? "Verify this visitor with World App"
+              : "Verify shared identity with World App"
+            : "Verify with World App"}
         </button>
       )}
       {phase.name === "connecting" && <p className="world-status">Contacting World Chain…</p>}
@@ -304,7 +496,15 @@ export function WorldVerify() {
       )}
       {phase.name === "registered" && (
         <div className="world-registration-status">
-          <p>✓ Your agents are human-backed.</p>
+          <p>
+            ✓{" "}
+            {hostedDemo
+              ? hostedChoice === "visitor"
+                ? "This visitor identity is"
+                : "The shared judge identity is"
+              : "Your agents are"}{" "}
+            human-backed.
+          </p>
           <a
             className="world-explorer-link"
             href={
@@ -330,6 +530,18 @@ export function WorldVerify() {
               In “Read Contract”, call <code>lookupHuman</code> with the
               identity-agent address shown above.
             </small>
+          )}
+          {hostedDemo && hostedChoice === "visitor" && (
+            <button
+              type="button"
+              className="world-fresh-visitor"
+              onClick={() => {
+                const sessionId = freshHostedWorldSessionId();
+                void loadHostedIdentity(sessionId, "visitor");
+              }}
+            >
+              Create another unverified visitor
+            </button>
           )}
         </div>
       )}

@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Store,
   Trophy,
+  UserCheck,
   Users,
   UtensilsCrossed,
   WalletCards,
@@ -681,6 +682,8 @@ function MarketBidStage({
   const otherListings = activeListings.filter(
     (listing) => listing.itemId !== focus?.itemId,
   );
+  const userWorldBlocks =
+    live.world?.blocked.filter((entry) => entry.buyerName === "You") ?? [];
 
   function categoryState(category: Category): MarketVisualState {
     if (live.lostCategories.includes(category)) return "lost";
@@ -859,6 +862,43 @@ function MarketBidStage({
           </span>
         </div>
       </div>
+
+      {live.world && (
+        <div
+          className={styles.worldGateStatus}
+          data-status={live.world.userHumanStatus}
+          aria-live="polite"
+        >
+          <span>
+            {live.world.userHumanStatus === "verified" ? (
+              <UserCheck size={15} aria-hidden="true" />
+            ) : live.world.userHumanStatus === "unverified" ? (
+              <X size={15} aria-hidden="true" />
+            ) : (
+              <Clock3 size={15} aria-hidden="true" />
+            )}
+          </span>
+          <div>
+            <small>WORLD AGENTBOOK · SELLER-SIDE ACCESS CONTROL</small>
+            <strong>
+              {live.world.userHumanStatus === "verified"
+                ? `Verified human — ${live.world.userPassesIssued} protected-auction pass${live.world.userPassesIssued === 1 ? "" : "es"} issued to your agents.`
+                : live.world.userHumanStatus === "unverified"
+                  ? "Unverified visitor — protected sellers refuse your agents."
+                  : "Checking the selected identity in the canonical AgentBook…"}
+            </strong>
+            <p>
+              {live.world.userHumanStatus === "verified"
+                ? "Each pass is bound to one auction and one leaf wallet; the raw World human identifier is not published."
+                : live.world.userHumanStatus === "unverified"
+                  ? userWorldBlocks.length > 0
+                    ? `${userWorldBlocks.length} protected purchase attempt${userWorldBlocks.length === 1 ? " was" : "s were"} blocked. Open listings remain available.`
+                    : "The market still runs normally. The rejection becomes visible when a protected listing checks the buyer credential."
+                  : "The server has proved control of the address. Human-backing is a separate on-chain lookup."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {focus ? (
         <>
