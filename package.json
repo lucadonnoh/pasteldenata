@@ -9,6 +9,8 @@
     "demo:mock": "tsx src/cli.ts --mock",
     "demo:hedera": "tsx src/cli.ts --hedera",
     "demo:hedera:mock": "tsx src/cli.ts --mock --hedera",
+    "demo:live": "tsx src/cli.ts --hedera-live",
+    "demo:live:mock": "tsx src/cli.ts --mock --hedera-live",
     "demo:hedera:simple": "tsx src/cli.ts --mock --hedera-simple",
     "hedera:setup": "tsx src/hedera/setup.ts",
     "test": "node --import tsx --test tests/*.test.ts",

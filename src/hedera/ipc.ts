@@ -21,6 +21,8 @@ export interface LeafInit {
   claimTokenId: string;
   auctionTopicId: string;
   clearingAccountId: string;
+  /** Present in live mode: the leaf reads competing bids from its topic. */
+  live?: { mirrorBaseUrl: string };
 }
 
 export type ParentToLeaf =
@@ -31,7 +33,16 @@ export type ParentToLeaf =
       reveals: Bid[];
     }
   | { type: "PREPARED"; sellerAccountId: string; claimNftSerial: number }
-  | { type: "SIGNED"; txBytesB64: string };
+  | { type: "SIGNED"; txBytesB64: string }
+  /** grantedCents = 0 means the root refused the top-up. */
+  | { type: "BUDGET_GRANTED"; grantedCents: number };
+
+export interface LiveStats {
+  bids: number;
+  openingCents: number;
+  closingCents: number;
+  grantedCents: number;
+}
 
 export interface LeafResult {
   sellerId: string;
@@ -41,11 +52,14 @@ export interface LeafResult {
   leafAccountId: string;
   claimNftSerial: number;
   auctionTopicId: string;
+  liveStats?: LiveStats;
 }
 
 export type LeafToParent =
   | { type: "RFQ" }
   | { type: "PREPARE"; sellerId: string }
   | { type: "SIGN_REQUEST"; sellerId: string; txBytesB64: string }
+  /** Live mode: ask the root for contingency budget when priced out. */
+  | { type: "BUDGET_REQUEST"; neededCents: number }
   | { type: "DONE"; result: LeafResult }
   | { type: "ERROR"; message: string };

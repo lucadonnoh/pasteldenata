@@ -53,36 +53,46 @@ scoped mandate:
   settlement on HCS, auditable on HashScan / Mirror Node. No private data
   (intent, global budget, category caps) is ever published.
 
-`--hedera-simple` keeps the earlier single-process escrow settlement as a
-fallback. In both modes the policy checks run in code first, and the token
-balances enforce the hard budget even against a malicious planner output.
+## Live auctions (`--hedera-live`)
+
+The full version: instead of a one-shot RFQ, each auction runs as a live
+reverse auction **on its HCS topic**. Sellers enter at list price and
+publicly undercut and concede — each bid a `TopicMessageSubmitTransaction`
+signed and paid by that seller's own account, never below its private
+reserve. The buying agent watches the topic through Mirror Node, closes the
+auction when bidding goes quiet, and picks the best offer against its
+private preferences. If every standing offer exceeds its cap, the agent asks
+the root for contingency budget, which arrives as a real on-chain transfer
+before the cap is raised — cross-agent budget reallocation, enforced by the
+ledger. Price discovery is real (winners routinely get pushed to their
+reserve) and the entire bid history is replayable on HashScan.
+
+```bash
+npm run demo:live         # 0G private planner + live HCS auctions
+npm run demo:live:mock    # mock planner + live HCS auctions
+```
+
+`--hedera` keeps the sealed one-shot variant; `--hedera-simple` keeps the
+single-process escrow fallback. In every mode the policy checks run in code
+first, and the token balances enforce the hard budget even against a
+malicious planner output.
 
 ## What is missing
 
-- **A real auction.** What runs today is a one-shot commit/reveal RFQ: each
-  seller quotes once, the leaf picks a winner, done. A live auction —
-  competing bids as HCS messages, consensus timestamps for ordering and
-  close, agents reacting to being outbid, mirror-node streaming of auction
-  state — is the natural next step. The topic-per-auction structure and the
-  leaf-agent loop are already shaped for it: bids would become
-  `TopicMessageSubmitTransaction`s from leaf wallets instead of IPC replies.
-- **Independent seller agents.** Sellers are catalog entries simulated by the
-  root process, which also counter-signs their settlements. Real seller
-  agents would run as their own processes (or machines), quote against the
-  RFQ themselves, and hold their own keys.
-- **Real 0G run end to end.** The Hedera swarm is verified on testnet with
-  the mock planner; the `demo:hedera` path with the real 0G private planner
-  needs a router key (testnet: [pc.testnet.0g.ai](https://pc.testnet.0g.ai),
-  model `qwen2.5-omni`, funded via [faucet.0g.ai](https://faucet.0g.ai)).
-- **Smarter leaf agents.** Leaves currently score bids deterministically.
-  Each leaf could make one scoped 0G call to judge qualitative fit
-  (requirements vs. offering) without ever seeing the global mandate.
+- **Independent seller agents.** Sellers bid from their own Hedera accounts,
+  but their pricing logic runs inside the root process, which also
+  counter-signs settlements. Real seller agents would run as their own
+  processes (or machines) and hold their own keys.
+- **Smarter leaf agents.** Leaves score bids deterministically. Each leaf
+  could make one scoped 0G call to judge qualitative fit (requirements vs.
+  offering) without ever seeing the global mandate.
 - **Human-gated auctions.** Seller-selectable one-allocation-per-human
   policies (World AgentKit style) are not started.
 - **A UI.** Everything is CLI. The budget flowing from the buyer through
-  clearing into the leaf wallets and back is the demo's best visual.
-- **Reclaiming leaf HBAR.** Each run leaves ~1 HBAR of fee float in the leaf
-  wallets; fine on testnet, sloppy in production.
+  clearing into the leaf wallets and back — and the live bid war on each
+  topic — is the demo's best visual.
+- **Reclaiming leaf HBAR.** Each run leaves a few HBAR of fee float in the
+  leaf wallets; fine on testnet, sloppy in production.
 
 ## Privacy boundaries
 

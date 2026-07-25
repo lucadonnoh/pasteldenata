@@ -15,7 +15,8 @@ import {
 const argv = process.argv.slice(2);
 const useMock = argv.includes("--mock");
 const useSimpleHedera = argv.includes("--hedera-simple");
-const useHedera = argv.includes("--hedera") || useSimpleHedera;
+const useLive = argv.includes("--hedera-live");
+const useHedera = argv.includes("--hedera") || useSimpleHedera || useLive;
 const intent =
   argv
     .filter((arg) => !arg.startsWith("--"))
@@ -59,8 +60,10 @@ async function main() {
       console.log(
         `Hedera testnet ready · NATA ${infra.paymentTokenId} · claims ${infra.claimTokenId}\n`,
       );
-      const settle = useSimpleHedera ? settleOnHedera : settleWithSwarm;
-      settler = (plan, auctions) => settle(plan, auctions, { ...ctx, infra });
+      settler = useSimpleHedera
+        ? (plan, auctions) => settleOnHedera(plan, auctions, { ...ctx, infra })
+        : (plan, auctions) =>
+            settleWithSwarm(plan, auctions, { ...ctx, infra }, { live: useLive });
     }
 
     const result = await organizePrivatePurchase(
@@ -92,16 +95,22 @@ async function main() {
     }
     line("Contingency", formatUsd(result.plan.unallocatedBudgetCents));
 
-    console.log("\nSEALED-BID AUCTIONS");
-    for (const auction of result.auctions) {
+    if (useLive) {
       console.log(
-        `\n${auction.category.toUpperCase()} · ${auction.bids.length} mock sellers · ${auction.commitments.length} commitments`,
+        "\nLIVE AUCTIONS · sellers undercut each other on each auction's HCS topic; agents close on quiet",
       );
-      for (const bid of auction.bids) {
-        const marker = bid.sellerId === auction.winner.sellerId ? "✓" : " ";
+    } else {
+      console.log("\nSEALED-BID AUCTIONS");
+      for (const auction of result.auctions) {
         console.log(
-          ` ${marker} ${bid.sellerName.padEnd(23)} ${formatUsd(bid.amountCents).padStart(8)}  ${bid.offering}`,
+          `\n${auction.category.toUpperCase()} · ${auction.bids.length} mock sellers · ${auction.commitments.length} commitments`,
         );
+        for (const bid of auction.bids) {
+          const marker = bid.sellerId === auction.winner.sellerId ? "✓" : " ";
+          console.log(
+            ` ${marker} ${bid.sellerName.padEnd(23)} ${formatUsd(bid.amountCents).padStart(8)}  ${bid.offering}`,
+          );
+        }
       }
     }
 
@@ -117,6 +126,14 @@ async function main() {
             : ` · claim NFT #${receipt.claimNftSerial}`
         }`,
       );
+      if (receipt.liveBids !== undefined && receipt.liveOpeningCents !== undefined) {
+        line(
+          "",
+          `${receipt.liveBids} on-chain bids · ${formatUsd(receipt.liveOpeningCents)} → ${formatUsd(receipt.amountCents)}${
+            receipt.liveGrantedCents ? ` · +${formatUsd(receipt.liveGrantedCents)} contingency granted` : ""
+          }`,
+        );
+      }
       if (receipt.escrowAccountId && receipt.auctionTopicUrl) {
         line("", `agent wallet ${receipt.escrowAccountId}`);
       }

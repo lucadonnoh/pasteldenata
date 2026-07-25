@@ -3,7 +3,9 @@ import test from "node:test";
 import { runAuctions } from "../src/auction.js";
 import type { AuctionResult, SellerAuctionView } from "../src/domain.js";
 import { organizePrivatePurchase } from "../src/orchestrator.js";
+import { nextBid } from "../src/hedera/liveAuction.js";
 import { settleMockPayments, validateSettlement } from "../src/payments.js";
+import { MOCK_SELLERS } from "../src/catalog.js";
 import { MockPrivatePlanner } from "../src/planner.js";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
@@ -71,6 +73,46 @@ test("payment policy rejects a category mandate overspend", async () => {
     () => settleMockPayments(plan, tampered),
     /exceeded its category mandate/,
   );
+});
+
+test("live bidding enters at list, concedes under pressure, floors at reserve", () => {
+  const seller = MOCK_SELLERS.find((item) => item.id === "prado");
+  assert.ok(seller);
+
+  // No own bid yet: enter at list price.
+  assert.equal(nextBid(seller, new Map(), undefined), seller.listPriceCents);
+
+  // Rival leads: undercut below the leader, never below reserve.
+  const pressured = new Map([
+    [seller.id, { amountCents: seller.listPriceCents }],
+    ["taberna-lx", { amountCents: 10000 }],
+  ]);
+  const undercut = nextBid(seller, pressured, 10000);
+  assert.ok(undercut !== undefined && undercut < 10000);
+  assert.ok(undercut >= seller.reservePriceCents);
+
+  // Leader below my reserve: still concede toward my own reserve.
+  const outpriced = new Map([
+    [seller.id, { amountCents: seller.listPriceCents }],
+    ["taberna-lx", { amountCents: seller.reservePriceCents - 100 }],
+  ]);
+  const concession = nextBid(seller, outpriced, seller.reservePriceCents - 100);
+  assert.ok(concession !== undefined && concession < seller.listPriceCents);
+  assert.ok(concession >= seller.reservePriceCents);
+
+  // Already at reserve and outpriced: hold, never breach the reserve.
+  const atReserve = new Map([
+    [seller.id, { amountCents: seller.reservePriceCents }],
+    ["taberna-lx", { amountCents: seller.reservePriceCents - 100 }],
+  ]);
+  assert.equal(
+    nextBid(seller, atReserve, seller.reservePriceCents - 100),
+    undefined,
+  );
+
+  // Already leading on price: hold.
+  const leading = new Map([[seller.id, { amountCents: 9500 }]]);
+  assert.equal(nextBid(seller, leading, 9500), undefined);
 });
 
 test("payment policy rejects a global budget overspend", async () => {

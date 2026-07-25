@@ -117,6 +117,11 @@ export interface PaymentReceipt {
   claimNftSerial?: number;
   /** Per-auction HCS topic (swarm mode: one topic per auction, unlinkable). */
   auctionTopicUrl?: string;
+  /** Live auction stats: total on-chain bids and the price discovery range. */
+  liveBids?: number;
+  liveOpeningCents?: number;
+  /** Contingency the root granted this agent on-chain mid-auction. */
+  liveGrantedCents?: number;
 }
 
 export interface HederaSummary {
