@@ -2084,6 +2084,73 @@
   transition: width 300ms ease;
 }
 
+.worldGateStatus {
+  --world-color: #7656c6;
+  display: grid;
+  min-height: 62px;
+  align-items: center;
+  gap: 11px;
+  margin-top: 8px;
+  padding: 10px 13px;
+  border: 1px solid
+    color-mix(in srgb, var(--world-color) 24%, transparent);
+  border-radius: 16px;
+  background: color-mix(
+    in srgb,
+    var(--world-color) 7%,
+    rgba(255, 255, 255, 0.3)
+  );
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.worldGateStatus[data-status="verified"] {
+  --world-color: #568738;
+}
+
+.worldGateStatus[data-status="unverified"] {
+  --world-color: #b06a3d;
+}
+
+.worldGateStatus > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: color-mix(
+    in srgb,
+    var(--world-color) 13%,
+    rgba(255, 255, 255, 0.5)
+  );
+  color: var(--world-color);
+  place-items: center;
+}
+
+.worldGateStatus small,
+.worldGateStatus strong {
+  display: block;
+}
+
+.worldGateStatus small {
+  margin-bottom: 3px;
+  color: var(--world-color);
+  font-size: 7px;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+}
+
+.worldGateStatus strong {
+  color: rgba(34, 38, 44, 0.78);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.worldGateStatus p {
+  margin: 3px 0 0;
+  color: rgba(34, 38, 44, 0.47);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
 .marketFocus {
   display: grid;
   min-height: 470px;

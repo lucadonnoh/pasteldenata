@@ -55,6 +55,19 @@ export interface LiveAuctionView {
   progress: MarketProgress;
   settledCategories: string[];
   lostCategories: string[];
+  world?: {
+    userIdentityProved: boolean;
+    userHumanStatus: "pending" | "verified" | "unverified";
+    userPassesIssued: number;
+    passesIssued: number;
+    notHumanBacked: number;
+    blocked: Array<{
+      buyerName: string;
+      category: string;
+      itemId: string;
+      reason: string;
+    }>;
+  };
   active: boolean;
   done: boolean;
   failed: boolean;
@@ -77,6 +90,7 @@ interface JobSnapshot {
   progress?: MarketProgress;
   settledCategories?: string[];
   lostCategories?: string[];
+  world?: LiveAuctionView["world"];
   result?: SettlementResult;
   error?: string;
 }
@@ -121,6 +135,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   });
   const [settledCategories, setSettledCategories] = useState<string[]>([]);
   const [lostCategories, setLostCategories] = useState<string[]>([]);
+  const [world, setWorld] = useState<LiveAuctionView["world"]>();
   const [bidsByItem, setBidsByItem] = useState<Record<string, MarketBid[]>>(
     {},
   );
@@ -198,6 +213,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
         if (job.progress) setProgress(job.progress);
         setSettledCategories(job.settledCategories ?? []);
         setLostCategories(job.lostCategories ?? []);
+        setWorld(job.world);
 
         if (job.status === "done" && job.result) {
           finished = true;
@@ -309,6 +325,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     progress,
     settledCategories,
     lostCategories,
+    ...(world ? { world } : {}),
     active: settlement === "pending",
     done: settlement === "settled",
     failed: settlement === "failed",

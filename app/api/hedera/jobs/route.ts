@@ -30,13 +30,17 @@ export async function POST(request: Request) {
     const body = parseSettlementRequest(await request.json());
     const hostedIdentityAgent = await proveHostedWorldIdentity(
       body.plan.planId,
+      body.hostedWorldIdentity ?? { mode: "verified" },
     );
     const identityAgent =
       hostedIdentityAgent ??
       (body.identityProof
         ? await consumeWorldIdentityProof(body.identityProof, body.plan.planId)
         : undefined);
-    if (hostedIdentityAgent) {
+    if (
+      hostedIdentityAgent &&
+      body.hostedWorldIdentity?.mode !== "visitor"
+    ) {
       const humanId = await (
         await createHumanResolver()
       ).lookupHuman(hostedIdentityAgent);

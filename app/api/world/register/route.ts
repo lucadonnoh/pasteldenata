@@ -3,7 +3,10 @@ import {
   LocalDemoRequestError,
   assertLocalDemoRequest,
 } from "@/src/server/local-demo-request";
-import { hostedWorldIdentity } from "@/src/server/hosted-world-identity";
+import {
+  hostedWorldIdentity,
+  type HostedWorldIdentitySelection,
+} from "@/src/server/hosted-world-identity";
 
 const RELAY_URL = "https://x402-worldchain.vercel.app/register";
 
@@ -16,8 +19,17 @@ const RELAY_URL = "https://x402-worldchain.vercel.app/register";
 export async function POST(request: Request) {
   try {
     assertLocalDemoRequest(request, { mutating: true });
-    const registration = (await request.json()) as Record<string, unknown>;
-    const sharedIdentity = hostedWorldIdentity();
+    const input = (await request.json()) as Record<string, unknown>;
+    const hostedSelection = input.hostedWorldIdentity as
+      | HostedWorldIdentitySelection
+      | undefined;
+    const { hostedWorldIdentity: _hostedWorldIdentity, ...registration } =
+      input;
+    void _hostedWorldIdentity;
+    const sharedIdentity = hostedWorldIdentity(
+      undefined,
+      hostedSelection ?? { mode: "verified" },
+    );
     if (sharedIdentity) {
       if (!sharedIdentity.address) {
         throw new Error("The hosted World identity key is not configured.");
@@ -28,7 +40,7 @@ export async function POST(request: Request) {
           sharedIdentity.address.toLowerCase()
       ) {
         throw new LocalDemoRequestError(
-          "Hosted registration must target the shared demo identity.",
+          "Hosted registration must target the selected demo identity.",
         );
       }
     }

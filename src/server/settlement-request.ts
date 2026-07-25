@@ -81,6 +81,17 @@ const SettlementRequestSchema = z
   .object({
     plan: PlanSchema,
     worldDemo: z.enum(["scalper"]).optional(),
+    hostedWorldIdentity: z
+      .discriminatedUnion("mode", [
+        z.object({ mode: z.literal("verified") }).strict(),
+        z
+          .object({
+            mode: z.literal("visitor"),
+            sessionId: z.string().uuid(),
+          })
+          .strict(),
+      ])
+      .optional(),
     identityProof: z
       .object({
         identityAgent: evmAddress,
@@ -95,6 +106,9 @@ const SettlementRequestSchema = z
 export interface ParsedSettlementRequest {
   plan: PrivatePlan;
   worldDemo?: "scalper";
+  hostedWorldIdentity?:
+    | { mode: "verified" }
+    | { mode: "visitor"; sessionId: string };
   identityProof?: {
     identityAgent: `0x${string}`;
     challengeId: string;

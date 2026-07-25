@@ -1,5 +1,8 @@
 import { HOMEPAGE_REQUIRED_HBAR } from "./market-runway";
-import { hostedWorldIdentity } from "./hosted-world-identity";
+import {
+  hostedWorldIdentity,
+  type HostedWorldIdentitySelection,
+} from "./hosted-world-identity";
 import { createHumanResolver } from "./world-gateway";
 
 export interface DemoReadiness {
@@ -13,6 +16,16 @@ export interface DemoReadiness {
     identityAgent?: `0x${string}`;
     configured: boolean;
     verified: boolean;
+    identities?: {
+      verified: {
+        identityAgent?: `0x${string}`;
+        verified: boolean;
+      };
+      visitor?: {
+        identityAgent: `0x${string}`;
+        verified: boolean;
+      };
+    };
   };
   hedera: {
     network: "testnet";
@@ -76,6 +89,7 @@ export async function getDemoReadiness(
   fetcher: typeof fetch = fetch,
   worldLookup: (address: string) => Promise<string | null> = async (address) =>
     (await createHumanResolver()).lookupHuman(address),
+  visitorSelection?: Extract<HostedWorldIdentitySelection, { mode: "visitor" }>,
 ): Promise<DemoReadiness> {
   const operatorIdConfigured = isConfigured(environment.HEDERA_OPERATOR_ID);
   const operatorKeyConfigured = isConfigured(environment.HEDERA_OPERATOR_KEY);
@@ -90,6 +104,9 @@ export async function getDemoReadiness(
     environment.ZEROG_SERVER_DEMO === "true";
   const serverKeyConfigured = hostedDemo && isConfigured(environment.ZEROG_KEY);
   const sharedWorldIdentity = hostedWorldIdentity(environment);
+  const visitorWorldIdentity = visitorSelection
+    ? hostedWorldIdentity(environment, visitorSelection)
+    : undefined;
   let worldVerified = false;
   if (sharedWorldIdentity?.configured && sharedWorldIdentity.address) {
     try {
@@ -98,6 +115,16 @@ export async function getDemoReadiness(
       );
     } catch {
       worldVerified = false;
+    }
+  }
+  let visitorVerified = false;
+  if (visitorWorldIdentity?.configured && visitorWorldIdentity.address) {
+    try {
+      visitorVerified = Boolean(
+        await worldLookup(visitorWorldIdentity.address),
+      );
+    } catch {
+      visitorVerified = false;
     }
   }
 
@@ -115,6 +142,22 @@ export async function getDemoReadiness(
             : {}),
           configured: sharedWorldIdentity.configured,
           verified: worldVerified,
+          identities: {
+            verified: {
+              ...(sharedWorldIdentity.address
+                ? { identityAgent: sharedWorldIdentity.address }
+                : {}),
+              verified: worldVerified,
+            },
+            ...(visitorWorldIdentity?.address
+              ? {
+                  visitor: {
+                    identityAgent: visitorWorldIdentity.address,
+                    verified: visitorVerified,
+                  },
+                }
+              : {}),
+          },
         }
       : {
           mode: "browser",

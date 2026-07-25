@@ -356,11 +356,17 @@ browser extension, or same-origin script could still read it.
 
 For the CLI, `ZEROG_KEY` is read from the local `.env`.
 
-The browser's generated World identity private key persists in local storage so
-the same registered AgentBook address can authorize later plans. It never goes
-to the coordinator; only plan-bound EIP-191 signatures do. A compromised
-frontend, browser extension, or same-origin script could steal this key, so
-production custody would require stronger browser key storage.
+In local mode, the browser's generated World identity private key persists in
+local storage so the same registered AgentBook address can authorize later
+plans. It never goes to the coordinator; only plan-bound EIP-191 signatures
+do. A compromised frontend, browser extension, or same-origin script could
+steal this key, so production custody would require stronger browser key
+storage.
+
+In hosted judge mode, the browser stores only an opaque random session ID and
+the selected demo path. Railway deterministically derives both hosted signing
+keys server-side, so the visitor address can be registered and reused without
+putting its key in client JavaScript.
 
 Generated Hedera testnet credentials are stored in `hedera-infra.json` and
 `.pasteldenata/hedera-wallets/`. They are ignored by git and written with
@@ -528,11 +534,23 @@ in-memory and configures `/api/health` without performing billable or external
 checks. The browser calls only same-origin application routes in hosted mode,
 and those routes reject cross-origin browser requests.
 
-The hosted World key derives one public identity-agent address. Register that
-address once from `/world` using World App. Subsequent judges see the canonical
-AgentBook result immediately, while the server proves control of the shared
-address against a fresh plan-bound challenge before every settlement. The
-private key and raw AgentBook human identifier are never returned to clients.
+The hosted World demo exposes two explicit paths:
+
+- **Verified human** uses one pre-registered identity-agent address so a judge
+  can immediately see protected-auction passes and successful bids.
+- **Unverified visitor** derives a fresh, stable address for each browser
+  session. The market still starts, but sellers reject that buyer from
+  `one-per-human` listings when the canonical AgentBook lookup returns empty.
+  Open listings remain available.
+
+A visitor may register their derived address from `/world` using World App and
+then rerun it as a verified identity. This does not consume the negative demo
+path: another browser session derives a different unregistered address, and
+the current browser can explicitly create another fresh visitor. Both identity
+keys are derived from the Railway-only `WORLD_DEMO_PRIVATE_KEY`; the server
+proves address control against a fresh plan-bound challenge before every
+settlement. No private key or raw AgentBook human identifier is returned to
+clients.
 
 ### Hedera market CLI
 
