@@ -15,6 +15,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import type { DemoResult } from "@/src/domain";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
 import { PrivacyDetails } from "@/components/execution-details";
@@ -32,7 +33,8 @@ function isUsableZeroGKey(value: string): boolean {
 
 export function IntentBox() {
   const router = useRouter();
-  const { setResult } = usePurchaseSession();
+  const { setResult, setSettlement, setSettlementError, setJobId } =
+    usePurchaseSession();
   const [intent, setIntent] = useState(examples[0] ?? "");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
@@ -67,6 +69,7 @@ export function IntentBox() {
         intent.trim(),
       );
       setResult(purchase);
+      settleOnHedera(purchase);
       setDeparting(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         await new Promise((resolve) => window.setTimeout(resolve, 520));
@@ -82,6 +85,47 @@ export function IntentBox() {
     } finally {
       setLoading(false);
     }
+  }
+
+  /**
+   * Start real testnet settlement in the trusted local coordinator. The
+   * derived plan and mock auction trace leave browser memory; the original
+   * prompt and 0G key do not. The market page streams the ledger activity.
+   */
+  function settleOnHedera(purchase: DemoResult) {
+    setSettlement("pending");
+    setSettlementError("");
+    setJobId(null);
+    fetch("/api/hedera/jobs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Pastel-Local-Demo": "1",
+      },
+      body: JSON.stringify({
+        plan: purchase.plan,
+        auctions: purchase.auctions,
+        mode: "market",
+      }),
+    })
+      .then(async (response) => {
+        const body = (await response.json()) as {
+          jobId?: string;
+          error?: string;
+        };
+        if (!response.ok || !body.jobId) {
+          throw new Error(body.error ?? "Settlement failed to start.");
+        }
+        setJobId(body.jobId);
+      })
+      .catch((settleError: unknown) => {
+        setSettlementError(
+          settleError instanceof Error
+            ? settleError.message
+            : "Settlement failed to start.",
+        );
+        setSettlement("failed");
+      });
   }
 
   function handleShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {

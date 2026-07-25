@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clapperboard,
   Clock3,
+  ExternalLink,
   Flower2,
   Gavel,
   Palette,
@@ -13,9 +14,15 @@ import {
   Store,
   Users,
   UtensilsCrossed,
+  X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import type {
   Category,
@@ -29,6 +36,7 @@ import {
   type MockAgentSearch,
   type MockAuctionReplay,
 } from "@/src/mock-agent-search";
+import type { LiveAuctionView } from "@/components/use-settlement-job";
 
 import styles from "./agent-search-experience.module.css";
 
@@ -70,14 +78,34 @@ function statusLabel(replay: MockAuctionReplay): string {
   return "floor not met";
 }
 
-export function AgentSearchExperience({ result }: { result: DemoResult }) {
-  const searches = useMemo(() => createMockAgentSearches(result), [result]);
+export function AgentSearchExperience({
+  result,
+  live,
+}: {
+  result: DemoResult;
+  live?: LiveAuctionView;
+}) {
+  // Settlement replaces the session result with on-chain receipts. Keep the
+  // already-recorded mock trace stable while those receipts arrive.
+  const searches = useMemo(
+    () => createMockAgentSearches(result),
+    // Settlement swaps mock receipts for Hedera receipts on the same plan.
+    // Keep the replay snapshot stable across that receipt-only update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result.plan.planId],
+  );
   const replays = useMemo(
     () => createMockAuctionReplays(searches),
     [searches],
   );
   const frames = useMemo(() => buildFrames(replays), [replays]);
   const [run, setRun] = useState(0);
+
+  if (live) {
+    return (
+      <LiveAgentSearchRun result={result} searches={searches} live={live} />
+    );
+  }
 
   return (
     <AgentSearchRun
@@ -88,6 +116,431 @@ export function AgentSearchExperience({ result }: { result: DemoResult }) {
       frames={frames}
       onReplay={() => setRun((current) => current + 1)}
     />
+  );
+}
+
+/**
+ * The real thing: phases driven by the settlement job instead of timers.
+ * Wallets appear as the swarm funds them, the bidding stage streams actual
+ * HCS bids read from Mirror Node, and the result cards carry the on-chain
+ * receipts.
+ */
+function LiveAgentSearchRun({
+  result,
+  searches,
+  live,
+}: {
+  result: DemoResult;
+  searches: MockAgentSearch[];
+  live: LiveAuctionView;
+}) {
+  const market = live.mode === "market";
+  const totalBids = market
+    ? Object.values(live.bidsByItem).reduce(
+        (sum, bids) => sum + bids.length,
+        0,
+      )
+    : Object.values(live.bidsByCategory).reduce(
+        (sum, bids) => sum + bids.length,
+        0,
+      );
+  const yourAgents = live.agents.filter(
+    (agent) => agent.buyerName === "You",
+  );
+  const opened = market
+    ? live.listings.length > 0
+    : live.auctions.length > 0;
+  const phase: "searching" | "bidding" | "complete" = live.done
+    ? "complete"
+    : opened
+      ? "bidding"
+      : "searching";
+  const wonCount = result.receipts.filter(
+    (receipt) => receipt.status === "hedera-settled",
+  ).length;
+
+  const phaseCopy = {
+    searching: {
+      eyebrow: market
+        ? `OPEN MARKET · ${live.rivals.length} RIVAL BUYERS ACTIVE`
+        : `${searches.length} AGENT WALLETS FUNDING ON HEDERA`,
+      title: "Agents are entering the market.",
+      description: market
+        ? "Sellers list scarce items at a floor price. Your scoped agents compete against mocked rival buyers using ledger-capped wallets."
+        : "Each agent gets a fresh on-chain wallet holding exactly its mandate cap — it cannot overspend.",
+      status: `${yourAgents.length}/${searches.length} wallets live`,
+    },
+    bidding: {
+      eyebrow: market
+        ? "ASCENDING AUCTIONS · ON-CHAIN"
+        : "LIVE REVERSE AUCTIONS · ON-CHAIN",
+      title: market
+        ? "Buyers are competing for scarce items."
+        : "Sellers are undercutting each other.",
+      description: market
+        ? "The seller price is the floor; authenticated buyer-agent bids are the only thing that raises it."
+        : "Every accepted bid is bound to the registered seller payer. Each agent closes its auction when bidding goes quiet.",
+      status: `${totalBids} bids on-chain`,
+    },
+    complete: {
+      eyebrow: market
+        ? `MARKET CLOSED · WON ${wonCount}/${searches.length} ON HEDERA`
+        : "BUNDLE SETTLED ON HEDERA",
+      title: result.plan.occasionTitle,
+      description: `${result.plan.location} · ${result.plan.scheduledFor}`,
+      status: "On-chain",
+    },
+  }[phase];
+
+  return (
+    <section className={styles.experience} aria-live="polite">
+      <header className={styles.heading}>
+        <div>
+          <span>{phaseCopy.eyebrow}</span>
+          <h2>{phaseCopy.title}</h2>
+          <p>{phaseCopy.description}</p>
+        </div>
+        <div className={styles.phasePill}>
+          <i
+            className={
+              phase === "complete"
+                ? styles.completeDot
+                : phase === "bidding"
+                  ? styles.auctionDot
+                  : ""
+            }
+          />
+          {phaseCopy.status}
+        </div>
+      </header>
+
+      {phase === "searching" ? (
+        <ActivityDiscovery
+          searches={searches}
+          resolvedCount={yourAgents.length}
+        />
+      ) : phase === "bidding" ? (
+        market ? (
+          <MarketBidStage searches={searches} live={live} />
+        ) : (
+          <LiveBidStage searches={searches} live={live} />
+        )
+      ) : (
+        <BundleGrid
+          searches={searches}
+          result={result}
+          lostCategories={live.lostCategories}
+          agentAccounts={yourAgents}
+        />
+      )}
+    </section>
+  );
+}
+
+function shortAccount(accountId: string): string {
+  return accountId.length > 12
+    ? `…${accountId.slice(-7)}`
+    : accountId;
+}
+
+function ActivityDiscovery({
+  searches,
+  resolvedCount,
+}: {
+  searches: MockAgentSearch[];
+  resolvedCount: number;
+}) {
+  return (
+    <>
+      <div className={styles.orbitScene}>
+        <div className={styles.dreamWash} />
+        <div className={styles.orbitLine} />
+        <div className={styles.core}>
+          <Users size={18} aria-hidden="true" />
+          <strong>{resolvedCount}</strong>
+          <span>WALLETS LIVE</span>
+        </div>
+        {searches.map((search, index) => {
+          const CategoryIcon = categoryIcons[search.allocation.category];
+          const found = index < resolvedCount;
+          return (
+            <div
+              className={styles.orbitSlot}
+              key={search.id}
+              style={
+                {
+                  "--agent-delay": `${-(index * 9) / searches.length}s`,
+                } as CSSProperties
+              }
+            >
+              <div className={styles.orbitTraveller}>
+                <article
+                  className={`${styles.orbitCard} ${
+                    found ? styles.found : ""
+                  }`}
+                >
+                  <header>
+                    <span>
+                      <CategoryIcon size={13} aria-hidden="true" />
+                    </span>
+                    <b>
+                      {found ? <Check size={10} /> : <Clock3 size={10} />}
+                      {found ? "funded" : "creating"}
+                    </b>
+                  </header>
+                  <h3>{search.allocation.category} agent</h3>
+                  <code>{search.agentId}</code>
+                  <footer>
+                    {formatUsd(search.allocation.maxBudgetCents)} mandate
+                  </footer>
+                </article>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className={styles.agentLedger}>
+        {searches.map((search, index) => (
+          <div key={search.id}>
+            <span
+              className={index < resolvedCount ? styles.ledgerFound : ""}
+            >
+              {index < resolvedCount ? <Check size={10} /> : index + 1}
+            </span>
+            <div>
+              <strong>{search.allocation.category}</strong>
+              <code>{search.agentId}</code>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function MarketBidStage({
+  searches,
+  live,
+}: {
+  searches: MockAgentSearch[];
+  live: LiveAuctionView;
+}) {
+  const categories = new Set(
+    searches.map((search) => search.allocation.category),
+  );
+  const visible = live.listings.filter((listing) =>
+    categories.has(listing.category as Category),
+  );
+
+  return (
+    <div className={styles.liveGrid}>
+      {visible.map((listing) => {
+        const bids = live.bidsByItem[listing.itemId] ?? [];
+        const high = bids.reduce<(typeof bids)[number] | undefined>(
+          (best, bid) =>
+            !best ||
+            bid.amountCents > best.amountCents ||
+            (bid.amountCents === best.amountCents &&
+              bid.sequenceNumber < best.sequenceNumber)
+              ? bid
+              : best,
+          undefined,
+        );
+        const recent = [...bids]
+          .sort(
+            (left, right) =>
+              right.sequenceNumber - left.sequenceNumber,
+          )
+          .slice(0, 5);
+        const CategoryIcon =
+          categoryIcons[listing.category as Category];
+        const badge = listing.sold
+          ? high?.yours
+            ? "Sold to you"
+            : "Sold"
+          : high?.yours
+            ? "You lead"
+            : high
+              ? "Rival leads"
+              : "At floor";
+
+        return (
+          <article
+            key={listing.itemId}
+            className={styles.livePanel}
+            data-settled={listing.sold || undefined}
+          >
+            <header>
+              <span>
+                <CategoryIcon size={13} aria-hidden="true" />
+                {listing.sellerName}
+              </span>
+              <b>{badge}</b>
+            </header>
+            <div className={styles.liveBest}>
+              <span>Floor {formatUsd(listing.floorCents)}</span>
+              <strong>
+                {formatUsd(high?.amountCents ?? listing.floorCents)}
+              </strong>
+              <small>{listing.offering}</small>
+            </div>
+            <ul className={styles.liveFeed}>
+              {recent.map((bid, index) => (
+                <li
+                  key={bid.sequenceNumber}
+                  className={
+                    index === 0 ? styles.liveNewest : undefined
+                  }
+                >
+                  <span>
+                    {bid.yours
+                      ? "your agent"
+                      : `rival ${shortAccount(bid.bidder)}`}
+                  </span>
+                  <b>{formatUsd(bid.amountCents)}</b>
+                </li>
+              ))}
+              {recent.length === 0 && (
+                <li>
+                  <span>No bids yet — the floor stands</span>
+                </li>
+              )}
+            </ul>
+            <footer>
+              {(() => {
+                const yourAgent = live.agents.find(
+                  (agent) =>
+                    agent.buyerName === "You" &&
+                    agent.category === listing.category,
+                );
+                return yourAgent ? (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${yourAgent.accountId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    your agent {yourAgent.accountId}
+                  </a>
+                ) : (
+                  <span>{listing.category}</span>
+                );
+              })()}
+              <a
+                href={`https://hashscan.io/testnet/topic/${listing.topicId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                HCS topic
+                <ExternalLink size={9} aria-hidden="true" />
+              </a>
+            </footer>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function LiveBidStage({
+  searches,
+  live,
+}: {
+  searches: MockAgentSearch[];
+  live: LiveAuctionView;
+}) {
+  return (
+    <div className={styles.liveGrid}>
+      {searches.map((search) => {
+        const category = search.allocation.category;
+        const bids = live.bidsByCategory[category] ?? [];
+        const agent = live.agents.find((item) => item.category === category);
+        const auction = live.auctions.find(
+          (item) => item.category === category,
+        );
+        const settled = live.settledCategories.includes(category);
+        const best = bids.reduce<
+          (typeof bids)[number] | undefined
+        >(
+          (lowest, bid) =>
+            lowest === undefined || bid.amountCents < lowest.amountCents
+              ? bid
+              : lowest,
+          undefined,
+        );
+        const recent = [...bids]
+          .sort((left, right) => right.sequenceNumber - left.sequenceNumber)
+          .slice(0, 5);
+        const CategoryIcon = categoryIcons[category];
+
+        return (
+          <article
+            key={search.id}
+            className={styles.livePanel}
+            data-settled={settled || undefined}
+          >
+            <header>
+              <span>
+                <CategoryIcon size={13} aria-hidden="true" />
+                {category}
+              </span>
+              <b>{settled ? "Settled" : "Live"}</b>
+            </header>
+
+            <div className={styles.liveBest}>
+              <span>Best offer</span>
+              <strong>
+                {best ? formatUsd(best.amountCents) : "—"}
+              </strong>
+              <small>{best?.sellerName ?? "Waiting for sellers…"}</small>
+            </div>
+
+            <ul className={styles.liveFeed}>
+              {recent.map((bid, index) => (
+                <li
+                  key={bid.sequenceNumber}
+                  className={index === 0 ? styles.liveNewest : undefined}
+                >
+                  <span>{bid.sellerName}</span>
+                  <b>{formatUsd(bid.amountCents)}</b>
+                </li>
+              ))}
+              {recent.length === 0 && (
+                <li>
+                  <span>Sellers reviewing the mandate…</span>
+                </li>
+              )}
+            </ul>
+
+            <footer>
+              <span>
+                agent{" "}
+                {agent ? (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${agent.accountId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {agent.accountId}
+                  </a>
+                ) : (
+                  "…"
+                )}
+              </span>
+              {auction && (
+                <a
+                  href={`https://hashscan.io/testnet/topic/${auction.topicId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  HCS topic
+                  <ExternalLink size={9} aria-hidden="true" />
+                </a>
+              )}
+            </footer>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -170,7 +623,7 @@ function AgentSearchRun({
         />
       ) : (
         <>
-          <BundleGrid searches={searches} />
+          <BundleGrid searches={searches} result={result} />
           <button
             className={styles.replayButton}
             type="button"
@@ -546,10 +999,36 @@ function PriceStepFeed({
   );
 }
 
-function BundleGrid({ searches }: { searches: MockAgentSearch[] }) {
+function BundleGrid({
+  searches,
+  result,
+  lostCategories = [],
+  agentAccounts = [],
+}: {
+  searches: MockAgentSearch[];
+  result: DemoResult;
+  lostCategories?: string[];
+  agentAccounts?: Array<{
+    category: string;
+    accountId: string;
+    buyerName: string;
+  }>;
+}) {
   return (
     <div className={styles.bundleGrid}>
       {searches.map((search, index) => {
+        const receipt = result.receipts.find(
+          (candidate) =>
+            candidate.category === search.allocation.category,
+        );
+        const onChain = receipt?.status === "hedera-settled";
+        const lost =
+          !onChain &&
+          lostCategories.includes(search.allocation.category);
+        const agentAccountId = agentAccounts.find(
+          (agent) =>
+            agent.category === search.allocation.category,
+        )?.accountId;
         const CategoryIcon = categoryIcons[search.allocation.category];
         const visibleTags =
           search.matchedTags.length > 0
@@ -570,26 +1049,80 @@ function BundleGrid({ searches }: { searches: MockAgentSearch[] }) {
               <header>
                 <span>{search.allocation.category}</span>
                 <b>
-                  <Check size={9} />
-                  mock win
+                  {lost ? <X size={9} /> : <Check size={9} />}
+                  {lost ? "outbid" : onChain ? "on-chain" : "mock win"}
                 </b>
               </header>
-              <h3>{search.auction.winner.sellerName}</h3>
-              <p>{search.auction.winner.offering}</p>
-              <div className={styles.tags}>
-                {visibleTags.slice(0, 3).map((tag) => (
-                  <span key={tag}>{tag}</span>
-                ))}
-              </div>
+              <h3>
+                {lost ? "No purchase" : search.auction.winner.sellerName}
+              </h3>
+              <p>
+                {lost
+                  ? "Rivals pushed every listing beyond this mandate. The agent walked away instead of overspending."
+                  : search.auction.winner.offering}
+              </p>
+              {!lost && (
+                <div className={styles.tags}>
+                  {visibleTags.slice(0, 3).map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              )}
               <div className={styles.resultFooter}>
                 <div>
-                  <span>Buyer subagent ID</span>
-                  <code>{search.agentId}</code>
+                  <span>
+                    {onChain || lost
+                      ? "Agent wallet"
+                      : "Buyer subagent ID"}
+                  </span>
+                  {(receipt?.escrowAccountId || agentAccountId) ? (
+                    <a
+                      href={`https://hashscan.io/testnet/account/${
+                        receipt?.escrowAccountId ?? agentAccountId
+                      }`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <code>
+                        {receipt?.escrowAccountId ?? agentAccountId}
+                      </code>
+                    </a>
+                  ) : (
+                    <code>{search.agentId}</code>
+                  )}
                 </div>
                 <strong>
-                  {formatUsd(search.auction.winner.amountCents)}
+                  {formatUsd(
+                    lost
+                      ? 0
+                      : receipt?.amountCents ??
+                          search.auction.winner.amountCents,
+                  )}
                 </strong>
               </div>
+              {onChain && receipt?.hashscanUrl && (
+                <div className={styles.onchainLinks}>
+                  <a
+                    href={receipt.hashscanUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Atomic swap
+                    <ExternalLink size={9} aria-hidden="true" />
+                  </a>
+                  {receipt.claimNftSerial !== undefined &&
+                    receipt.escrowAccountId && (
+                      <a
+                        href={`https://hashscan.io/testnet/account/${receipt.escrowAccountId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Claim NFT #{receipt.claimNftSerial}
+                        <ExternalLink size={9} aria-hidden="true" />
+                      </a>
+                    )}
+                </div>
+              )}
             </div>
           </article>
         );

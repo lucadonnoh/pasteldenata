@@ -8,6 +8,8 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+export type City = "lisbon" | "milan";
+
 export interface PlanAllocation {
   category: Category;
   maxBudgetCents: number;
@@ -72,6 +74,8 @@ export interface PlannerAttestation {
   chatId?: string;
   routerTrace?: ZeroGRouterTrace;
   independentVerification?: IndependentTeeVerification;
+  /** Deterministic post-inference policy repairs, shown for auditability. */
+  localPolicyAdjustments?: string[];
 }
 
 export type InventoryAttributes = Record<
@@ -94,6 +98,7 @@ export interface Seller {
   id: string;
   name: string;
   category: Category;
+  city: City;
   privateSalt: string;
   inventory: SellerInventoryItem[];
 }
@@ -106,6 +111,7 @@ export interface PublicListing {
   id: string;
   sellerId: string;
   sellerName: string;
+  city: City;
   category: Category;
   offering: string;
   estimatedMarketPriceCents: number;

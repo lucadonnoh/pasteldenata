@@ -1,11 +1,10 @@
 import { fork, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import {
   TokenMintTransaction,
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import { MOCK_SELLERS } from "../catalog";
+import { sellersForLocation } from "../catalog";
 import type {
   AuctionResult,
   AuctionWin,
@@ -25,6 +24,7 @@ import type {
   ParentToLeaf,
 } from "./ipc";
 import { fundSellerFees, LiveAuctioneer } from "./liveAuction";
+import { leafAgentPath } from "./leafPath";
 import { AuctionLog } from "./log";
 import { TESTNET_MIRROR_BASE } from "./mirror";
 import {
@@ -38,15 +38,32 @@ import {
 } from "./settle";
 import { persistLeafWallet } from "./walletVault";
 
-const LEAF_AGENT_PATH = fileURLToPath(new URL("./leafAgent.ts", import.meta.url));
+const LEAF_AGENT_PATH = leafAgentPath();
 const LEAF_TIMEOUT_MS = 240_000;
 // Must cover the settlement's maximum fee ceiling, which includes the claim
 // NFT auto-association charged to the leaf as payer.
-const LEAF_FEE_HBAR = 5;
+const LEAF_FEE_HBAR = 2;
+
+export type SwarmEvent =
+  | { type: "WALLET_CREATED"; category: string; accountId: string }
+  | {
+      type: "AUCTION_OPEN";
+      category: string;
+      auctionId: string;
+      topicId: string;
+      authorizedListings: Array<{
+        listingId: string;
+        sellerId: string;
+        accountId: string;
+      }>;
+    }
+  | { type: "CATEGORY_SETTLED"; category: string };
 
 export interface SwarmOptions {
   /** Live reverse auction over HCS instead of the recorded mock English winner. */
   live?: boolean;
+  /** Progress callback, e.g. for streaming auction topics to a UI. */
+  onEvent?: (event: SwarmEvent) => void;
 }
 
 interface LeafRuntime {
@@ -69,6 +86,7 @@ interface SwarmShared {
   /** Contingency granted per auction id, for post-settlement validation. */
   grantsCents: Map<string, number>;
   runtimes: Map<string, LeafRuntime>;
+  onEvent: (event: SwarmEvent) => void;
 }
 
 function offerFromWinner(winner: AuctionWin): HederaOffer {
@@ -98,6 +116,7 @@ export async function settleWithSwarm(
 ): Promise<SettlementResult> {
   validateSettlement(plan, auctions);
   const live = options.live === true;
+  const roster = sellersForLocation(plan.location);
 
   const buyerKey = parsePrivateKey(ctx.infra.buyer.privateKey);
   await resetBuyerBalance(ctx, buyerKey);
@@ -114,7 +133,7 @@ export async function settleWithSwarm(
   // Fund mocked seller message fees before the buyer moves any NATA into
   // clearing, so a setup failure cannot strand the buyer's payment.
   if (live) {
-    const accounts = MOCK_SELLERS.filter((seller) =>
+    const accounts = roster.filter((seller) =>
       auctions.some((auction) => auction.category === seller.category),
     ).map((seller) => {
       const account = ctx.infra.sellers[seller.id];
@@ -140,6 +159,7 @@ export async function settleWithSwarm(
     contingencyRemainingCents: live ? plan.unallocatedBudgetCents : 0,
     grantsCents: new Map(),
     runtimes: new Map(),
+    onEvent: options.onEvent ?? (() => {}),
   };
 
   const settled = await Promise.allSettled(
@@ -310,6 +330,7 @@ async function runLeaf(
   ctx: HederaSettlementContext,
   shared: SwarmShared,
 ): Promise<LeafRun> {
+  const roster = sellersForLocation(plan.location);
   const requirements = mandateRequirements(plan, auction);
   const log = await AuctionLog.create(ctx.client);
   await log.publish({
@@ -321,7 +342,6 @@ async function runLeaf(
     requirements,
     mechanism: shared.live ? "live-reverse-english" : "recorded-english-winner",
   });
-
   const wallet = await createAccount(ctx, LEAF_FEE_HBAR);
   const recoveryPath = persistLeafWallet(wallet, {
     planId: plan.planId,
@@ -335,6 +355,11 @@ async function runLeaf(
     fundedCents: 0,
   };
   shared.runtimes.set(auction.auctionId, runtime);
+  shared.onEvent({
+    type: "WALLET_CREATED",
+    category: auction.category,
+    accountId: wallet.accountId,
+  });
 
   const initialFunding = auction.mandate.maxAmountCents;
   try {
@@ -360,7 +385,7 @@ async function runLeaf(
     throw error;
   }
 
-  const liveListings = MOCK_SELLERS.filter(
+  const liveListings = roster.filter(
     (seller) => seller.category === auction.category,
   ).flatMap((seller) => {
     const account = ctx.infra.sellers[seller.id];
@@ -381,6 +406,17 @@ async function runLeaf(
       sellerAccountId: account.accountId,
     }),
   );
+  shared.onEvent({
+    type: "AUCTION_OPEN",
+    category: auction.category,
+    auctionId: auction.auctionId,
+    topicId: log.topicId,
+    authorizedListings: liveListings.map(({ seller, item, account }) => ({
+      listingId: item.id,
+      sellerId: seller.id,
+      accountId: account.accountId,
+    })),
+  });
 
   const auctioneer = shared.live
     ? new LiveAuctioneer(
@@ -557,7 +593,6 @@ async function runLeaf(
           });
           break;
         }
-
         case "SETTLEMENT_CONFIRMED":
           assertLeafResult(message.result, runtime);
           confirmedResult = message.result;
@@ -570,6 +605,10 @@ async function runLeaf(
             amountCents: message.result.amountCents,
             claimNftSerial: message.result.claimNftSerial,
             transactionId: message.result.transactionId,
+          });
+          shared.onEvent({
+            type: "CATEGORY_SETTLED",
+            category: auction.category,
           });
           sendToLeaf({ type: "SETTLEMENT_RECORDED" });
           break;
@@ -590,7 +629,7 @@ async function runLeaf(
     }
 
     function requireSeller(sellerId: string): Seller {
-      const seller = MOCK_SELLERS.find((item) => item.id === sellerId);
+      const seller = roster.find((item) => item.id === sellerId);
       if (!seller) throw new Error(`Unknown seller ${sellerId}.`);
       return seller;
     }

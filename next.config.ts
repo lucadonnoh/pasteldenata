@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  // The Hedera settlement route forks leaf-agent processes and uses the
+  // gRPC-based SDK; neither survives bundling.
+  serverExternalPackages: ["@hashgraph/sdk", "tsx"],
 };
 
 export default nextConfig;

@@ -1,12 +1,12 @@
 import { fork, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { createHash, randomUUID } from "node:crypto";
 import {
+  AccountBalanceQuery,
   TokenMintTransaction,
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import { MOCK_SELLERS } from "../catalog";
+import { sellersForLocation } from "../catalog";
 import type {
   Category,
   PaymentReceipt,
@@ -23,6 +23,7 @@ import type {
   LeafToParent,
   ParentToLeaf,
 } from "./ipc";
+import { leafAgentPath } from "./leafPath";
 import { AuctionLog } from "./log";
 import { fetchItemState, TESTNET_MIRROR_BASE } from "./mirror";
 import {
@@ -35,13 +36,37 @@ import {
 import { mintClaimTo } from "./swarm";
 import { persistLeafWallet } from "./walletVault";
 
-const LEAF_AGENT_PATH = fileURLToPath(new URL("./leafAgent.ts", import.meta.url));
+const LEAF_AGENT_PATH = leafAgentPath();
 const LEAF_TIMEOUT_MS = 360_000;
 const LEAF_FEE_HBAR = 5;
 
 export interface MarketBuyer {
   name: string;
   plan: PrivatePlan;
+}
+
+export type MarketEvent =
+  | {
+      type: "LISTING_OPEN";
+      itemId: string;
+      topicId: string;
+      category: string;
+      sellerId: string;
+      sellerName: string;
+      offering: string;
+      floorCents: number;
+    }
+  | {
+      type: "AGENT_FUNDED";
+      buyerName: string;
+      category: string;
+      accountId: string;
+    }
+  | { type: "ITEM_SOLD"; itemId: string; category: string }
+  | { type: "BUYER_DONE"; buyerName: string; category: string; lost: boolean };
+
+export interface MarketOptions {
+  onEvent?: (event: MarketEvent) => void;
 }
 
 export interface MarketOutcome {
@@ -65,7 +90,12 @@ export interface MarketContention {
 }
 
 export interface MarketResult {
-  buyers: Array<{ name: string; plan: PrivatePlan; outcomes: MarketOutcome[] }>;
+  buyers: Array<{
+    name: string;
+    plan: PrivatePlan;
+    walletAccountId: string;
+    outcomes: MarketOutcome[];
+  }>;
   contention: MarketContention[];
 }
 
@@ -95,10 +125,19 @@ interface SharedMarketState {
   sold: Set<string>;
   contingency: number[];
   runtimes: MarketRuntime[];
+  onEvent: (event: MarketEvent) => void;
 }
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function marketItemId(
+  runSalt: string,
+  sellerId: string,
+  listingId: string,
+): string {
+  return `item_${hash(`${runSalt}|${sellerId}|${listingId}`).slice(0, 16)}`;
 }
 
 /**
@@ -108,20 +147,26 @@ function hash(value: string): string {
 export async function runMarket(
   buyers: MarketBuyer[],
   ctx: HederaSettlementContext,
+  options: MarketOptions = {},
 ): Promise<MarketResult> {
-  const runSalt = hash(
-    buyers.map((buyer) => buyer.plan.planId).join("|"),
-  ).slice(0, 12);
+  const onEvent = options.onEvent ?? (() => {});
+  // Topics are public and retain their full history. A fresh nonce ensures a
+  // retry of the same deterministic plan cannot inherit an earlier SETTLED
+  // message under the same item ID.
+  const runSalt = randomUUID();
   const categories = new Set<Category>();
   for (const buyer of buyers) {
     for (const allocation of buyer.plan.allocations) {
       categories.add(allocation.category);
     }
   }
+  const roster = sellersForLocation(
+    buyers[0]?.plan.location ?? "Lisbon",
+  );
 
   const listings = (
     await Promise.all(
-      MOCK_SELLERS.filter((seller) => categories.has(seller.category)).flatMap(
+      roster.filter((seller) => categories.has(seller.category)).flatMap(
         (seller) =>
           seller.inventory.map(async (item): Promise<MarketListing> => {
             const account = ctx.infra.sellers[seller.id];
@@ -129,9 +174,7 @@ export async function runMarket(
               throw new Error(`No Hedera account for seller ${seller.id}.`);
             }
             const log = await AuctionLog.create(ctx.client);
-            const itemId = `item_${hash(
-              `${runSalt}|${seller.id}|${item.id}`,
-            ).slice(0, 16)}`;
+            const itemId = marketItemId(runSalt, seller.id, item.id);
             await log.publish({
               type: "LISTED",
               itemId,
@@ -142,6 +185,16 @@ export async function runMarket(
               category: seller.category,
               floorCents: item.floorPriceCents,
               quantity: 1,
+            });
+            onEvent({
+              type: "LISTING_OPEN",
+              itemId,
+              topicId: log.topicId,
+              category: seller.category,
+              sellerId: seller.id,
+              sellerName: seller.name,
+              offering: item.offering,
+              floorCents: item.floorPriceCents,
             });
             return {
               itemId,
@@ -177,8 +230,32 @@ export async function runMarket(
       .execute(ctx.client)
   ).getReceipt(ctx.client);
 
-  const buyerWallets = await Promise.all(
-    buyers.map(() => createAccount(ctx)),
+  // Buyer funding wallets come from a persistent pool: they are the buyers'
+  // banks, not the anonymous bidding agents, so reuse is safe and saves
+  // account-creation fees. Sweep leftovers from earlier runs first so every
+  // buyer starts holding exactly its budget.
+  const pool = ctx.infra.marketBuyers ?? [];
+  const buyerWallets: StoredAccount[] = await Promise.all(
+    buyers.map(async (_, index) => pool[index] ?? (await createAccount(ctx))),
+  );
+  await Promise.all(
+    buyerWallets.map(async (wallet) => {
+      const balance = await new AccountBalanceQuery()
+        .setAccountId(wallet.accountId)
+        .execute(ctx.client);
+      const leftover = balance.tokens?.get(ctx.infra.paymentTokenId);
+      if (!leftover || leftover.isZero()) return;
+      const sweep = new TransferTransaction()
+        .addTokenTransfer(
+          ctx.infra.paymentTokenId,
+          wallet.accountId,
+          leftover.negate(),
+        )
+        .addTokenTransfer(ctx.infra.paymentTokenId, ctx.operatorId, leftover)
+        .freezeWith(ctx.client);
+      await sweep.sign(parsePrivateKey(wallet.privateKey));
+      await (await sweep.execute(ctx.client)).getReceipt(ctx.client);
+    }),
   );
   const distribute = new TransferTransaction();
   buyers.forEach((buyer, index) => {
@@ -228,6 +305,7 @@ export async function runMarket(
     sold: new Set(),
     contingency: buyers.map((buyer) => buyer.plan.unallocatedBudgetCents),
     runtimes: [],
+    onEvent,
   };
   const tasks = buyers.flatMap((buyer, buyerIndex) =>
     buyer.plan.allocations.map((allocation) => ({
@@ -423,6 +501,7 @@ export async function runMarket(
     buyers: buyers.map((buyer, index) => ({
       name: buyer.name,
       plan: buyer.plan,
+      walletAccountId: buyerWallets[index]?.accountId ?? "",
       outcomes: runs
         .filter((run) => run.runtime.buyerIndex === index)
         .map((run) => run.outcome),
@@ -436,7 +515,9 @@ function marketReceipt(run: MarketLeafRun): PaymentReceipt {
   return {
     id: result.transactionId,
     planId: run.runtime.buyer.plan.planId,
-    mandateId: `market_${run.runtime.allocation.category}`,
+    mandateId: `mandate_${hash(
+      `${run.runtime.buyer.plan.planId}|${run.runtime.allocation.category}`,
+    ).slice(0, 16)}`,
     sellerId: result.sellerId,
     sellerName: result.sellerName,
     listingId: result.listingId,
@@ -504,6 +585,12 @@ async function runMarketLeaf(
     runtime.fundedCents = await tokenBalanceCents(ctx, wallet.accountId);
     throw error;
   }
+  shared.onEvent({
+    type: "AGENT_FUNDED",
+    buyerName: buyer.name,
+    category: allocation.category,
+    accountId: wallet.accountId,
+  });
 
   return new Promise<MarketLeafRun>((resolve, reject) => {
     const child: ChildProcess = fork(LEAF_AGENT_PATH, [], {
@@ -688,6 +775,11 @@ async function runMarketLeaf(
             claimNftSerial: message.result.claimNftSerial,
             transactionId: message.result.transactionId,
           });
+          shared.onEvent({
+            type: "ITEM_SOLD",
+            itemId: reserved.itemId,
+            category: allocation.category,
+          });
           sendToLeaf({ type: "SETTLEMENT_RECORDED" });
           break;
 
@@ -701,6 +793,12 @@ async function runMarketLeaf(
             throw new Error("Leaf returned an invalid loss result.");
           }
           done = message.result;
+          shared.onEvent({
+            type: "BUYER_DONE",
+            buyerName: buyer.name,
+            category: allocation.category,
+            lost: message.result.lost === true,
+          });
           break;
 
         case "ERROR":

@@ -7,16 +7,34 @@ export interface HederaContext {
   network: "testnet";
 }
 
-export function parsePrivateKey(value: string): PrivateKey {
+export type RawPrivateKeyType = "ECDSA" | "ED25519";
+
+export function parsePrivateKey(
+  value: string,
+  rawKeyType: RawPrivateKeyType = "ECDSA",
+): PrivateKey {
   const raw = value.trim();
-  const attempts: Array<(input: string) => PrivateKey> = [
-    (input) => PrivateKey.fromStringDer(input),
-    (input) => PrivateKey.fromStringECDSA(input),
-    (input) => PrivateKey.fromStringED25519(input),
-  ];
+  const normalized = raw.startsWith("0x") ? raw.slice(2) : raw;
+  const isBarePrivateKey = /^[0-9a-fA-F]{64}$/.test(normalized);
+  const rawAttempts: Array<(input: string) => PrivateKey> =
+    rawKeyType === "ED25519"
+      ? [
+          (input) => PrivateKey.fromStringED25519(input),
+          (input) => PrivateKey.fromStringECDSA(input),
+        ]
+      : [
+          (input) => PrivateKey.fromStringECDSA(input),
+          (input) => PrivateKey.fromStringED25519(input),
+        ];
+  const attempts: Array<(input: string) => PrivateKey> = isBarePrivateKey
+    ? rawAttempts
+    : [
+        (input) => PrivateKey.fromStringDer(input),
+        ...rawAttempts,
+      ];
   for (const parse of attempts) {
     try {
-      return parse(raw);
+      return parse(isBarePrivateKey ? normalized : raw);
     } catch {
       // Try the next encoding.
     }
@@ -36,8 +54,22 @@ export function connectHedera(): HederaContext {
     );
   }
 
+  const configuredKeyType =
+    process.env.HEDERA_OPERATOR_KEY_TYPE?.trim().toUpperCase();
+  if (
+    configuredKeyType &&
+    configuredKeyType !== "ECDSA" &&
+    configuredKeyType !== "ED25519"
+  ) {
+    throw new Error(
+      "HEDERA_OPERATOR_KEY_TYPE must be ECDSA or ED25519.",
+    );
+  }
   const operatorId = AccountId.fromString(id);
-  const operatorKey = parsePrivateKey(key);
+  const operatorKey = parsePrivateKey(
+    key,
+    (configuredKeyType as RawPrivateKeyType | undefined) ?? "ECDSA",
+  );
   const client = Client.forTestnet().setOperator(operatorId, operatorKey);
   return { client, operatorId, operatorKey, network: "testnet" };
 }

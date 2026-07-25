@@ -11,6 +11,7 @@ import {
   createMockSellerAuctionHouses,
   type MockSellerAuctionHouse,
 } from "./sellers";
+import { sellersForLocation } from "./catalog";
 
 function createMandate(
   plan: PrivatePlan,
@@ -29,7 +30,9 @@ function createMandate(
 export async function runCategoryAuction(
   plan: PrivatePlan,
   allocation: PlanAllocation,
-  sellers: MockSellerAuctionHouse[] = createMockSellerAuctionHouses(),
+  sellers: MockSellerAuctionHouse[] = createMockSellerAuctionHouses(
+    sellersForLocation(plan.location),
+  ),
   onSellerView?: (view: SellerAuctionView) => void,
 ): Promise<AuctionResult> {
   const auctionId = `auction_${sha256Hex(
@@ -117,7 +120,9 @@ export async function runCategoryAuction(
 
 export async function runAuctions(
   plan: PrivatePlan,
-  sellers = createMockSellerAuctionHouses(),
+  sellers = createMockSellerAuctionHouses(
+    sellersForLocation(plan.location),
+  ),
   onSellerView?: (view: SellerAuctionView) => void,
 ): Promise<AuctionResult[]> {
   return Promise.all(

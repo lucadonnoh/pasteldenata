@@ -3,7 +3,11 @@ import test from "node:test";
 import { Wallet } from "ethers";
 import { runAuctions } from "../src/auction";
 import type { EnglishAuctionBidder } from "../src/buyer-agent";
-import { MOCK_SELLERS, publicCatalogForPlanner } from "../src/catalog";
+import {
+  MOCK_SELLERS,
+  publicCatalogForPlanner,
+  sellersForLocation,
+} from "../src/catalog";
 import type {
   AuctionResult,
   IndependentTeeVerification,
@@ -15,6 +19,7 @@ import {
 } from "../src/orchestrator";
 import { settleMockPayments } from "../src/payments";
 import {
+  enforcePlan,
   MockPrivatePlanner,
   requireVerifiedPrivateTee,
   resolveProofChatId,
@@ -266,6 +271,38 @@ test("the planner catalog omits seller-private auction inputs", () => {
   assert.equal(serialized.includes("privateSalt"), false);
 });
 
+test("mock seller rosters follow the plan location", async () => {
+  const milan = sellersForLocation("Milan, Italy");
+  assert.ok(milan.length > 0);
+  assert.ok(milan.every((seller) => seller.city === "milan"));
+  assert.ok(milan.some((seller) => seller.id === "san-siro"));
+  assert.ok(
+    sellersForLocation("Lisbon").every(
+      (seller) => seller.city === "lisbon",
+    ),
+  );
+
+  const base = await new MockPrivatePlanner().plan(INTENT, NOW);
+  const plan = {
+    ...base.plan,
+    location: "Milan",
+    allocations: base.plan.allocations.filter(
+      (allocation) => allocation.category === "dinner",
+    ),
+  };
+  plan.unallocatedBudgetCents =
+    plan.totalBudgetCents -
+    plan.allocations.reduce(
+      (sum, allocation) => sum + allocation.maxBudgetCents,
+      0,
+    );
+  const [auction] = await runAuctions(plan);
+  assert.ok(auction);
+  assert.ok(
+    milan.some((seller) => seller.id === auction.winner.sellerId),
+  );
+});
+
 test("central cinema seats have higher floors and market estimates", () => {
   const cinemaIdeal = MOCK_SELLERS.find(
     (seller) => seller.id === "cinema-ideal",
@@ -372,6 +409,82 @@ test("payment policy rejects a replayed mandate", async () => {
   assert.throws(
     () => settleMockPayments(plan, [first, first]),
     /cannot be spent twice/,
+  );
+});
+
+test("a small planner overshoot is repaired without underfunding a category", () => {
+  const plan = enforcePlan(
+    {
+      occasionTitle: "Tokyo evening",
+      location: "Tokyo",
+      scheduledFor: "2026-07-26",
+      allocations: [
+        {
+          category: "dinner",
+          maxBudgetCents: 13_000,
+          requirements: ["fancy"],
+          priority: 5,
+        },
+        {
+          category: "experience",
+          maxBudgetCents: 6_500,
+          requirements: ["baseball"],
+          priority: 4,
+        },
+        {
+          category: "transport",
+          maxBudgetCents: 1_200,
+          requirements: ["port"],
+          priority: 3,
+        },
+      ],
+    },
+    20_000,
+    "2026-07-26",
+    "tokyo test intent",
+  );
+
+  assert.equal(
+    plan.allocations.reduce(
+      (sum, allocation) => sum + allocation.maxBudgetCents,
+      0,
+    ) + plan.unallocatedBudgetCents,
+    20_000,
+  );
+  for (const allocation of plan.allocations) {
+    const floor = Math.min(
+      ...sellersForLocation(plan.location)
+        .filter((seller) => seller.category === allocation.category)
+        .flatMap((seller) =>
+          seller.inventory.map((item) => item.floorPriceCents),
+        ),
+    );
+    assert.ok(allocation.maxBudgetCents >= floor);
+  }
+});
+
+test("a pathological planner overshoot is rejected", () => {
+  assert.throws(
+    () =>
+      enforcePlan(
+        {
+          occasionTitle: "Bad plan",
+          location: "Lisbon",
+          scheduledFor: "2026-07-26",
+          allocations: [
+            {
+              category: "dinner",
+              maxBudgetCents: 50_000,
+              requirements: ["dinner"],
+              priority: 5,
+            },
+          ],
+        },
+        20_000,
+        "2026-07-26",
+        "bad test intent",
+      ),
+    /exceeded the hard budget/,
   );
 });
 

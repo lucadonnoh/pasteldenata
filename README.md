@@ -60,9 +60,10 @@ Each listing runs a mocked English auction:
 4. The last active bidder wins and pays the final asking price.
 5. Sold inventory cannot be auctioned again.
 
-This runs in one process for the hackathon. It demonstrates the protocol and
-economic shape. Sellers are deterministic mocks, not AI agents, and the rival
-buyers and settlement are also simulated.
+The default flow runs in one process for the hackathon. It demonstrates the
+protocol and economic shape with deterministic mock sellers and rival buyers.
+The Hedera modes below replace the simulated payment/market trace with real
+testnet accounts, authenticated HCS messages, and atomic HTS settlement.
 
 ## Hedera testnet settlement
 
@@ -93,6 +94,27 @@ Settlement does not fail fast. The root waits for every leaf to exit, compares
 confirmed receipts with actual token balances, sweeps every recoverable
 remainder, refunds buyers, and then reports any partial failure together with
 transactions that already became irreversible.
+
+The web settlement endpoint is a local demo coordinator, not a public backend.
+It accepts same-origin requests on loopback only, validates the complete plan
+and auction shape, and runs at most one ledger job at a time. The browser sends
+the derived plan and mock auction trace to this trusted local process; the
+original prompt and 0G key remain in browser memory. Do not expose the
+coordinator remotely without adding deployment-grade authentication.
+
+### City-scoped mock markets
+
+Seller inventory follows the location returned in the independently verified
+0G plan. The repository currently includes 12 Lisbon sellers and 9 Milan
+sellers, including San Siro match tickets, Brera and Navigli restaurants,
+local transport, cinema seats, and flowers. Recorded auctions, live reverse
+auctions, and the shared ascending market all use the same city roster.
+Unknown locations currently fall back to Lisbon.
+
+The market does not make a second server-side 0G request: each user keeps
+control of their own Router key, and that key never enters the local Hedera
+coordinator. Adding arbitrary-city catalog generation should therefore happen
+in the browser under the same user-owned credential and verification policy.
 
 ## Run
 
@@ -155,13 +177,16 @@ recovered EIP-191 signer, raw signature, and signed proof payload. Provider,
 signer, and service contract addresses link to 0G ChainScan. The Router's exact
 `x_0g_trace` remains visible alongside the independent proof.
 
-The 0G-generated plan stays attached to that live receipt and is never
-normalized or rewritten for the simulation. An explicit trust-boundary banner
-separates it from a visible playback of the recorded mock English-auction
-trace. That playback uses the executed buyer IDs, listing attempts, asking
-prices, leaders, and dropouts; it does not synthesize fake bids or wallet
-addresses. The complete mock transcript, seller floors, debug valuations, and
-simulated receipts remain available in a separate collapsed drawer.
+The accepted plan stays attached to that live receipt. If 0G slightly
+overshoots the hard budget or underfunds a mocked market floor, deterministic
+browser policy repairs the scoped cents before any auction; every adjustment
+is listed in the receipt and is explicitly not represented as TEE model output.
+An explicit trust-boundary banner separates the plan from a visible playback
+of the recorded mock English-auction trace. That playback uses the executed
+buyer IDs, listing attempts, asking prices, leaders, and dropouts; it does not
+synthesize fake bids or wallet addresses. The complete mock transcript, seller
+floors, debug valuations, and simulated receipts remain available in a
+separate collapsed drawer.
 
 Each user enters their own 0G Router key. The key is held only in React memory
 for the current browser tab: it is not persisted in local storage, cookies, or
