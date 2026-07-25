@@ -8,10 +8,7 @@ import {
   consumeHostedDemoCapacity,
 } from "@/src/server/demo-rate-limit";
 import { proveHostedWorldIdentity } from "@/src/server/hosted-world-identity";
-import {
-  SettlementJobBusyError,
-  startSettlementJob,
-} from "@/src/server/settlement-jobs";
+import { startSettlementJob } from "@/src/server/settlement-jobs";
 import { parseSettlementRequest } from "@/src/server/settlement-request";
 import { consumeWorldIdentityProof } from "@/src/server/world-identity-auth";
 import { createHumanResolver } from "@/src/server/world-gateway";
@@ -64,8 +61,6 @@ export async function POST(request: Request) {
       error instanceof LocalDemoRequestError
         ? error.status
         : error instanceof DemoRateLimitError
-          ? error.status
-        : error instanceof SettlementJobBusyError
           ? error.status
           : 400;
     return NextResponse.json(

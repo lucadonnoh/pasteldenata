@@ -2,6 +2,7 @@ import { fork, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   AccountBalanceQuery,
+  Hbar,
   TokenMintTransaction,
   Transaction,
   TransferTransaction,
@@ -50,12 +51,42 @@ import { mintClaimTo } from "./claim";
 import { persistLeafWallet } from "./walletVault";
 
 const LEAF_AGENT_PATH = leafAgentPath();
-const LEAF_TIMEOUT_MS = 600_000;
+const LEAF_TIMEOUT_MS = 90_000;
 const LEAF_FEE_HBAR = 5;
-const SELLER_POLICY_POLL_MS = 1_500;
+const SELLER_POLICY_POLL_MS = 500;
+const LIVE_SELLERS_PER_CATEGORY = 2;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Keep enough independent supply for a contested judge demo without opening
+ * every catalog item as its own HCS auction. The full public catalog remains
+ * available to the private planner.
+ */
+export function selectLiveMarketSellers(
+  roster: Seller[],
+  categories: ReadonlySet<Category>,
+): Seller[] {
+  const selectedByCategory = new Map<Category, number>();
+  return roster.filter((seller) => {
+    if (!categories.has(seller.category)) return false;
+    const selected = selectedByCategory.get(seller.category) ?? 0;
+    if (selected >= LIVE_SELLERS_PER_CATEGORY) return false;
+    selectedByCategory.set(seller.category, selected + 1);
+    return true;
+  });
+}
+
+function liveInventoryForSeller(seller: Seller): SellerInventoryItem[] {
+  return [...seller.inventory]
+    .sort(
+      (left, right) =>
+        left.floorPriceCents - right.floorPriceCents ||
+        left.id.localeCompare(right.id),
+    )
+    .slice(0, 1);
 }
 
 export interface MarketBuyer {
@@ -68,7 +99,7 @@ export type MarketEvent =
       type: "MARKET_PHASE";
       phase: Exclude<
         MarketProgressPhase,
-        "preparing-market" | "complete"
+        "queued" | "preparing-market" | "complete"
       >;
     }
   | { type: "WALLET_RECONCILED" }
@@ -122,9 +153,9 @@ export interface MarketOptions {
   onEvent?: (event: MarketEvent) => void;
   /**
    * Seller-side access control for protected listings (World AgentKit):
-   * consulted before a buyer may settle a one-per-human item. Protected
-   * markets fail before creating topics unless both this hook and the
-   * issuer key are configured.
+   * consulted before a buyer receives the HCS submit key for a one-per-human
+   * item. Protected markets fail before creating topics unless both this hook
+   * and the issuer key are configured.
    */
   authorizePurchase?: (input: {
     itemId: string;
@@ -290,9 +321,7 @@ export async function runMarket(
   const roster = sellersForLocation(
     buyers[0]?.plan.location ?? "Lisbon",
   );
-  const activeSellers = roster.filter((seller) =>
-    categories.has(seller.category),
-  );
+  const activeSellers = selectLiveMarketSellers(roster, categories);
   assertProtectedMarketAuthorizationConfigured(
     activeSellers.some(
       (seller) => (seller.humanPolicy ?? "open") !== "open",
@@ -304,68 +333,73 @@ export async function runMarket(
     await Promise.all(
       activeSellers.flatMap(
         (seller) =>
-          seller.inventory.map(async (item): Promise<MarketListing> => {
-            const account = ctx.infra.sellers[seller.id];
-            if (!account) {
-              throw new Error(`No Hedera account for seller ${seller.id}.`);
-            }
-            const log = await AuctionLog.create(ctx.client);
-            const itemId = marketItemId(runSalt, seller.id, item.id);
-            await log.publish({
-              type: "LISTED",
-              itemId,
-              listingId: item.id,
-              sellerId: seller.id,
-              sellerName: seller.name,
-              offering: item.offering,
-              category: seller.category,
-              floorCents: item.floorPriceCents,
-              quantity: 1,
-              humanPolicy: seller.humanPolicy ?? "open",
-              ...((seller.humanPolicy ?? "open") !== "open"
-                ? {
-                    authorizationIssuerPublicKey:
-                      options.authorizationIssuerPublicKey,
-                  }
-                : {}),
-            });
-            onEvent({
-              type: "LISTING_OPEN",
-              itemId,
-              topicId: log.topicId,
-              category: seller.category,
-              sellerId: seller.id,
-              sellerName: seller.name,
-              offering: item.offering,
-              floorCents: item.floorPriceCents,
-              humanPolicy: seller.humanPolicy ?? "open",
-            });
-            return {
-              itemId,
-              humanPolicy: seller.humanPolicy ?? "open",
-              ...((seller.humanPolicy ?? "open") !== "open"
-                ? {
-                    authorizationIssuerPublicKey:
-                      options.authorizationIssuerPublicKey,
-                  }
-                : {}),
-              listingId: item.id,
-              topicId: log.topicId,
-              topicSubmitKey: log.submitKeyDer,
-              sellerId: seller.id,
-              sellerAccountId: account.accountId,
-              sellerName: seller.name,
-              offering: item.offering,
-              floorCents: item.floorPriceCents,
-              quality: item.quality,
-              tags: [...item.tags],
-              attributes: structuredClone(item.attributes),
-              category: seller.category,
-              seller,
-              item,
-              log,
-            };
-          }),
+          // One live item per seller keeps the judge run fast while preserving
+          // seller diversity. The complete inventory remains visible in the
+          // catalog and can participate in later runs.
+          liveInventoryForSeller(seller).map(
+            async (item): Promise<MarketListing> => {
+              const account = ctx.infra.sellers[seller.id];
+              if (!account) {
+                throw new Error(`No Hedera account for seller ${seller.id}.`);
+              }
+              const log = await AuctionLog.create(ctx.client);
+              const itemId = marketItemId(runSalt, seller.id, item.id);
+              await log.publish({
+                type: "LISTED",
+                itemId,
+                listingId: item.id,
+                sellerId: seller.id,
+                sellerName: seller.name,
+                offering: item.offering,
+                category: seller.category,
+                floorCents: item.floorPriceCents,
+                quantity: 1,
+                humanPolicy: seller.humanPolicy ?? "open",
+                ...((seller.humanPolicy ?? "open") !== "open"
+                  ? {
+                      authorizationIssuerPublicKey:
+                        options.authorizationIssuerPublicKey,
+                    }
+                  : {}),
+              });
+              onEvent({
+                type: "LISTING_OPEN",
+                itemId,
+                topicId: log.topicId,
+                category: seller.category,
+                sellerId: seller.id,
+                sellerName: seller.name,
+                offering: item.offering,
+                floorCents: item.floorPriceCents,
+                humanPolicy: seller.humanPolicy ?? "open",
+              });
+              return {
+                itemId,
+                humanPolicy: seller.humanPolicy ?? "open",
+                ...((seller.humanPolicy ?? "open") !== "open"
+                  ? {
+                      authorizationIssuerPublicKey:
+                        options.authorizationIssuerPublicKey,
+                    }
+                  : {}),
+                listingId: item.id,
+                topicId: log.topicId,
+                topicSubmitKey: log.submitKeyDer,
+                sellerId: seller.id,
+                sellerAccountId: account.accountId,
+                sellerName: seller.name,
+                offering: item.offering,
+                floorCents: item.floorPriceCents,
+                quality: item.quality,
+                tags: [...item.tags],
+                attributes: structuredClone(item.attributes),
+                category: seller.category,
+                seller,
+                item,
+                log,
+              };
+            },
+          ),
       ),
     )
   ).sort((left, right) => left.itemId.localeCompare(right.itemId));
@@ -469,10 +503,13 @@ export async function runMarket(
       buyerIndex,
       allocation,
     })),
-  );
+  ).map((task, agentIndex) => ({
+    ...task,
+    prewarmedWallet: ctx.infra.marketAgents?.[agentIndex],
+  }));
   onEvent({ type: "MARKET_PHASE", phase: "running-auctions" });
   const settled = await Promise.allSettled(
-    tasks.map(({ buyer, buyerIndex, allocation }) =>
+    tasks.map(({ buyer, buyerIndex, allocation, prewarmedWallet }) =>
       runMarketLeaf(
         buyer,
         buyerIndex,
@@ -482,6 +519,7 @@ export async function runMarket(
         ),
         ctx,
         shared,
+        prewarmedWallet,
       ),
     ),
   );
@@ -520,38 +558,45 @@ export async function runMarket(
   onEvent({ type: "MARKET_PHASE", phase: "reconciling-wallets" });
   const observedSpent = buyers.map(() => 0);
   const sweptRemainders = buyers.map(() => 0);
-  for (const runtime of shared.runtimes) {
-    try {
-      const remaining = await tokenBalanceCents(ctx, runtime.wallet.accountId);
-      const spent = runtime.fundedCents - remaining;
-      observedSpent[runtime.buyerIndex] =
-        (observedSpent[runtime.buyerIndex] ?? 0) + spent;
-      sweptRemainders[runtime.buyerIndex] =
-        (sweptRemainders[runtime.buyerIndex] ?? 0) +
-        (await sweepLeafBalance(ctx, runtime.wallet));
+  await Promise.all(
+    shared.runtimes.map(async (runtime) => {
+      try {
+        const remaining = await tokenBalanceCents(ctx, runtime.wallet.accountId);
+        const spent = runtime.fundedCents - remaining;
+        observedSpent[runtime.buyerIndex] =
+          (observedSpent[runtime.buyerIndex] ?? 0) + spent;
+        const swept = await sweepLeafBalance(
+          ctx,
+          runtime.wallet,
+          remaining,
+        );
+        sweptRemainders[runtime.buyerIndex] =
+          (sweptRemainders[runtime.buyerIndex] ?? 0) + swept;
 
-      const run = runs.find((candidate) => candidate.runtime === runtime);
-      if (!run || run.outcome.result.amountCents !== spent) {
+        const run = runs.find((candidate) => candidate.runtime === runtime);
+        if (!run || run.outcome.result.amountCents !== spent) {
+          failures.push({
+            category: runtime.allocation.category,
+            message: run
+              ? `Ledger spend ${spent} does not match confirmed receipt ${run.outcome.result.amountCents}.`
+              : `Leaf ended without a receipt after spending ${spent}.`,
+            leafAccountId: runtime.wallet.accountId,
+            observedSpentCents: spent,
+          });
+        }
+      } catch (error) {
         failures.push({
           category: runtime.allocation.category,
-          message: run
-            ? `Ledger spend ${spent} does not match confirmed receipt ${run.outcome.result.amountCents}.`
-            : `Leaf ended without a receipt after spending ${spent}.`,
+          message: `Could not reconcile or sweep the leaf wallet: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
           leafAccountId: runtime.wallet.accountId,
-          observedSpentCents: spent,
         });
+      } finally {
+        onEvent({ type: "WALLET_RECONCILED" });
       }
-    } catch (error) {
-      failures.push({
-        category: runtime.allocation.category,
-        message: `Could not reconcile or sweep the leaf wallet: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        leafAccountId: runtime.wallet.accountId,
-      });
-    }
-    onEvent({ type: "WALLET_RECONCILED" });
-  }
+    }),
+  );
   buyers.forEach((buyer, index) => {
     const spent = observedSpent[index] ?? 0;
     if (
@@ -711,12 +756,13 @@ async function runMarketLeaf(
   listings: MarketListing[],
   ctx: HederaSettlementContext,
   shared: SharedMarketState,
+  prewarmedWallet?: StoredAccount,
 ): Promise<MarketLeafRun> {
   const mandateId = marketMandateId(
     buyer.plan.planId,
     allocation.category,
   );
-  const wallet = await createAccount(ctx, LEAF_FEE_HBAR);
+  const wallet = prewarmedWallet ?? (await createAccount(ctx));
   const recoveryPath = persistLeafWallet(wallet, {
     planId: buyer.plan.planId,
     mandateId,
@@ -734,8 +780,7 @@ async function runMarketLeaf(
 
   const initialFunding = allocation.maxBudgetCents;
   try {
-    await (
-      await new TransferTransaction()
+    const funding = new TransferTransaction()
         .addTokenTransfer(
           ctx.infra.paymentTokenId,
           ctx.operatorId,
@@ -746,8 +791,9 @@ async function runMarketLeaf(
           wallet.accountId,
           initialFunding,
         )
-        .execute(ctx.client)
-    ).getReceipt(ctx.client);
+        .addHbarTransfer(ctx.operatorId, new Hbar(-LEAF_FEE_HBAR))
+        .addHbarTransfer(wallet.accountId, new Hbar(LEAF_FEE_HBAR));
+    await (await funding.execute(ctx.client)).getReceipt(ctx.client);
     runtime.fundedCents = initialFunding;
   } catch (error) {
     runtime.fundedCents = await tokenBalanceCents(ctx, wallet.accountId);
@@ -760,6 +806,50 @@ async function runMarketLeaf(
     accountId: wallet.accountId,
     initialCapCents: allocation.maxBudgetCents,
   });
+
+  const eligibleListings: MarketListing[] = [];
+  const authorizationByItem = new Map<string, AuctionPass>();
+  for (const listing of listings) {
+    const policy = listing.humanPolicy ?? "open";
+    if (policy === "open") {
+      eligibleListings.push(listing);
+      continue;
+    }
+    const authorization = await shared.authorizePurchase?.({
+      itemId: listing.itemId,
+      listingId: listing.listingId,
+      sellerId: listing.sellerId,
+      humanPolicy: policy,
+      buyerName: buyer.name,
+      buyerIndex: runtime.buyerIndex,
+      leafWallet: wallet.accountId,
+    });
+    if (
+      authorization?.ok &&
+      authorization.pass &&
+      listing.authorizationIssuerPublicKey &&
+      verifyAuctionPass(
+        authorization.pass,
+        listing.authorizationIssuerPublicKey,
+        listing.itemId,
+        wallet.accountId,
+      )
+    ) {
+      authorizationByItem.set(listing.itemId, authorization.pass);
+      eligibleListings.push(listing);
+      continue;
+    }
+    shared.onEvent({
+      type: "PURCHASE_BLOCKED",
+      itemId: listing.itemId,
+      category: allocation.category,
+      buyerName: buyer.name,
+      leafWallet: wallet.accountId,
+      reason:
+        authorization?.reason ??
+        "World authorization credential is missing or invalid.",
+    });
+  }
 
   return new Promise<MarketLeafRun>((resolve, reject) => {
     const child: ChildProcess = fork(LEAF_AGENT_PATH, [], {
@@ -1051,7 +1141,7 @@ async function runMarketLeaf(
         }
 
         case "PREPARE": {
-          const listing = listings.find(
+          const listing = eligibleListings.find(
             (item) =>
               item.sellerId === message.sellerId &&
               item.listingId === message.listingId,
@@ -1069,11 +1159,17 @@ async function runMarketLeaf(
             break;
           }
           const policy = listing.humanPolicy ?? "open";
-          let authorizationPass: AuctionPass | undefined;
+          const authorizationPass = authorizationByItem.get(listing.itemId);
           if (policy !== "open") {
             if (
-              !shared.authorizePurchase ||
-              !listing.authorizationIssuerPublicKey
+              !authorizationPass ||
+              !listing.authorizationIssuerPublicKey ||
+              !verifyAuctionPass(
+                authorizationPass,
+                listing.authorizationIssuerPublicKey,
+                listing.itemId,
+                wallet.accountId,
+              )
             ) {
               shared.onEvent({
                 type: "PURCHASE_BLOCKED",
@@ -1086,39 +1182,6 @@ async function runMarketLeaf(
               sendToLeaf({ type: "PREPARE_REJECTED" });
               break;
             }
-            const authorization = await shared.authorizePurchase({
-              itemId: listing.itemId,
-              listingId: listing.listingId,
-              sellerId: listing.sellerId,
-              humanPolicy: policy,
-              buyerName: buyer.name,
-              buyerIndex: runtime.buyerIndex,
-              leafWallet: wallet.accountId,
-            });
-            if (
-              !authorization.ok ||
-              !authorization.pass ||
-              !verifyAuctionPass(
-                authorization.pass,
-                listing.authorizationIssuerPublicKey,
-                listing.itemId,
-                wallet.accountId,
-              )
-            ) {
-              shared.onEvent({
-                type: "PURCHASE_BLOCKED",
-                itemId: listing.itemId,
-                category: allocation.category,
-                buyerName: buyer.name,
-                leafWallet: wallet.accountId,
-                reason:
-                  authorization.reason ??
-                  "World authorization credential is missing or invalid.",
-              });
-              sendToLeaf({ type: "PREPARE_REJECTED" });
-              break;
-            }
-            authorizationPass = authorization.pass;
           }
           const closed = await closeAndVerifyAuction(listing, {
             buyerAccountId: wallet.accountId,
@@ -1350,6 +1413,11 @@ async function runMarketLeaf(
             category: allocation.category,
             lost: message.result.lost === true,
           });
+          // DONE is emitted only after the child's final ledger action
+          // returns its HBAR fee float. End the now-idle process immediately
+          // instead of waiting for Node's gRPC handles to drain.
+          child.kill();
+          finish();
           break;
 
         case "ERROR":
@@ -1378,13 +1446,13 @@ async function runMarketLeaf(
       wallet,
       paymentTokenId: ctx.infra.paymentTokenId,
       claimTokenId: ctx.infra.claimTokenId,
-      auctionTopicId: listings[0]?.topicId ?? "",
-      topicSubmitKey: listings[0]?.topicSubmitKey ?? "",
+      auctionTopicId: eligibleListings[0]?.topicId ?? "",
+      topicSubmitKey: eligibleListings[0]?.topicSubmitKey ?? "",
       clearingAccountId: ctx.operatorId.toString(),
       buyerLabel: buyer.name,
       contested: {
         mirrorBaseUrl: TESTNET_MIRROR_BASE,
-        listings: listings.map(
+        listings: eligibleListings.map(
           ({
             itemId,
             listingId,

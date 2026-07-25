@@ -89,6 +89,18 @@ function describeMarketProgress(
     live.rivals.length === 1 ? "" : "s"
   }`;
   switch (progress.phase) {
+    case "queued":
+      return {
+        stage: "SAFE EXECUTION QUEUE",
+        title: "Your market run is reserved.",
+        description:
+          "Another Hedera run is finishing with the shared buyer wallets. Yours starts automatically as soon as those wallets are reconciled.",
+        counter:
+          live.queuePosition === 1
+            ? "Next in queue"
+            : `${live.queuePosition ?? "—"} runs ahead`,
+        percent: 0,
+      };
     case "preparing-market":
       return {
         stage: "OPENING AUTHENTICATED MARKET",
@@ -240,8 +252,10 @@ function LiveAgentSearchRun({
     (agent) => agent.buyerName === "You",
   );
   const opened = live.listings.length > 0;
-  const phase: "searching" | "bidding" | "complete" | "failed" =
-    live.failed
+  const phase: "queued" | "searching" | "bidding" | "complete" | "failed" =
+    live.queued
+      ? "queued"
+      : live.failed
       ? "failed"
       : live.done
         ? "complete"
@@ -262,6 +276,16 @@ function LiveAgentSearchRun({
   );
 
   const phaseCopy = {
+    queued: {
+      eyebrow: "SAFE EXECUTION QUEUE · RESERVED",
+      title: "Your private plan has a safe place in line.",
+      description:
+        "A previous market is finishing wallet reconciliation. Your run has its own job ID and starts automatically without sharing live wallet state.",
+      status:
+        live.queuePosition === 1
+          ? "Next"
+          : `Queue ${live.queuePosition ?? "—"}`,
+    },
     searching: {
       eyebrow: `OPEN MARKET · ${live.rivals.length} RIVAL BUYERS ACTIVE`,
       title: "Agents are entering the market.",
@@ -321,7 +345,16 @@ function LiveAgentSearchRun({
         </div>
       </header>
 
-      {phase === "searching" ? (
+      {phase === "queued" ? (
+        <div className={styles.marketWaiting}>
+          <Clock3 size={20} aria-hidden="true" />
+          <strong>Your run is safely queued.</strong>
+          <span>
+            Keep this page open — the authenticated Hedera market will appear
+            automatically.
+          </span>
+        </div>
+      ) : phase === "searching" ? (
         <ActivityDiscovery
           searches={searches}
           agents={yourAgents}

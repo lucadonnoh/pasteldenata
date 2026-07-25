@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sellersForLocation } from "../catalog";
 import type {
+  Category,
   MarketProgress,
   PrivatePlan,
   SettlementResult,
@@ -10,11 +11,13 @@ import { ensureInfra, type HederaInfra } from "../hedera/infra";
 import {
   marketMandateId,
   runMarket,
+  selectLiveMarketSellers,
   type MarketBuyer,
 } from "../hedera/market";
 import { HederaPartialSettlementError } from "../hedera/settle";
 import { MockPrivatePlanner } from "../planner";
 import { marketAgentRunwayHbar } from "./market-runway";
+import { SerialJobQueue } from "./serial-job-queue";
 import {
   createHumanResolver,
   createDemoAwareHumanResolver,
@@ -77,7 +80,9 @@ export interface JobWorld {
 
 export interface SettlementJob {
   id: string;
-  status: "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed";
+  /** Number of active or queued runs ahead of this one. */
+  queuePosition?: number;
   /** Browser-registered identity agent backing the user, when provided. */
   identityAgent?: string;
   /** Clearing payer used to authenticate HCS lifecycle messages. */
@@ -101,25 +106,24 @@ export interface SettlementJob {
 
 export const USER_BUYER_NAME = "You";
 
-export class SettlementJobBusyError extends Error {
-  readonly status = 409;
-}
-
 const RIVAL_PERSONAS = [
   {
     name: "Bruno",
     intent: "Organize me a date tomorrow in Lisbon. My budget is $180.",
+    category: "dinner" as Category,
     identityAgent: "0x000000000000000000000000000000000000b001",
     mockHumanSeed: "bruno",
   },
   {
     name: "Chiara",
     intent: "Organize me a date tomorrow in Lisbon. My budget is $165.",
+    category: "cinema" as Category,
     identityAgent: "0x000000000000000000000000000000000000c001",
   },
   {
     name: "Emma",
     intent: "Organize me a date tomorrow in Lisbon. My budget is $150.",
+    category: "flowers" as Category,
     identityAgent: "0x000000000000000000000000000000000000e001",
     mockHumanSeed: "emma",
   },
@@ -128,16 +132,24 @@ const RIVAL_PERSONAS = [
 // Survives dev-server module reloads between the POST and the polling GETs.
 const store = globalThis as unknown as {
   __pastelSettlementJobs?: Map<string, SettlementJob>;
+  __pastelSettlementQueue?: SerialJobQueue;
 };
 const jobs: Map<string, SettlementJob> = (store.__pastelSettlementJobs ??=
   new Map());
+const settlementQueue = (store.__pastelSettlementQueue ??=
+  new SerialJobQueue());
 
 const JOB_TTL_MS = 60 * 60 * 1000;
 
 function prune(): void {
   const cutoff = Date.now() - JOB_TTL_MS;
   for (const [id, job] of jobs) {
-    if (job.createdAt < cutoff) jobs.delete(id);
+    if (
+      (job.status === "done" || job.status === "failed") &&
+      job.createdAt < cutoff
+    ) {
+      jobs.delete(id);
+    }
   }
 }
 
@@ -148,27 +160,32 @@ export interface SettlementJobOptions {
   identityAgent?: string;
 }
 
-function assertNoActiveJob(): void {
-  const active = [...jobs.values()].find((job) => job.status === "running");
-  if (active) {
-    throw new SettlementJobBusyError(
-      `Settlement job ${active.id} is still running. Wait for it to finish before starting another.`,
-    );
-  }
-}
-
 async function createMarketBuyers(
   plan: PrivatePlan,
 ): Promise<MarketBuyer[]> {
   const planner = new MockPrivatePlanner();
   const rivals = await Promise.all(
-    RIVAL_PERSONAS.map(async (persona) => ({
-      name: persona.name,
-      plan: {
-        ...(await planner.plan(persona.intent, new Date())).plan,
-        location: plan.location,
-      },
-    })),
+    RIVAL_PERSONAS.map(async (persona) => {
+      const planned = (await planner.plan(persona.intent, new Date())).plan;
+      const allocation = planned.allocations.find(
+        (candidate) => candidate.category === persona.category,
+      );
+      if (!allocation) {
+        throw new Error(
+          `${persona.name}'s demo plan has no ${persona.category} allocation.`,
+        );
+      }
+      return {
+        name: persona.name,
+        plan: {
+          ...planned,
+          location: plan.location,
+          totalBudgetCents: allocation.maxBudgetCents,
+          allocations: [{ ...allocation }],
+          unallocatedBudgetCents: 0,
+        },
+      };
+    }),
   );
   return [{ name: USER_BUYER_NAME, plan }, ...rivals];
 }
@@ -220,7 +237,6 @@ export async function startSettlementJob(
   options: SettlementJobOptions = {},
 ): Promise<SettlementJob> {
   prune();
-  assertNoActiveJob();
   const buyers = await createMarketBuyers(plan);
   const totalAgents = buyers.reduce(
     (sum, buyer) => sum + buyer.plan.allocations.length,
@@ -229,25 +245,25 @@ export async function startSettlementJob(
   await assertOperatorRunway(
     totalAgents,
   );
-  // The awaits above allow another local request to start first.
-  assertNoActiveJob();
   const marketCategories = new Set(
     buyers.flatMap((buyer) =>
       buyer.plan.allocations.map((allocation) => allocation.category),
     ),
   );
-  const totalTopics = sellersForLocation(plan.location)
-    .filter((seller) => marketCategories.has(seller.category))
-    .reduce((sum, seller) => sum + seller.inventory.length, 0);
+  const totalTopics = selectLiveMarketSellers(
+    sellersForLocation(plan.location),
+    marketCategories,
+  )
+    .reduce((sum, seller) => sum + Number(seller.inventory.length > 0), 0);
   const job: SettlementJob = {
     id: randomUUID(),
-    status: "running",
+    status: "queued",
     ...(options.identityAgent ? { identityAgent: options.identityAgent } : {}),
     agents: [],
     listings: [],
     rivals: RIVAL_PERSONAS.map((persona) => persona.name),
     progress: {
-      phase: "preparing-market",
+      phase: "queued",
       resolvedAgents: 0,
       totalAgents,
       reconciledWallets: 0,
@@ -274,7 +290,24 @@ export async function startSettlementJob(
     createdAt: Date.now(),
   };
   jobs.set(job.id, job);
-  void execute(job, plan, buyers);
+  settlementQueue.enqueue({
+    onStart: () => {
+      job.status = "running";
+      job.progress.phase = "preparing-market";
+      delete job.queuePosition;
+    },
+    onPosition: (position) => {
+      job.queuePosition = position;
+    },
+    run: () => execute(job, plan, buyers),
+    onError: (error) => {
+      job.error =
+        error instanceof Error
+          ? error.message
+          : "The queued settlement could not start.";
+      job.status = "failed";
+    },
+  });
   return job;
 }
 

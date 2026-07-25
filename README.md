@@ -147,7 +147,8 @@ Every accepted allocation becomes one child process with:
 - one category;
 - only that category's requirements;
 - a category spending cap;
-- a fresh Hedera testnet wallet funded to that cap;
+- an isolated Hedera testnet agent wallet funded to that cap (pre-warmed and
+  reused between serial judge runs, with a fresh mandate each time);
 - access to public listings for that category.
 
 The child does not receive the original prompt, the global budget, sibling
@@ -177,7 +178,8 @@ coordinator. It:
 - validates the complete plan-to-auction relationship;
 - owns the Hedera testnet operator credential and mocked seller credentials;
 - creates and funds buyer-agent wallets;
-- starts at most one settlement job at a time;
+- safely queues settlement jobs and executes them one at a time so reusable
+  parent wallets can never overlap;
 - streams actual HCS and Mirror Node state to the browser;
 - reconciles final token balances, sweeps recoverable remainders, and reports
   partial failures without hiding transactions that already finalized.
@@ -198,16 +200,16 @@ registered address alone is therefore insufficient.
 For `one-per-human` listings, the credential gateway converts the private
 AgentBook `humanId` into `H(humanId, auctionId)`. It issues a 15-minute
 Ed25519-signed pass bound to one auction and one leaf wallet. The issuer public
-key and seller policy are pinned in `LISTED`; a successful pass is independently
-rechecked by seller policy and written to HCS as `AUTHORIZED` before the seller
-signs.
+key and seller policy are pinned in `LISTED`. The coordinator gives the HCS
+submit key only to agents holding a valid pass, and seller policy independently
+rechecks that pass and writes it to HCS as `AUTHORIZED` before signing.
 
 The demo does not pretend every rival has a real World ID. Rival identities are
 explicit server-side fixtures: some resolve to distinct mock humans and some
-are deliberately unverified and are blocked from protected settlement. They
-never substitute for the real user's browser identity. Scalper mode assigns
-the verified mock rivals one shared human so their wallets collapse to one
-allocation per protected auction.
+are deliberately unverified and are blocked before protected bidding. They
+never substitute for the real user's browser identity. The standalone
+`npm run demo:scalper` adversarial fixture shows many wallets backed by one
+human collapsing to one allocation per protected auction.
 
 ## Auction protocol
 
@@ -427,12 +429,13 @@ seller would run or control its own signing service.
 - A non-settling bidder is delayed by one 30-second claim window and then
   forfeited.
 - This restores liveness across a finite fixed ranking, but it is not Sybil
-  resistance for bidding. One attacker can use multiple funded accounts and
-  consume one timeout per account because World authorization is checked at
-  settlement, not when the bid is submitted.
-- Protected settlement prevents those accounts from receiving multiple scarce
-  allocations. Preventing bid-level griefing still requires pass-bound bids,
-  bid bonds, collateral and slashing, or contract-enforced bids.
+  resistance for open listings. An attacker can use multiple funded accounts
+  and consume one timeout per account.
+- A protected bidder must hold a wallet- and auction-bound World pass before it
+  receives the HCS submit key. This removes the unverified-bidder griefing path,
+  while an authorized winner can still refuse to settle for one claim window.
+- Preventing that remaining liveness delay requires bid bonds, collateral and
+  slashing, or contract-enforced bids.
 - A trusted coordinator or required network service going offline can pause
   progress.
 
@@ -507,9 +510,10 @@ npm run hedera:setup -- Tokyo
 ```
 
 Only that city's mock sellers are provisioned. Accounts are checkpointed
-one at a time, and another city is added lazily when first used. The operator
-needs enough faucet HBAR to create and fund the selected sellers, buyer, and
-scoped agent accounts.
+one at a time, including a dedicated pool of 8 testnet bidding accounts so
+account creation never sits on the judge-run critical path. Another city is
+added lazily when first used. The operator needs enough faucet HBAR to create
+and fund the selected sellers, buyer, and scoped agent accounts.
 
 ### Railway judge demo
 
@@ -533,6 +537,11 @@ hardcoded. `railway.json` pins one replica because settlement jobs are
 in-memory and configures `/api/health` without performing billable or external
 checks. The browser calls only same-origin application routes in hosted mode,
 and those routes reject cross-origin browser requests.
+
+Concurrent judge runs receive distinct job IDs and wait in a visible FIFO
+queue. The coordinator starts the next run automatically only after the active
+run has reconciled every reusable wallet; it never returns a busy error or lets
+two runs mutate the same wallet state.
 
 The hosted World demo exposes two explicit paths:
 

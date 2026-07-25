@@ -107,11 +107,10 @@ platforms cannot offer.
 
 ## Cost structure — the margin story
 
-- **Hedera fees**: ~$0.0001 average per transaction. One full plan —
-  ~150 transactions (13 accounts, 16 topics, 100+ messages, 10 atomic
-  swaps; see VALIDATION.md "Network impact") — costs **under two cents**
-  to execute. A 2% take on a $176 settled bundle is ~$3.50 against ~$0.02
-  of chain cost: **>99% gross margin on settlement rails**.
+- **Hedera fees**: the current judge profile uses pre-warmed accounts, 8 fresh
+  topics, 30 HCS messages, and 6 atomic swaps in the measured run documented
+  in `VALIDATION.md`. Exact mainnet fee modeling remains production work, but
+  protocol cost is transaction-based rather than proportional to order value.
 - **0G inference**: ~$0.001 per private plan.
 - **Coordinator hosting**: single small instance (the Railway judge
   deployment is the template).

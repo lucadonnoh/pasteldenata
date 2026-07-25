@@ -68,6 +68,8 @@ export interface LiveAuctionView {
       reason: string;
     }>;
   };
+  queued: boolean;
+  queuePosition?: number;
   active: boolean;
   done: boolean;
   failed: boolean;
@@ -82,7 +84,8 @@ const MAX_STATUS_FAILURES = 5;
 const USER_BUYER_NAME = "You";
 
 interface JobSnapshot {
-  status: "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed";
+  queuePosition?: number;
   clearingAccountId?: string;
   agents?: LiveAuctionView["agents"];
   listings?: MarketListingView[];
@@ -136,6 +139,8 @@ export function useSettlementJob(): LiveAuctionView | undefined {
   const [settledCategories, setSettledCategories] = useState<string[]>([]);
   const [lostCategories, setLostCategories] = useState<string[]>([]);
   const [world, setWorld] = useState<LiveAuctionView["world"]>();
+  const [queued, setQueued] = useState(false);
+  const [queuePosition, setQueuePosition] = useState<number>();
   const [bidsByItem, setBidsByItem] = useState<Record<string, MarketBid[]>>(
     {},
   );
@@ -148,7 +153,7 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     let cancelled = false;
     let finished = false;
     let statusFailures = 0;
-    const startedAt = Date.now();
+    let runningStartedAt: number | undefined;
 
     const failJob = (message: string) => {
       if (cancelled || finished) return;
@@ -175,12 +180,6 @@ export function useSettlementJob(): LiveAuctionView | undefined {
 
     const tick = async () => {
       if (cancelled || finished) return;
-      if (Date.now() - startedAt > JOB_TIMEOUT_MS) {
-        failJob(
-          "Hedera settlement exceeded eight minutes. The local coordinator may still be reconciling; inspect the terminal before retrying.",
-        );
-        return;
-      }
       try {
         const response = await fetch(`/api/hedera/jobs/${jobId}`, {
           cache: "no-store",
@@ -204,6 +203,18 @@ export function useSettlementJob(): LiveAuctionView | undefined {
         statusFailures = 0;
         const job = (await response.json()) as JobSnapshot;
         if (cancelled) return;
+        const isQueued = job.status === "queued";
+        setQueued(isQueued);
+        setQueuePosition(job.queuePosition);
+        if (job.status === "running") {
+          runningStartedAt ??= Date.now();
+          if (Date.now() - runningStartedAt > JOB_TIMEOUT_MS) {
+            failJob(
+              "Hedera settlement exceeded eight minutes after leaving the queue. The coordinator may still be reconciling.",
+            );
+            return;
+          }
+        }
         if (job.clearingAccountId) {
           setClearingAccountId(job.clearingAccountId);
         }
@@ -326,6 +337,8 @@ export function useSettlementJob(): LiveAuctionView | undefined {
     settledCategories,
     lostCategories,
     ...(world ? { world } : {}),
+    queued,
+    ...(queuePosition ? { queuePosition } : {}),
     active: settlement === "pending",
     done: settlement === "settled",
     failed: settlement === "failed",

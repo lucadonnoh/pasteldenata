@@ -26,6 +26,7 @@ export async function GET(
   }
   return NextResponse.json({
     status: job.status,
+    ...(job.queuePosition ? { queuePosition: job.queuePosition } : {}),
     ...(job.clearingAccountId
       ? { clearingAccountId: job.clearingAccountId }
       : {}),

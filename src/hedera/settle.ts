@@ -52,8 +52,10 @@ export async function tokenBalanceCents(
 export async function sweepLeafBalance(
   ctx: HederaSettlementContext,
   wallet: StoredAccount,
+  knownBalanceCents?: number,
 ): Promise<number> {
-  const balance = await tokenBalanceCents(ctx, wallet.accountId);
+  const balance =
+    knownBalanceCents ?? (await tokenBalanceCents(ctx, wallet.accountId));
   if (balance <= 0) return 0;
   const sweep = new TransferTransaction()
     .addTokenTransfer(

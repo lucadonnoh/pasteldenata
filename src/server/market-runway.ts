@@ -4,10 +4,10 @@ export const ACCOUNT_CREATION_HBAR = 1.5;
 export const MARKET_LEAF_FLOAT_HBAR = 5;
 export const RUN_MARGIN_HBAR = 6;
 
-// The three deterministic demo rivals currently receive three allocations
-// each. Keep this explicit so readiness tests fail if the demo shape changes
-// without updating its conservative landing-page estimate.
-export const DEMO_RIVAL_ALLOCATIONS = 9;
+// Each deterministic demo rival receives one scoped allocation. This is
+// enough to demonstrate competing agents and mixed World identities without
+// making the judge wait for nine unrelated rival tasks.
+export const DEMO_RIVAL_ALLOCATIONS = 3;
 export const MAX_USER_ALLOCATIONS = CATEGORIES.length;
 export const MAX_MARKET_LEAF_COUNT =
   DEMO_RIVAL_ALLOCATIONS + MAX_USER_ALLOCATIONS;

@@ -34,13 +34,18 @@ export interface HederaInfra {
   /**
    * Persistent market-mode buyer wallets (index 0 = the user). These are
    * the buyers' funding accounts, not the anonymous bidding agents, so
-   * reusing them saves account-creation fees without touching the privacy
-   * story: leaf agent wallets stay fresh every run.
+   * reusing them saves account-creation fees.
    */
   marketBuyers?: StoredAccount[];
+  /**
+   * Pre-warmed testnet bidding accounts. Serial job execution makes reuse
+   * safe; each run still gives every account a fresh mandate and HCS topics.
+   */
+  marketAgents?: StoredAccount[];
 }
 
 const MARKET_BUYER_POOL = 4;
+export const MARKET_AGENT_POOL = 8;
 /** Contains generated testnet private keys; kept out of git. */
 function infraPath(): string {
   return resolve(runtimeDataDirectory(), "hedera-infra.json");
@@ -88,6 +93,11 @@ export async function upgradeInfra(
   const pool = (infra.marketBuyers ??= []);
   while (pool.length < MARKET_BUYER_POOL) {
     pool.push(await hooks.createStoredAccount(ctx));
+    hooks.persist(infra);
+  }
+  const agents = (infra.marketAgents ??= []);
+  while (agents.length < MARKET_AGENT_POOL) {
+    agents.push(await hooks.createStoredAccount(ctx));
     hooks.persist(infra);
   }
 }

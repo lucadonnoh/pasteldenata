@@ -181,6 +181,7 @@ export interface SettlementResult {
 }
 
 export type MarketProgressPhase =
+  | "queued"
   | "preparing-market"
   | "running-auctions"
   | "reconciling-wallets"

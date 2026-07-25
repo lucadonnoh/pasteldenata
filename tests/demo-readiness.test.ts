@@ -56,7 +56,7 @@ test("demo readiness accepts a funded worst-case first run", async () => {
 
   assert.equal(result.hedera.balanceOk, true);
   assert.equal(result.hedera.ready, true);
-  assert.equal(marketAgentRunwayHbar(MAX_MARKET_LEAF_COUNT), 97);
+  assert.equal(marketAgentRunwayHbar(MAX_MARKET_LEAF_COUNT), 58);
   assert.equal(MARKET_LEAF_FLOAT_HBAR, 5);
 });
 

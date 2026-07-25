@@ -57,31 +57,31 @@ to protocols, not to any specific account.
 ## Network impact (measured, not estimated)
 
 Agentic commerce is transaction-dense by construction: every plan mints
-budget, creates agent accounts, opens per-listing HCS topics, streams
+budget, funds scoped agent accounts, opens per-listing HCS topics, streams
 authenticated bids, and settles with atomic swaps. Measured from real
 testnet runs (all replayable via the operator's history on HashScan,
 account `0.0.9695863`):
 
-**One $200 date plan (4 categories, 3 rival buyers) produces roughly:**
+**The optimized judge profile for one $200 date plan (4 categories and 3
+scoped rival agents) was repeated end to end in 53.0 and 50.0 seconds:**
 
-- **13 new Hedera accounts** — one fresh, unlinkable wallet per buyer agent
-- **16 HCS topics** — one per scarce listing (seat/table level), each with
-  its own submit key
-- **~100+ consensus messages** — payer-authenticated listings, bids,
-  closes, forfeitures, settlements (a contested item alone can carry a
-  20-bid war)
-- **10 atomic swaps** — NATA-for-claim-NFT settlements, each co-signed by
-  buyer agent and seller
-- **~40 token transfers** — budget funding, escrowed caps, contingency
-  grants, refunds, fee-float returns
-- **10+ NFT mints** — one claim NFT per purchased item
+- **7 pre-warmed Hedera agent accounts** — fresh mandates and funding, with no
+  account creation on the judge-run critical path
+- **8 fresh HCS topics** — one per live scarce listing, each with its own
+  submit key
+- **30 consensus messages** in the 50.0-second run — payer-authenticated
+  listings, bids, closes, authorizations, and settlements
+- **6 atomic swaps and 6 claim-NFT mints** — four purchases for the user and
+  two for rival agents
+- **4/4 requested user categories settled**, **7/7 agent wallets reconciled**,
+  and **8/8 topics replay-verified** before the job reported `done`
+- **2 protected listings refused the unverified rival before bidding**, while
+  the human-backed paths continued normally
 
-A 300-transaction sample of recent operator history shows the standing
-mix: 44% crypto transfers, 29% consensus messages, 10% account creations,
-10% topic creations, 8% token mints. One user sentence — "organize me a
-date" — reliably becomes **on the order of 150 Hedera transactions**, all
-of them meaningful protocol usage (HTS, HCS, scheduled atomic settlement,
-Mirror Node reads on both server and browser), none of them padding.
+The earlier stress profile used 13 agents and 16 topics. The judge profile
+keeps the same HTS atomic settlement, HCS authentication, seller policy, World
+gating, and Mirror replay checks while moving reusable account provisioning to
+setup and scoping each mock rival to one category.
 
 ## External feedback
 
@@ -106,8 +106,8 @@ explaining twice.
 
 We will provide, ready to use:
 
-- a **funded 0G Router key** (entered in the sidebar; it never leaves the
-  browser tab),
+- a **funded 0G Router key** held by the hosted coordinator (local development
+  can still use browser-only BYOK),
 - a **funded Hedera testnet operator** (loaded by the local coordinator;
   never exposed to the browser),
 - a **World ID-approved identity agent** (already registered in the
