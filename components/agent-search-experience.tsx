@@ -325,7 +325,24 @@ function MarketBidStage({
               )}
             </ul>
             <footer>
-              <span>{listing.category}</span>
+              {(() => {
+                const yourAgent = live.agents.find(
+                  (agent) =>
+                    agent.buyerName === "You" &&
+                    agent.category === listing.category,
+                );
+                return yourAgent ? (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${yourAgent.accountId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    your agent {yourAgent.accountId}
+                  </a>
+                ) : (
+                  <span>{listing.category}</span>
+                );
+              })()}
               <a
                 href={`https://hashscan.io/testnet/topic/${listing.topicId}`}
                 target="_blank"
