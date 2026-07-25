@@ -15,9 +15,9 @@ import {
 } from "./tee-verifier";
 import { tomorrowInLisbon } from "./time";
 import {
-  type ZeroGE2eeCompletionClient,
-  ZeroGE2eeClient,
-} from "./zerog-e2ee";
+  type ZeroGPrivateCompletionClient,
+  ZeroGPrivateRouterClient,
+} from "./zerog-private";
 
 const AllocationSchema = z.object({
   category: z.enum(CATEGORIES),
@@ -108,13 +108,12 @@ export function requireVerifiedPrivateTee(
     !attestation.routerTrace ||
     !attestation.routerTrace.request_id ||
     !attestation.routerTrace.provider ||
+    attestation.routerTrace.tee_verified !== true ||
     attestation.independentVerification?.verified !== true ||
-    attestation.independentVerification.signatureVerified !== true ||
-    attestation.independentVerification.requestHashVerified !== true ||
-    attestation.independentVerification.responseHashVerified !== true
+    attestation.independentVerification.signatureVerified !== true
   ) {
     throw new Error(
-      "The 0G response did not pass independent, content-bound TEE verification.",
+      "The 0G response did not pass Router and independent TEE signature verification.",
     );
   }
 }
@@ -176,18 +175,17 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     private readonly model = "0gm-1.0-35b-a3b",
     private readonly teeVerifier: IndependentTeeVerifier =
       new ZeroGIndependentTeeVerifier(),
-    private readonly e2eeClient: ZeroGE2eeCompletionClient =
-      new ZeroGE2eeClient(),
+    private readonly privateClient: ZeroGPrivateCompletionClient =
+      new ZeroGPrivateRouterClient(),
   ) {}
 
   async plan(intent: string, now = new Date()): Promise<PlannerResult> {
     const totalBudgetCents = parseBudgetCents(intent);
     const expectedDate = tomorrowInLisbon(now);
 
-    const completion = await this.e2eeClient.complete({
+    const completion = await this.privateClient.complete({
       apiKey: this.apiKey,
       baseUrl: this.baseUrl,
-      model: this.model,
       request: {
         model: this.model,
         temperature: 0.15,
@@ -227,16 +225,14 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const raw = completion.response as RouterResponse;
     const chatId = completion.chatId;
     const trace = raw.x_0g_trace;
+    if (trace?.tee_verified !== true) {
+      throw new Error(
+        "0G returned a response without x_0g_trace.tee_verified = true.",
+      );
+    }
     if (!trace?.request_id || !trace.provider) {
       throw new Error(
         "0G returned an incomplete verification trace without a request ID or provider.",
-      );
-    }
-    if (
-      trace.provider.toLowerCase() !== completion.provider.toLowerCase()
-    ) {
-      throw new Error(
-        "0G Router trace names a different provider than the E2EE routing pin.",
       );
     }
 
@@ -245,9 +241,6 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     const independentVerification = await this.teeVerifier.verify({
       provider: trace.provider,
       chatId,
-      requestContent: completion.requestForProof,
-      responseContent: completion.responseForProof,
-      e2ee: completion.receipt,
     });
 
     const modelPlan = ModelPlanSchema.parse(extractJson(content));
@@ -259,6 +252,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
       ...trace,
       request_id: trace.request_id,
       provider: trace.provider,
+      tee_verified: true,
     };
 
     return {

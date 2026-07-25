@@ -8,7 +8,6 @@ import type {
   AuctionResult,
   IndependentTeeVerification,
   SellerAuctionView,
-  ZeroGE2eeReceipt,
 } from "../src/domain";
 import {
   organizePrivatePurchase,
@@ -24,15 +23,12 @@ import {
 import { createMockSellerAuctionHouses } from "../src/sellers";
 import {
   type IndependentTeeVerificationInput,
-  verifyE2eeContentHashes,
   verifyEip191Signature,
 } from "../src/tee-verifier";
-import { sha256Hex } from "../src/hash";
-import { canonicalJson } from "../src/jcs";
 import type {
-  ZeroGE2eeCompletion,
-  ZeroGE2eeCompletionClient,
-} from "../src/zerog-e2ee";
+  ZeroGPrivateCompletion,
+  ZeroGPrivateCompletionClient,
+} from "../src/zerog-private";
 
 const NOW = new Date("2026-07-24T12:00:00Z");
 const INTENT =
@@ -40,29 +36,12 @@ const INTENT =
 const TEST_PROVIDER = "0x0000000000000000000000000000000000000001";
 const TEST_SIGNER = "0x0000000000000000000000000000000000000002";
 
-const TEST_E2EE_RECEIPT: ZeroGE2eeReceipt = {
-  protocol: "0g-pc-e2ee-v1",
-  cipherSuite:
-    "DHKEM(X25519,HKDF-SHA256)/HKDF-SHA256/ChaCha20Poly1305",
-  providerPublicKeyEndpoint: "https://provider.example/v1/e2ee/pubkey",
-  providerEncryptionKey: "test-public-key",
-  encryptionKeyId: "test-key-id",
-  encryptionKeySignerMatchesOnchain: true,
-  encryptionKeyAttestationVerified: false,
-  requestSealedFields: ["messages"],
-  responseSealedFields: ["choices"],
-  responseUnboundFields: ["x_0g_trace"],
-  requestEncrypted: true,
-  responseEncrypted: true,
-  responseDecryptedLocally: true,
-};
-
 function independentVerification(
   overrides: Partial<IndependentTeeVerification> = {},
 ): IndependentTeeVerification {
   return {
     verified: true,
-    method: "onchain-signer-eip191-e2ee-content-bound",
+    method: "onchain-signer-eip191",
     chainId: 16661,
     rpcUrl: "https://evmrpc.0g.ai",
     serviceContract: "0x0000000000000000000000000000000000000003",
@@ -79,17 +58,8 @@ function independentVerification(
     signature: `0x${"11".repeat(65)}`,
     messageHash: `0x${"22".repeat(32)}`,
     signatureVerified: true,
-    requestHashVerified: true,
-    requestHashMethod: "jcs-decrypted-e2ee-request",
-    computedRequestHash: "aa".repeat(32),
-    responseHashVerified: true,
-    responseHashMethod: "jcs-decrypted-e2ee-response",
-    computedResponseHash: "bb".repeat(32),
-    excludedResponseFields: ["x_0g_trace"],
-    normalizedResponseFields: [],
     signedRequestHash: "aa".repeat(32),
     signedResponseHash: "bb".repeat(32),
-    e2ee: TEST_E2EE_RECEIPT,
     ...overrides,
   };
 }
@@ -108,6 +78,7 @@ function modelPlanResponse(
         output_cost: "20",
         total_cost: "30",
       },
+      tee_verified: true,
     },
     choices: [
       {
@@ -132,22 +103,14 @@ function modelPlanResponse(
   };
 }
 
-function mockE2eeClient(
+function mockPrivateClient(
   response: Record<string, unknown> = modelPlanResponse(),
-): ZeroGE2eeCompletionClient {
+): ZeroGPrivateCompletionClient {
   return {
-    complete: async (): Promise<ZeroGE2eeCompletion> => ({
+    complete: async (): Promise<ZeroGPrivateCompletion> => ({
       response,
-      requestForProof: {
-        model: "0gm-1.0-35b-a3b",
-        messages: [{ role: "user", content: "sealed" }],
-      },
-      responseForProof: Object.fromEntries(
-        Object.entries(response).filter(([key]) => key !== "x_0g_trace"),
-      ),
-      provider: TEST_PROVIDER,
+      responseText: JSON.stringify(response),
       chatId: "chat-header-id",
-      receipt: TEST_E2EE_RECEIPT,
     }),
   };
 }
@@ -420,7 +383,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: false,
         model: "deterministic-test-planner",
       }),
-    /independent, content-bound TEE verification/,
+    /Router and independent TEE signature verification/,
   );
   assert.throws(
     () =>
@@ -429,7 +392,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
         teeVerified: true,
         model: "0gm-1.0-35b-a3b",
       }),
-    /independent, content-bound TEE verification/,
+    /Router and independent TEE signature verification/,
   );
   assert.doesNotThrow(() =>
     requireVerifiedPrivateTee({
@@ -439,6 +402,7 @@ test("the browser flow accepts only an attested 0G private TEE", () => {
       routerTrace: {
         request_id: "request-1",
         provider: TEST_PROVIDER,
+        tee_verified: true,
       },
       independentVerification: independentVerification(),
     }),
@@ -464,62 +428,10 @@ test("proof lookup derives ZG-Res-Key from the OpenAI response ID", () => {
   );
 });
 
-test("E2EE proof binds both the decrypted request and exact plan response", () => {
-  const requestContent = {
-    model: "0gm-1.0-35b-a3b",
-    messages: [{ role: "user", content: "private intent" }],
-  };
-  const responseContent = {
-    id: "chatcmpl-proof",
-    model: "0GM-1.0-35B-A3B",
-    choices: [
-      {
-        message: {
-          content: '{"budget":200,"plan":"dinner"}',
-        },
-      },
-    ],
-  };
-  const signedRequestHash = sha256Hex(canonicalJson(requestContent));
-  const signedResponseHash = sha256Hex(canonicalJson(responseContent));
-
-  assert.deepEqual(
-    verifyE2eeContentHashes({
-      requestContent,
-      responseContent,
-      signedRequestHash,
-      signedResponseHash,
-    }),
-    {
-      computedRequestHash: signedRequestHash,
-      computedResponseHash: signedResponseHash,
-    },
-  );
-  assert.throws(
-    () =>
-      verifyE2eeContentHashes({
-        requestContent,
-        responseContent: {
-          ...responseContent,
-          choices: [
-            {
-              message: {
-                content: '{"budget":900,"plan":"dinner"}',
-              },
-            },
-          ],
-        },
-        signedRequestHash,
-        signedResponseHash,
-      }),
-    /does not match the locally decrypted E2EE plan response/,
-  );
-});
-
 test("the verified browser orchestrator rejects the mock before auctions", async () => {
   await assert.rejects(
     organizeVerifiedPrivatePurchase(new MockPrivatePlanner(), INTENT, NOW),
-    /independent, content-bound TEE verification/,
+    /Router and independent TEE signature verification/,
   );
 });
 
@@ -536,9 +448,9 @@ test("the 0G planner rejects a generic top-level TEE claim", async () => {
       {
         verify: async () => independentVerification(),
       },
-      mockE2eeClient(response),
+      mockPrivateClient(response),
     ).plan(INTENT, NOW),
-    /incomplete verification trace/,
+    /without x_0g_trace\.tee_verified = true/,
   );
 });
 
@@ -558,7 +470,7 @@ test("the 0G planner retains the exact verified Router trace", async () => {
     "https://router-api.0g.ai/v1",
     "0gm-1.0-35b-a3b",
     verifier,
-    mockE2eeClient(),
+    mockPrivateClient(),
   ).plan(INTENT, NOW);
   assert.deepEqual(result.attestation.routerTrace, {
     request_id: "request-1",
@@ -568,16 +480,12 @@ test("the 0G planner retains the exact verified Router trace", async () => {
       output_cost: "20",
       total_cost: "30",
     },
+    tee_verified: true,
   });
   assert.equal(result.attestation.chatId, "chat-header-id");
   assert.equal(verificationInputs.length, 1);
   assert.equal(verificationInputs[0]?.provider, TEST_PROVIDER);
   assert.equal(verificationInputs[0]?.chatId, "chat-header-id");
-  assert.deepEqual(verificationInputs[0]?.e2ee, TEST_E2EE_RECEIPT);
-  assert.match(
-    JSON.stringify(verificationInputs[0]?.responseContent),
-    /Private date/,
-  );
   assert.equal(
     result.attestation.independentVerification?.verified,
     true,
@@ -599,7 +507,7 @@ test("the 0G planner rejects a response when independent verification fails", as
       "https://router-api.0g.ai/v1",
       "0gm-1.0-35b-a3b",
       verifier,
-      mockE2eeClient(),
+      mockPrivateClient(),
     ).plan(INTENT, NOW),
     /Independent TEE verification failed: bad signature/,
   );

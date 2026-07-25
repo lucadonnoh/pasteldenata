@@ -6,12 +6,7 @@ import {
   recoverAddress,
 } from "ethers";
 import { z } from "zod";
-import type {
-  IndependentTeeVerification,
-  ZeroGE2eeReceipt,
-} from "./domain";
-import { sha256Hex } from "./hash";
-import { canonicalJson } from "./jcs";
+import type { IndependentTeeVerification } from "./domain";
 
 export const ZEROG_MAINNET_CHAIN_ID = 16661;
 export const ZEROG_MAINNET_RPC = "https://evmrpc.0g.ai";
@@ -64,9 +59,6 @@ export interface VerifiedTeeService {
 export interface IndependentTeeVerificationInput {
   provider: string;
   chatId: string;
-  requestContent: Record<string, unknown>;
-  responseContent: Record<string, unknown>;
-  e2ee: ZeroGE2eeReceipt;
 }
 
 export interface IndependentTeeVerifier {
@@ -114,37 +106,6 @@ function extractSignedHashes(signedPayload: string): {
       ? { signedResponseHash: responseHash.toLowerCase() }
       : {}),
   };
-}
-
-export function verifyE2eeContentHashes({
-  requestContent,
-  responseContent,
-  signedRequestHash,
-  signedResponseHash,
-}: {
-  requestContent: Record<string, unknown>;
-  responseContent: Record<string, unknown>;
-  signedRequestHash: string;
-  signedResponseHash: string;
-}): {
-  computedRequestHash: string;
-  computedResponseHash: string;
-} {
-  const computedRequestHash = sha256Hex(canonicalJson(requestContent));
-  const computedResponseHash = sha256Hex(canonicalJson(responseContent));
-
-  if (computedRequestHash !== signedRequestHash.toLowerCase()) {
-    throw new Error(
-      `Independent TEE verification failed: signed request hash ${signedRequestHash} does not match the locally reconstructed E2EE request ${computedRequestHash}.`,
-    );
-  }
-  if (computedResponseHash !== signedResponseHash.toLowerCase()) {
-    throw new Error(
-      `Independent TEE verification failed: signed response hash ${signedResponseHash} does not match the locally decrypted E2EE plan response ${computedResponseHash}.`,
-    );
-  }
-
-  return { computedRequestHash, computedResponseHash };
 }
 
 function resolveSigningAddress(service: OnchainServiceRecord): string {
@@ -223,9 +184,6 @@ export class ZeroGIndependentTeeVerifier
   async verify({
     provider,
     chatId,
-    requestContent,
-    responseContent,
-    e2ee,
   }: IndependentTeeVerificationInput): Promise<IndependentTeeVerification> {
     const service = await readVerifiedTeeService(provider);
     const serviceUrl = service.url.replace(/\/+$/, "");
@@ -252,24 +210,10 @@ export class ZeroGIndependentTeeVerifier
       signingAddress: service.signingAddress,
     });
     const signedHashes = extractSignedHashes(signed.text);
-    if (
-      !signedHashes.signedRequestHash ||
-      !signedHashes.signedResponseHash
-    ) {
-      throw new Error(
-        "Independent TEE verification failed: the signed payload does not contain valid request and response hashes.",
-      );
-    }
-    const contentBinding = verifyE2eeContentHashes({
-      requestContent,
-      responseContent,
-      signedRequestHash: signedHashes.signedRequestHash,
-      signedResponseHash: signedHashes.signedResponseHash,
-    });
 
     return {
       verified: true,
-      method: "onchain-signer-eip191-e2ee-content-bound",
+      method: "onchain-signer-eip191",
       chainId: ZEROG_MAINNET_CHAIN_ID,
       rpcUrl: ZEROG_MAINNET_RPC,
       serviceContract: ZEROG_INFERENCE_SERVICE_CONTRACT,
@@ -285,17 +229,7 @@ export class ZeroGIndependentTeeVerifier
       signature: signed.signature,
       messageHash,
       signatureVerified: true,
-      requestHashVerified: true,
-      requestHashMethod: "jcs-decrypted-e2ee-request",
-      computedRequestHash: contentBinding.computedRequestHash,
-      responseHashVerified: true,
-      responseHashMethod: "jcs-decrypted-e2ee-response",
-      computedResponseHash: contentBinding.computedResponseHash,
-      excludedResponseFields: e2ee.responseUnboundFields,
-      normalizedResponseFields: [],
-      signedRequestHash: signedHashes.signedRequestHash,
-      signedResponseHash: signedHashes.signedResponseHash,
-      e2ee,
+      ...signedHashes,
       ...(signed.provider_type
         ? { providerType: signed.provider_type }
         : {}),

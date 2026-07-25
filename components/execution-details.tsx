@@ -8,8 +8,6 @@ const PRIVACY_DOCS =
   "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/privacy";
 const VERIFICATION_DOCS =
   "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/router/features/verifiable-execution";
-const E2EE_PROTOCOL =
-  "https://github.com/0gfoundation/0g-pc-e2ee/blob/main/protocol/SPEC.md";
 const ROUTER_ENDPOINT = "https://router-api.0g.ai/v1/chat/completions";
 const CHAINSCAN_ADDRESS = "https://chainscan.0g.ai/address/";
 
@@ -33,37 +31,37 @@ export function PrivacyDetails() {
         <div className="evidence-grid">
           <div>
             <span className="evidence-label live">Live</span>
-            <strong>Browser-sealed 0G request</strong>
+            <strong>Browser → 0G Router</strong>
             <p>
-              The browser HPKE-encrypts <code>messages</code> to the selected
-              provider before calling the Router. There is no application API
-              route, and the Router key stays in this tab&apos;s React state.
+              This page calls 0G directly. There is no application API route,
+              and the user&apos;s key stays in this tab&apos;s React state.
             </p>
           </div>
           <div>
             <span className="evidence-label enforced">Enforced</span>
-            <strong>Pinned private TeeML routing</strong>
+            <strong>Private TeeML sealed inference</strong>
             <p>
-              The provider is selected from the private TeeML fleet, checked
-              on 0G Mainnet, and pinned with Router fallbacks disabled.
+              Every request sends{" "}
+              <code>X-0G-Provider-Trust-Mode: private</code>. 0G documents that
+              this routes only to TeeML, where the model and prompt stay inside
+              the enclave.
             </p>
           </div>
           <div>
-            <span className="evidence-label enforced">Local proof</span>
-            <strong>Independent browser verification</strong>
+            <span className="evidence-label enforced">Two checks</span>
+            <strong>Router + independent signer verification</strong>
             <p>
-              This browser decrypts the sealed response, recovers the
-              provider&apos;s EIP-191 signer, and matches both signed hashes to
-              the exact decrypted request and plan response.
+              The Router must return <code>tee_verified: true</code>. The
+              browser also recovers the provider&apos;s EIP-191 signer and
+              matches it to the acknowledged signer recorded on 0G.
             </p>
           </div>
         </div>
         <p className="mock-boundary-note">
-          Current 0G limitation: the provider advertises its HPKE key over its
-          on-chain service URL and names the correct on-chain signer, but its
-          current TDX quote does not yet bind that encryption key. Response
-          origin and plan content are independently verified; encryption-key
-          delivery still trusts the provider&apos;s HTTPS endpoint.
+          0G calls this private or sealed inference. It is not the separate
+          draft <code>_e2ee</code> HPKE payload protocol: production uses a
+          normal OpenAI-compatible <code>messages</code> request plus the
+          private routing header.
         </p>
         <p className="mock-boundary-note">
           After 0G returns the verified plan, seller inventory, auctions, rival
@@ -72,7 +70,6 @@ export function PrivacyDetails() {
         <div className="docs-links">
           <DocsLink href={PRIVACY_DOCS}>0G privacy mode</DocsLink>
           <DocsLink href={VERIFICATION_DOCS}>0G TEE verification</DocsLink>
-          <DocsLink href={E2EE_PROTOCOL}>0G E2EE protocol</DocsLink>
         </div>
       </div>
     </details>
@@ -107,14 +104,14 @@ export function ZeroGVerificationReceipt({
           <ShieldCheck size={15} aria-hidden="true" />
         </span>
         <div>
-          <span>LIVE · 0G E2EE CONTENT PROOF</span>
-          <h2>TEE signer, private request, and exact plan verified</h2>
+          <span>LIVE · 0G PRIVATE TEE RECEIPT</span>
+          <h2>Private routing and TEE signer verified</h2>
           <p>
-            The browser opened the HPKE response and matched its TEE-signed
-            request and response hashes to the local plaintext.
+            0G verified the response synchronously, then this browser
+            independently checked the signed proof against the on-chain signer.
           </p>
         </div>
-        <span className="verification-pill">E2EE · CONTENT BOUND</span>
+        <span className="verification-pill">PRIVATE · TEEML</span>
       </header>
 
       <div className="zerog-proof-grid">
@@ -130,34 +127,21 @@ export function ZeroGVerificationReceipt({
           <div className="verification-equation">
             <span>Acceptance condition</span>
             <code>
-              signer &amp;&amp; request hash &amp;&amp; response hash
+              tee_verified &amp;&amp; signer === on-chain signer
             </code>
           </div>
           <dl className="evidence-table">
             <div>
-              <dt>Private-compute protocol</dt>
+              <dt>Routing</dt>
               <dd>
-                <code>{proof.e2ee.protocol}</code>
+                <code>private</code> · TeeML only
               </dd>
             </div>
             <div>
-              <dt>HPKE suite</dt>
+              <dt>Router verification</dt>
               <dd>
-                <code>{proof.e2ee.cipherSuite}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Prompt field</dt>
-              <dd>
-                <code>{proof.e2ee.requestSealedFields.join(", ")}</code>{" "}
-                encrypted before Router
-              </dd>
-            </div>
-            <div>
-              <dt>Plan field</dt>
-              <dd>
-                <code>{proof.e2ee.responseSealedFields.join(", ")}</code>{" "}
-                decrypted in this browser
+                <code>verify_tee: true</code> ·{" "}
+                <code>tee_verified: true</code>
               </dd>
             </div>
             <div>
@@ -188,41 +172,13 @@ export function ZeroGVerificationReceipt({
             <div>
               <dt>Signed request hash</dt>
               <dd>
-                <code>{proof.signedRequestHash}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Computed request hash</dt>
-              <dd>
-                <code>{proof.computedRequestHash}</code>
+                <code>{proof.signedRequestHash ?? "Not exposed"}</code>
               </dd>
             </div>
             <div>
               <dt>Signed response hash</dt>
               <dd>
-                <code>{proof.signedResponseHash}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Computed response hash</dt>
-              <dd>
-                <code>{proof.computedResponseHash}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Content binding</dt>
-              <dd>
-                <code>{proof.responseHashMethod}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Router-unbound fields</dt>
-              <dd>
-                {proof.excludedResponseFields.length > 0 ? (
-                  <code>{proof.excludedResponseFields.join(", ")}</code>
-                ) : (
-                  "None"
-                )}
+                <code>{proof.signedResponseHash ?? "Not exposed"}</code>
               </dd>
             </div>
             <div>
@@ -236,22 +192,11 @@ export function ZeroGVerificationReceipt({
       </div>
 
       <p className="verification-caveat prominent">
-        No application server performs this check. The browser reconstructs the
-        plaintext request, locally opens the authenticated HPKE response,
-        JCS-canonicalizes both, and requires both SHA-256 hashes to equal the
-        hashes in proof <code>{proof.chatId}</code>. It then performs EIP-191
-        recovery and requires the recovered address to equal the acknowledged
-        on-chain TEE signer. <code>x_0g_trace</code> is explicitly unbound by
-        the E2EE envelope and remains Router corroboration, not part of the
-        signed plan.
-      </p>
-      <p className="verification-caveat">
-        Encryption-key trust is narrower than the response proof: key{" "}
-        <code>{proof.e2ee.encryptionKeyId}</code> came from the provider&apos;s
-        HTTPS endpoint and its advertised signer matches the on-chain signer,
-        but the deployed quote does not yet bind <code>enc_pub</code>. The UI
-        therefore does not label encryption-key attestation as independently
-        verified.
+        The independent check proves that proof <code>{proof.chatId}</code> was
+        signed by the acknowledged TeeML signer. The exact plan-to-response-hash
+        match is still trusted to the Router&apos;s synchronous{" "}
+        <code>tee_verified</code> check because the Router adds metadata to the
+        provider response before this browser receives it.
       </p>
       <div className="docs-links">
         {providerExplorerUrl && (
@@ -263,10 +208,6 @@ export function ZeroGVerificationReceipt({
         <DocsLink href={serviceContractExplorerUrl}>
           0G service contract
         </DocsLink>
-        <DocsLink href={proof.e2ee.providerPublicKeyEndpoint}>
-          Provider E2EE key
-        </DocsLink>
-        <DocsLink href={E2EE_PROTOCOL}>E2EE wire specification</DocsLink>
         <DocsLink href={VERIFICATION_DOCS}>
           Verification mechanics
         </DocsLink>
@@ -276,9 +217,7 @@ export function ZeroGVerificationReceipt({
       <details className="router-corroboration">
         <summary>
           <span>View 0G Router corroboration</span>
-          <small>
-            unbound routing and billing metadata
-          </small>
+          <small>routing, verification, and billing metadata</small>
         </summary>
         <div>
           <pre>{JSON.stringify(trace, null, 2)}</pre>
@@ -298,9 +237,8 @@ export function ZeroGVerificationReceipt({
             <div>
               <dt>Router verification</dt>
               <dd>
-                <code>verify_tee</code> omitted: Router strips that control
-                field, so binding it would invalidate the E2EE request. The
-                independent content proof above is authoritative.
+                <code>verify_tee: true</code> requested and{" "}
+                <code>x_0g_trace.tee_verified: true</code> required
               </dd>
             </div>
             <div>

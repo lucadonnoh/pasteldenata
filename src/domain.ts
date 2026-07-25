@@ -34,39 +34,12 @@ export interface ZeroGRouterTrace {
     output_cost?: string | number;
     total_cost?: string | number;
   };
-  /**
-   * Router-authored corroboration only. E2EE requests deliberately omit
-   * verify_tee because the Router strips that control field before forwarding,
-   * which would invalidate the request AAD.
-   */
-  tee_verified?: boolean | null;
-}
-
-export interface ZeroGE2eeReceipt {
-  protocol: "0g-pc-e2ee-v1";
-  cipherSuite:
-    "DHKEM(X25519,HKDF-SHA256)/HKDF-SHA256/ChaCha20Poly1305";
-  providerPublicKeyEndpoint: string;
-  providerEncryptionKey: string;
-  encryptionKeyId: string;
-  encryptionKeySignerMatchesOnchain: true;
-  /**
-   * The deployed quote currently binds the TEE signer but does not yet expose
-   * the E2EE enc_pub in report_data. Keep this explicit instead of upgrading
-   * an HTTPS key fetch into an attestation claim.
-   */
-  encryptionKeyAttestationVerified: false;
-  requestSealedFields: string[];
-  responseSealedFields: string[];
-  responseUnboundFields: string[];
-  requestEncrypted: true;
-  responseEncrypted: true;
-  responseDecryptedLocally: true;
+  tee_verified: true;
 }
 
 export interface IndependentTeeVerification {
   verified: true;
-  method: "onchain-signer-eip191-e2ee-content-bound";
+  method: "onchain-signer-eip191";
   chainId: 16661;
   rpcUrl: string;
   serviceContract: string;
@@ -82,17 +55,8 @@ export interface IndependentTeeVerification {
   signature: string;
   messageHash: string;
   signatureVerified: true;
-  requestHashVerified: true;
-  requestHashMethod: "jcs-decrypted-e2ee-request";
-  computedRequestHash: string;
-  responseHashVerified: true;
-  responseHashMethod: "jcs-decrypted-e2ee-response";
-  computedResponseHash: string;
-  excludedResponseFields: string[];
-  normalizedResponseFields: [];
-  signedRequestHash: string;
-  signedResponseHash: string;
-  e2ee: ZeroGE2eeReceipt;
+  signedRequestHash?: string;
+  signedResponseHash?: string;
   providerType?: string;
   providerIdentity?: string;
   tlsCertFingerprint?: string;
