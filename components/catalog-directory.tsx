@@ -27,6 +27,7 @@ import {
 import { formatUsd } from "@/src/money";
 
 import styles from "./catalog-directory.module.css";
+import { CITY_LABELS } from "@/src/catalog";
 
 type CatalogFilter = "all" | Category;
 
@@ -43,7 +44,10 @@ function categoryLabel(category: Category): string {
 }
 
 function cityLabel(city: PublicListing["city"]): string {
-  return `${city.charAt(0).toUpperCase()}${city.slice(1)}`;
+  return (
+    CITY_LABELS[city as keyof typeof CITY_LABELS] ??
+    `${city.charAt(0).toUpperCase()}${city.slice(1)}`
+  );
 }
 
 function attributeLabel(key: string): string {
