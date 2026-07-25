@@ -27,15 +27,18 @@ body {
 }
 
 /*
- * The cockpit was designed at a very dense desktop scale. Match Chrome's
- * second zoom-in step (125%) by default on wide screens while keeping the
- * rendered page inside the viewport. Tablet and mobile layouts stay native.
+ * The cockpit was designed at a dense desktop scale. Scale the application
+ * canvas explicitly instead of narrowing and zooming the body: some deployed
+ * browsers apply the 80% width but ignore CSS zoom, leaving a blank strip on
+ * the right. A transformed 80% canvas occupies the full viewport at 125%.
+ * Tablet and mobile layouts stay native.
  */
 @media (min-width: 1200px) {
-  body {
+  body > .app-shell {
     width: 80%;
     min-height: 80vh;
-    zoom: 1.25;
+    transform: scale(1.25);
+    transform-origin: top left;
   }
 
   body .app-shell {
