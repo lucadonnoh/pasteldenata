@@ -113,6 +113,14 @@ function AgentSearchRun({
   );
 
   useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const completionTimer = window.setTimeout(() => {
+        setResolvedCount(searches.length);
+        setPhase("complete");
+      }, 0);
+      return () => window.clearTimeout(completionTimer);
+    }
+
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
@@ -276,7 +284,7 @@ function AgentSearchRun({
             onClick={onReplay}
           >
             <RotateCcw size={13} />
-            Replay agent search
+            Replay mock auction trace
           </button>
         </>
       )}
@@ -357,7 +365,7 @@ function ActivityDiscovery({
               <footer>
                 <span>
                   <WalletCards size={11} />
-                  {search.auction.bids.length} eligible sellers
+                  {search.auction.listingAuctions.length} eligible listings
                 </span>
                 <strong>
                   cap {formatUsd(search.allocation.maxBudgetCents)}
@@ -729,8 +737,8 @@ function ResultCard({
 
         <div className={styles.resultFooter}>
           <div>
-            <span>Agent wallet</span>
-            <code>{shortWallet(search.wallet)}</code>
+            <span>Mock buyer ID</span>
+            <code>{search.agentId}</code>
           </div>
           <strong>{formatUsd(search.auction.winner.amountCents)}</strong>
         </div>

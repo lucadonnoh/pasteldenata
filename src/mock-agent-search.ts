@@ -1,6 +1,5 @@
 import type {
   AuctionResult,
-  Bid,
   Category,
   DemoResult,
   PlanAllocation,
@@ -9,10 +8,17 @@ import { sha256Hex } from "./hash";
 
 export interface MockAgentSearch {
   id: string;
+  agentId: string;
   wallet: `0x${string}`;
   allocation: PlanAllocation;
   auction: AuctionResult;
   matchedTags: string[];
+}
+
+export interface MockSellerOffer {
+  sellerId: string;
+  sellerName: string;
+  offering: string;
 }
 
 export interface MockBuyerBid {
@@ -24,7 +30,7 @@ export interface MockBuyerBid {
 
 export interface MockBuyerCompetition {
   search: MockAgentSearch;
-  offer: Bid;
+  offer: MockSellerOffer;
   attempt: number;
   outcome: "won" | "lost";
   bids: MockBuyerBid[];
@@ -32,6 +38,15 @@ export interface MockBuyerCompetition {
 
 function normalize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function agentIdFor(
+  planId: string,
+  category: Category,
+  index: number,
+): string {
+  const hash = sha256Hex(`pastel-agent:${planId}:${category}:${index}`);
+  return `buyer_${category}_${hash.slice(0, 12)}`;
 }
 
 function walletFor(
@@ -79,6 +94,11 @@ export function createMockAgentSearches(
 
     return {
       id: `agent_${allocation.category}_${index + 1}`,
+      agentId: agentIdFor(
+        result.plan.planId,
+        allocation.category,
+        index,
+      ),
       wallet: walletFor(
         result.plan.planId,
         allocation.category,
@@ -178,10 +198,19 @@ export function createMockBuyerCompetitions(
     ];
   }
 
-  const firstOffer =
-    search.auction.bids.find(
-      (bid) => bid.sellerId !== search.auction.winner.sellerId,
-    ) ?? search.auction.winner;
+  const alternativeListing = search.auction.listingAuctions
+    .map((listingAuction) => listingAuction.listing)
+    .find(
+      (listing) =>
+        listing.sellerId !== search.auction.winner.sellerId,
+    );
+  const firstOffer: MockSellerOffer = alternativeListing
+    ? {
+        sellerId: alternativeListing.sellerId,
+        sellerName: alternativeListing.sellerName,
+        offering: alternativeListing.offering,
+      }
+    : search.auction.winner;
 
   return [
     {

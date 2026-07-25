@@ -12,7 +12,9 @@ export function minimumCatalogListPriceCents(
 ): number {
   const prices = MOCK_SELLERS.filter(
     (seller) => seller.category === category,
-  ).map((seller) => seller.listPriceCents);
+  ).flatMap((seller) =>
+    seller.inventory.map((item) => item.estimatedMarketPriceCents),
+  );
 
   if (prices.length === 0) {
     throw new Error(`No public catalog offers for ${category}.`);

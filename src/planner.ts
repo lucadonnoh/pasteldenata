@@ -5,10 +5,19 @@ import {
   type PlanAllocation,
   type PlannerAttestation,
   type PrivatePlan,
+  type ZeroGRouterTrace,
 } from "./domain";
 import { sha256Hex } from "./hash";
 import { parseBudgetCents } from "./money";
+import {
+  type IndependentTeeVerifier,
+  ZeroGIndependentTeeVerifier,
+} from "./tee-verifier";
 import { tomorrowInLisbon } from "./time";
+import {
+  type ZeroGPrivateCompletionClient,
+  ZeroGPrivateRouterClient,
+} from "./zerog-private";
 
 const AllocationSchema = z.object({
   category: z.enum(CATEGORIES),
@@ -48,16 +57,14 @@ interface RouterResponse {
     };
   }>;
   model?: string;
-  provider?: string;
-  provider_address?: string;
-  tee_verified?: boolean;
-  cost?: string | number;
   x_0g_trace?: {
     request_id?: string;
     provider?: string;
     tee_verified?: boolean;
     billing?: {
-      total_cost?: string;
+      input_cost?: string | number;
+      output_cost?: string | number;
+      total_cost?: string | number;
     };
   };
 }
@@ -71,17 +78,43 @@ export interface PrivatePlanner {
   plan(intent: string, now?: Date): Promise<PlannerResult>;
 }
 
+export function resolveProofChatId(
+  response: Response,
+  responseId?: string,
+): string | undefined {
+  const responseKey =
+    response.headers.get("ZG-Res-Key") ??
+    response.headers.get("zg-res-key");
+  if (responseKey) return responseKey;
+
+  return responseId?.startsWith("chatcmpl-")
+    ? responseId.slice("chatcmpl-".length)
+    : responseId;
+}
+
 export function requireVerifiedPrivateTee(
   attestation: PlannerAttestation,
 ): asserts attestation is PlannerAttestation & {
   mode: "0g-private-tee";
   teeVerified: true;
+  routerTrace: NonNullable<PlannerAttestation["routerTrace"]>;
+  independentVerification: NonNullable<
+    PlannerAttestation["independentVerification"]
+  >;
 } {
   if (
     attestation.mode !== "0g-private-tee" ||
-    attestation.teeVerified !== true
+    attestation.teeVerified !== true ||
+    !attestation.routerTrace ||
+    !attestation.routerTrace.request_id ||
+    !attestation.routerTrace.provider ||
+    attestation.routerTrace.tee_verified !== true ||
+    attestation.independentVerification?.verified !== true ||
+    attestation.independentVerification.signatureVerified !== true
   ) {
-    throw new Error("0G did not return a verified private TEE response.");
+    throw new Error(
+      "The 0G response did not pass Router and independent TEE signature verification.",
+    );
   }
 }
 
@@ -140,24 +173,23 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     private readonly apiKey: string,
     private readonly baseUrl = "https://router-api.0g.ai/v1",
     private readonly model = "0gm-1.0-35b-a3b",
+    private readonly teeVerifier: IndependentTeeVerifier =
+      new ZeroGIndependentTeeVerifier(),
+    private readonly privateClient: ZeroGPrivateCompletionClient =
+      new ZeroGPrivateRouterClient(),
   ) {}
 
   async plan(intent: string, now = new Date()): Promise<PlannerResult> {
     const totalBudgetCents = parseBudgetCents(intent);
     const expectedDate = tomorrowInLisbon(now);
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-        "X-0G-Provider-Trust-Mode": "private",
-      },
-      body: JSON.stringify({
+    const completion = await this.privateClient.complete({
+      apiKey: this.apiKey,
+      baseUrl: this.baseUrl,
+      request: {
         model: this.model,
         temperature: 0.15,
         max_tokens: 900,
-        verify_tee: true,
         chat_template_kwargs: { enable_thinking: false },
         response_format: { type: "json_object" },
         messages: [
@@ -189,37 +221,40 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
             }),
           },
         ],
-      }),
+      },
     });
-
-    const raw = (await response.json()) as RouterResponse & {
-      error?: { message?: string };
-    };
-    const chatId =
-      response.headers.get("ZG-Res-Key") ??
-      response.headers.get("zg-res-key") ??
-      raw.id;
-    if (!response.ok) {
+    const raw = completion.response as RouterResponse;
+    const chatId = completion.chatId;
+    const trace = raw.x_0g_trace;
+    if (trace?.tee_verified !== true) {
       throw new Error(
-        `0G Router returned ${response.status}: ${raw.error?.message ?? "unknown error"}`,
+        "0G returned a response without x_0g_trace.tee_verified = true.",
       );
     }
-    const teeVerified =
-      raw.tee_verified === true || raw.x_0g_trace?.tee_verified === true;
-    if (!teeVerified) {
-      throw new Error("0G returned a response without successful TEE verification.");
+    if (!trace?.request_id || !trace.provider) {
+      throw new Error(
+        "0G returned an incomplete verification trace without a request ID or provider.",
+      );
     }
 
     const content = raw.choices?.[0]?.message?.content;
     if (!content) throw new Error("0G returned an empty planner response.");
+    const independentVerification = await this.teeVerifier.verify({
+      provider: trace.provider,
+      chatId,
+    });
 
     const modelPlan = ModelPlanSchema.parse(extractJson(content));
-    const provider =
-      raw.provider ?? raw.provider_address ?? raw.x_0g_trace?.provider;
     const costNeuron =
-      raw.x_0g_trace?.billing?.total_cost ??
-      (raw.cost === undefined ? undefined : String(raw.cost));
-    const requestId = raw.x_0g_trace?.request_id;
+      trace.billing?.total_cost === undefined
+        ? undefined
+        : String(trace.billing.total_cost);
+    const routerTrace: ZeroGRouterTrace = {
+      ...trace,
+      request_id: trace.request_id,
+      provider: trace.provider,
+      tee_verified: true,
+    };
 
     return {
       plan: enforcePlan(
@@ -232,10 +267,12 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
         mode: "0g-private-tee",
         teeVerified: true,
         model: raw.model ?? this.model,
-        ...(provider ? { provider } : {}),
+        provider: trace.provider,
         ...(costNeuron ? { costNeuron } : {}),
-        ...(requestId ? { requestId } : {}),
-        ...(chatId ? { chatId } : {}),
+        requestId: trace.request_id,
+        chatId,
+        routerTrace,
+        independentVerification,
       },
     };
   }
