@@ -16,6 +16,7 @@ import {
   PrivacyDetails,
   ZeroGVerificationReceipt,
 } from "@/components/execution-details";
+import { AgentSearchExperience } from "@/components/agent-search-experience";
 
 const examples = [
   "Organize me a date tomorrow in Lisbon. My budget is $200.",
@@ -191,6 +192,7 @@ export function IntentBox() {
       {result && (
         <>
           <ZeroGVerificationReceipt result={result} />
+          <AgentSearchExperience result={result} />
           <MockExecutionDetails result={result} />
         </>
       )}
