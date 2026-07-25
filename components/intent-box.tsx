@@ -56,7 +56,7 @@ export function IntentBox() {
 
     const collapseTimer = window.setTimeout(
       () => setCredentialPanelOpen(false),
-      650,
+      900,
     );
     return () => window.clearTimeout(collapseTimer);
   }, [hasUsableKey]);
