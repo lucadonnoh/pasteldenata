@@ -1,5 +1,6 @@
 import type {
   AuctionResult,
+  Bid,
   Category,
   DemoResult,
   PlanAllocation,
@@ -23,6 +24,9 @@ export interface MockBuyerBid {
 
 export interface MockBuyerCompetition {
   search: MockAgentSearch;
+  offer: Bid;
+  attempt: number;
+  outcome: "won" | "lost";
   bids: MockBuyerBid[];
 }
 
@@ -87,22 +91,22 @@ export function createMockAgentSearches(
   });
 }
 
-export function createMockBuyerCompetition(
+function createWinningBids(
   search: MockAgentSearch,
-): MockBuyerCompetition {
+  attempt: number,
+): MockBuyerBid[] {
   const finalAmount = search.auction.winner.amountCents;
   const bidderSequence = [
     marketBuyerWallet(search.wallet, 0),
     marketBuyerWallet(search.wallet, 1),
     search.wallet,
     marketBuyerWallet(search.wallet, 0),
-    marketBuyerWallet(search.wallet, 1),
     search.wallet,
   ];
-  const ratios = [0.62, 0.7, 0.78, 0.86, 0.93, 1];
+  const ratios = [0.62, 0.72, 0.81, 0.91, 1];
   let previousAmount = 0;
 
-  const bids = bidderSequence.map((wallet, index) => {
+  return bidderSequence.map((wallet, index) => {
     const proposedAmount =
       index === ratios.length - 1
         ? finalAmount
@@ -120,12 +124,85 @@ export function createMockBuyerCompetition(
     previousAmount = amountCents;
 
     return {
-      id: `${search.id}_buyer_bid_${index + 1}`,
+      id: `${search.id}_attempt_${attempt}_buyer_bid_${index + 1}`,
       wallet,
       kind: wallet === search.wallet ? "user" : "market",
       amountCents,
     } satisfies MockBuyerBid;
   });
+}
 
-  return { search, bids };
+function createLosingBids(search: MockAgentSearch): MockBuyerBid[] {
+  const cap = search.allocation.maxBudgetCents;
+  const finalAmount =
+    cap + Math.max(200, Math.round((cap * 0.04) / 100) * 100);
+  const bidderSequence = [
+    marketBuyerWallet(search.wallet, 0),
+    search.wallet,
+    marketBuyerWallet(search.wallet, 1),
+    search.wallet,
+    marketBuyerWallet(search.wallet, 0),
+  ];
+  const amounts = [
+    Math.round((cap * 0.58) / 100) * 100,
+    Math.round((cap * 0.7) / 100) * 100,
+    Math.round((cap * 0.8) / 100) * 100,
+    Math.round((cap * 0.94) / 100) * 100,
+    finalAmount,
+  ];
+
+  return bidderSequence.map(
+    (wallet, index) =>
+      ({
+        id: `${search.id}_attempt_1_buyer_bid_${index + 1}`,
+        wallet,
+        kind: wallet === search.wallet ? "user" : "market",
+        amountCents: amounts[index]!,
+      }) satisfies MockBuyerBid,
+  );
+}
+
+export function createMockBuyerCompetitions(
+  search: MockAgentSearch,
+  includeRecovery = false,
+): MockBuyerCompetition[] {
+  if (!includeRecovery) {
+    return [
+      {
+        search,
+        offer: search.auction.winner,
+        attempt: 1,
+        outcome: "won",
+        bids: createWinningBids(search, 1),
+      },
+    ];
+  }
+
+  const firstOffer =
+    search.auction.bids.find(
+      (bid) => bid.sellerId !== search.auction.winner.sellerId,
+    ) ?? search.auction.winner;
+
+  return [
+    {
+      search,
+      offer: firstOffer,
+      attempt: 1,
+      outcome: "lost",
+      bids: createLosingBids(search),
+    },
+    {
+      search,
+      offer: search.auction.winner,
+      attempt: 2,
+      outcome: "won",
+      bids: createWinningBids(search, 2),
+    },
+  ];
+}
+
+export function createMockBuyerCompetition(
+  search: MockAgentSearch,
+): MockBuyerCompetition {
+  return createMockBuyerCompetitions(search)[0]!;
 }

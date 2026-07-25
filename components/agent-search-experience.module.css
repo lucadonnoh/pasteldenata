@@ -650,6 +650,7 @@
   font-size: 8px;
   font-weight: 720;
   letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
 .activityTabActive {
@@ -676,6 +677,18 @@
   color: #57813c;
 }
 
+.activityTabLost {
+  border-color: rgba(211, 82, 76, 0.5);
+  background: rgba(255, 238, 236, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 9px 24px rgba(132, 54, 49, 0.1);
+}
+
+.activityTabLost > b {
+  color: #b34c46;
+}
+
 .focusAuction {
   display: grid;
   min-height: 286px;
@@ -696,6 +709,20 @@
   flex-direction: column;
   backdrop-filter: blur(24px) saturate(165%);
   -webkit-backdrop-filter: blur(24px) saturate(165%);
+  animation: offerArrives 620ms both
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sellerOffer[data-attempt="2"] {
+  border-color: rgba(117, 173, 82, 0.44);
+  background: rgba(246, 255, 240, 0.4);
+  box-shadow:
+    0 17px 38px rgba(61, 91, 43, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.sellerOffer[data-attempt="2"] > header b {
+  color: #4e7e34;
 }
 
 .sellerOffer > header {
@@ -847,6 +874,21 @@
       transparent 43%
     ),
     rgba(255, 255, 255, 0.06);
+}
+
+.liveLeaderLost {
+  border-color: rgba(232, 98, 89, 0.5);
+  background:
+    radial-gradient(
+      circle at 82% 18%,
+      rgba(226, 72, 62, 0.23),
+      transparent 43%
+    ),
+    rgba(255, 255, 255, 0.06);
+}
+
+.liveLeaderLost .leaderIdentity > span {
+  color: #ff9c93;
 }
 
 .leaderIdentity > span {
@@ -1723,6 +1765,19 @@
   }
 }
 
+@keyframes offerArrives {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateX(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}
+
 @keyframes newestBidArrives {
   0% {
     opacity: 0;
@@ -2008,6 +2063,7 @@
   .bidEvent,
   .bidRow,
   .currentBest,
+  .sellerOffer,
   .resultCard {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;

@@ -10,8 +10,10 @@ import {
   Radio,
   RotateCcw,
   ScanSearch,
+  ShieldCheck,
   UtensilsCrossed,
   WalletCards,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,7 +22,7 @@ import type { Category, DemoResult } from "@/src/domain";
 import { formatUsd } from "@/src/money";
 import {
   createMockAgentSearches,
-  createMockBuyerCompetition,
+  createMockBuyerCompetitions,
   type MockBuyerCompetition,
   type MockAgentSearch,
 } from "@/src/mock-agent-search";
@@ -28,7 +30,9 @@ import {
 import styles from "./agent-search-experience.module.css";
 
 const DISCOVERY_DURATION_MS = 4200;
-const BID_INTERVAL_MS = 1000;
+const BID_INTERVAL_MS = 1050;
+const LOST_AUCTION_HOLD_MS = 2600;
+const RETRY_OFFER_HOLD_MS = 1800;
 const AUCTION_SETTLE_MS = 1500;
 
 const categoryIcons: Record<Category, LucideIcon> = {
@@ -45,14 +49,14 @@ function shortWallet(wallet: string): string {
 
 function createBidEvents(competitions: MockBuyerCompetition[]) {
   const events: Array<{
-    searchIndex: number;
+    competitionIndex: number;
     bidIndex: number;
     bid: MockBuyerCompetition["bids"][number];
   }> = [];
 
-  competitions.forEach((competition, searchIndex) => {
+  competitions.forEach((competition, competitionIndex) => {
     competition.bids.forEach((bid, bidIndex) => {
-      events.push({ searchIndex, bidIndex, bid });
+      events.push({ competitionIndex, bidIndex, bid });
     });
   });
 
@@ -82,9 +86,13 @@ function AgentSearchRun({
   searches: MockAgentSearch[];
   onReplay: () => void;
 }) {
+  const recoveryIndex = searches.length > 1 ? 1 : 0;
   const competitions = useMemo(
-    () => searches.map(createMockBuyerCompetition),
-    [searches],
+    () =>
+      searches.flatMap((search, index) =>
+        createMockBuyerCompetitions(search, index === recoveryIndex),
+      ),
+    [recoveryIndex, searches],
   );
   const [phase, setPhase] = useState<
     "searching" | "bidding" | "complete"
@@ -97,7 +105,6 @@ function AgentSearchRun({
   );
 
   useEffect(() => {
-    let bidTimer: number | undefined;
     const resolutionTimers = searches.map((_, index) =>
       window.setTimeout(
         () => setResolvedCount(index + 1),
@@ -107,35 +114,72 @@ function AgentSearchRun({
     const auctionTimer = window.setTimeout(
       () => {
         setPhase("bidding");
-        bidTimer = window.setInterval(
-          () => setBidTick((current) => current + 1),
-          BID_INTERVAL_MS,
-        );
       },
       DISCOVERY_DURATION_MS,
-    );
-    const completionTimer = window.setTimeout(
-      () => {
-        if (bidTimer !== undefined) window.clearInterval(bidTimer);
-        setPhase("complete");
-      },
-      DISCOVERY_DURATION_MS +
-        bidEvents.length * BID_INTERVAL_MS +
-        AUCTION_SETTLE_MS,
     );
 
     return () => {
       resolutionTimers.forEach(window.clearTimeout);
       window.clearTimeout(auctionTimer);
-      if (bidTimer !== undefined) window.clearInterval(bidTimer);
-      window.clearTimeout(completionTimer);
     };
-  }, [bidEvents.length, searches]);
+  }, [searches]);
+
+  useEffect(() => {
+    if (phase !== "bidding") return;
+
+    const event =
+      bidEvents[Math.min(bidTick, bidEvents.length - 1)];
+    const competition = event
+      ? competitions[event.competitionIndex]
+      : undefined;
+
+    if (!event || !competition) {
+      const emptyTimer = window.setTimeout(
+        () => setPhase("complete"),
+        AUCTION_SETTLE_MS,
+      );
+      return () => window.clearTimeout(emptyTimer);
+    }
+
+    const isLastEvent = bidTick >= bidEvents.length - 1;
+    const isRoundResolution =
+      event.bidIndex === competition.bids.length - 1;
+    const delay = isLastEvent
+      ? AUCTION_SETTLE_MS
+      : isRoundResolution && competition.outcome === "lost"
+        ? LOST_AUCTION_HOLD_MS
+        : competition.attempt > 1 && event.bidIndex === 0
+          ? RETRY_OFFER_HOLD_MS
+          : BID_INTERVAL_MS;
+    const bidTimer = window.setTimeout(() => {
+      if (isLastEvent) {
+        setPhase("complete");
+        return;
+      }
+      setBidTick((current) =>
+        Math.min(current + 1, bidEvents.length - 1),
+      );
+    }, delay);
+
+    return () => window.clearTimeout(bidTimer);
+  }, [bidEvents, bidTick, competitions, phase]);
 
   const activeEvent =
     bidEvents[Math.min(bidTick, bidEvents.length - 1)];
-  const activeAuctionNumber = (activeEvent?.searchIndex ?? 0) + 1;
+  const activeCompetition = activeEvent
+    ? competitions[activeEvent.competitionIndex]
+    : competitions[0];
+  const activeAuctionNumber =
+    searches.findIndex(
+      (search) => search.id === activeCompetition?.search.id,
+    ) + 1;
   const activeBidNumber = (activeEvent?.bidIndex ?? 0) + 1;
+  const lostAuctionResolved =
+    activeCompetition?.outcome === "lost" &&
+    activeBidNumber === activeCompetition.bids.length;
+  const retryOfferFound =
+    (activeCompetition?.attempt ?? 1) > 1 &&
+    activeBidNumber === 1;
 
   const phaseCopy = {
     searching: {
@@ -146,13 +190,24 @@ function AgentSearchRun({
       status: "Discovering",
     },
     bidding: {
-      eyebrow: "BUYER AGENTS · LIVE AUCTION",
-      title: "Buyer agents are competing.",
-      description:
-        "The seller offer stays fixed while three buyer wallets raise the price.",
-      status: `Auction ${activeAuctionNumber}/${
+      eyebrow: lostAuctionResolved
+        ? "AUCTION LOST · MANDATE PROTECTED"
+        : retryOfferFound
+          ? "ALTERNATIVE SELLER FOUND"
+          : "BUYER AGENTS · LIVE AUCTION",
+      title: lostAuctionResolved
+        ? "Outbid. Walking away."
+        : retryOfferFound
+          ? "New offer. Bidding again."
+          : "Buyer agents are competing.",
+      description: lostAuctionResolved
+        ? "The market passed this wallet’s cap. It will not overspend."
+        : retryOfferFound
+          ? "The same buyer wallet found another seller inside its mandate."
+          : "The seller offer stays fixed while three buyer wallets raise the price.",
+      status: `Activity ${Math.max(activeAuctionNumber, 1)}/${
         searches.length
-      } · Bid ${activeBidNumber}`,
+      } · Try ${activeCompetition?.attempt ?? 1} · Bid ${activeBidNumber}`,
     },
     complete: {
       eyebrow: "BUNDLE ASSEMBLED",
@@ -191,6 +246,7 @@ function AgentSearchRun({
         />
       ) : phase === "bidding" ? (
         <BidAuctionStage
+          searches={searches}
           competitions={competitions}
           bidEvents={bidEvents}
           bidTick={bidTick}
@@ -308,10 +364,12 @@ function ActivityDiscovery({
 }
 
 function BidAuctionStage({
+  searches,
   competitions,
   bidEvents,
   bidTick,
 }: {
+  searches: MockAgentSearch[];
   competitions: MockBuyerCompetition[];
   bidEvents: ReturnType<typeof createBidEvents>;
   bidTick: number;
@@ -322,7 +380,7 @@ function BidAuctionStage({
   );
   const activeEvent =
     bidEvents[Math.min(bidTick, bidEvents.length - 1)];
-  const activeIndex = activeEvent?.searchIndex ?? 0;
+  const activeIndex = activeEvent?.competitionIndex ?? 0;
   const activeCompetition =
     competitions[activeIndex] ?? competitions[0];
   const visibleBidCount = (activeEvent?.bidIndex ?? 0) + 1;
@@ -349,6 +407,13 @@ function BidAuctionStage({
     0,
     visibleBidCount,
   );
+  const activeSearchIndex = searches.findIndex(
+    (search) => search.id === activeCompetition.search.id,
+  );
+  const roundIsResolved =
+    visibleBidCount === activeCompetition.bids.length;
+  const roundIsLost =
+    activeCompetition.outcome === "lost" && roundIsResolved;
   const marketWallets = activeCompetition.bids
     .filter((bid) => bid.kind === "market")
     .map((bid) => bid.wallet)
@@ -363,24 +428,43 @@ function BidAuctionStage({
       <div className={styles.auctionTopline}>
         <span>
           <Gavel size={13} />
-          THREE SEQUENTIAL AUCTIONS
+          {roundIsLost
+            ? "MANDATE CAP REACHED · FINDING ANOTHER SELLER"
+            : activeCompetition.attempt > 1
+              ? "ALTERNATIVE OFFER · SECOND ATTEMPT"
+              : "MULTI-AGENT PROCUREMENT"}
         </span>
         <b>
-          <Radio size={11} />
-          LIVE BID {visibleEventCount.toString().padStart(2, "0")}
+          {roundIsLost ? <ShieldCheck size={11} /> : <Radio size={11} />}
+          {roundIsLost
+            ? "BUDGET PROTECTED"
+            : `LIVE BID ${visibleEventCount.toString().padStart(2, "0")}`}
         </b>
       </div>
 
       <nav className={styles.activityTabs} aria-label="Activity auctions">
-        {competitions.map(({ search }, searchIndex) => {
+        {searches.map((search, searchIndex) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
-          const isActive = searchIndex === activeIndex;
-          const isComplete = searchIndex < activeIndex;
+          const searchCompetitions = competitions.filter(
+            (competition) => competition.search.id === search.id,
+          );
+          const lastCompetitionIndex = competitions.reduce(
+            (lastIndex, competition, competitionIndex) =>
+              competition.search.id === search.id
+                ? competitionIndex
+                : lastIndex,
+            -1,
+          );
+          const isActive = searchIndex === activeSearchIndex;
+          const isComplete = lastCompetitionIndex < activeIndex;
+          const retried = searchCompetitions.length > 1;
           return (
             <div
               className={`${styles.activityTab} ${
                 isActive ? styles.activityTabActive : ""
-              } ${isComplete ? styles.activityTabComplete : ""}`}
+              } ${isComplete ? styles.activityTabComplete : ""} ${
+                isActive && roundIsLost ? styles.activityTabLost : ""
+              }`}
               key={search.id}
             >
               <span>
@@ -394,12 +478,17 @@ function BidAuctionStage({
                 {isComplete ? (
                   <>
                     <Check size={11} />
-                    WON
+                    {retried ? "WON · TRY 2" : "WON"}
+                  </>
+                ) : isActive && roundIsLost ? (
+                  <>
+                    <X size={11} />
+                    LOST
                   </>
                 ) : isActive ? (
                   <>
                     <Radio size={10} />
-                    LIVE
+                    {activeCompetition.attempt > 1 ? "RETRY" : "LIVE"}
                   </>
                 ) : (
                   "QUEUED"
@@ -414,6 +503,8 @@ function BidAuctionStage({
         <section
           className={styles.sellerOffer}
           data-category={activeCompetition.search.allocation.category}
+          data-attempt={activeCompetition.attempt}
+          key={activeCompetition.offer.sellerId}
         >
           <header>
             <span>
@@ -426,13 +517,19 @@ function BidAuctionStage({
               })()}
             </span>
             <div>
-              <small>FIXED SELLER OFFER</small>
-              <b>Seller does not bid</b>
+              <small>
+                {activeCompetition.attempt > 1
+                  ? "NEW SELLER OFFER"
+                  : "FIXED SELLER OFFER"}
+              </small>
+              <b>
+                Attempt {activeCompetition.attempt} · Seller does not bid
+              </b>
             </div>
           </header>
 
-          <h3>{activeCompetition.search.auction.winner.sellerName}</h3>
-          <p>{activeCompetition.search.auction.winner.offering}</p>
+          <h3>{activeCompetition.offer.sellerName}</h3>
+          <p>{activeCompetition.offer.offering}</p>
 
           <div className={styles.offerRequirements}>
             {activeCompetition.search.allocation.requirements
@@ -459,13 +556,19 @@ function BidAuctionStage({
                 currentBid.kind === "user"
                   ? styles.liveLeaderUser
                   : ""
-              }`}
+              } ${roundIsLost ? styles.liveLeaderLost : ""}`}
               key={currentBid.id}
             >
               <div className={styles.leaderIdentity}>
                 <span>
-                  <Radio size={12} />
-                  {currentBid.kind === "user"
+                  {roundIsLost ? (
+                    <ShieldCheck size={12} />
+                  ) : (
+                    <Radio size={12} />
+                  )}
+                  {roundIsLost
+                    ? "MARKET AGENT WINS · YOUR AGENT STOPS"
+                    : currentBid.kind === "user"
                     ? "YOUR AGENT TAKES THE LEAD"
                     : "A MARKET AGENT TAKES THE LEAD"}
                 </span>
@@ -473,10 +576,17 @@ function BidAuctionStage({
                 <code>{shortWallet(currentBid.wallet)}</code>
               </div>
               <div className={styles.currentPrice}>
-                <span>CURRENT BID</span>
+                <span>
+                  {roundIsLost ? "FINAL MARKET BID" : "CURRENT BID"}
+                </span>
                 <strong>{formatUsd(currentBid.amountCents)}</strong>
                 <small>
-                  Bid {(activeEvent?.bidIndex ?? 0) + 1}
+                  {roundIsLost
+                    ? `Your cap ${formatUsd(
+                        activeCompetition.search.allocation
+                          .maxBudgetCents,
+                      )}`
+                    : `Bid ${(activeEvent?.bidIndex ?? 0) + 1}`}
                 </small>
               </div>
             </div>

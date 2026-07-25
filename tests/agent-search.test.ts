@@ -4,6 +4,7 @@ import test from "node:test";
 import { organizePrivatePurchase } from "../src/orchestrator";
 import {
   createMockBuyerCompetition,
+  createMockBuyerCompetitions,
   createMockAgentSearches,
 } from "../src/mock-agent-search";
 import { MockPrivatePlanner } from "../src/planner";
@@ -63,7 +64,7 @@ test("buyer agents raise the price while the seller offer stays fixed", async ()
     const amounts = competition.bids.map((bid) => bid.amountCents);
     const finalBid = competition.bids.at(-1);
 
-    assert.equal(competition.bids.length, 6);
+    assert.ok(competition.bids.length >= 4);
     assert.equal(new Set(buyerWallets).size, 3);
     assert.ok(
       buyerWallets.every((wallet) => /^0x[a-f0-9]{40}$/.test(wallet)),
@@ -82,4 +83,46 @@ test("buyer agents raise the price while the seller offer stays fixed", async ()
         search.allocation.maxBudgetCents,
     );
   }
+});
+
+test("one buyer agent can lose, protect its cap, and win another offer", async () => {
+  const result = await organizePrivatePurchase(
+    new MockPrivatePlanner(),
+    INTENT,
+    NOW,
+  );
+  const search = createMockAgentSearches(result)[1];
+
+  assert.ok(search);
+  const competitions = createMockBuyerCompetitions(search, true);
+  const [lostCompetition, recoveredCompetition] = competitions;
+  const lostFinalBid = lostCompetition?.bids.at(-1);
+  const recoveredFinalBid = recoveredCompetition?.bids.at(-1);
+
+  assert.equal(competitions.length, 2);
+  assert.equal(lostCompetition?.outcome, "lost");
+  assert.equal(recoveredCompetition?.outcome, "won");
+  assert.notEqual(
+    lostCompetition?.offer.sellerId,
+    recoveredCompetition?.offer.sellerId,
+  );
+  assert.equal(lostFinalBid?.kind, "market");
+  assert.ok(
+    (lostFinalBid?.amountCents ?? 0) >
+      search.allocation.maxBudgetCents,
+  );
+  assert.ok(
+    lostCompetition?.bids
+      .filter((bid) => bid.kind === "user")
+      .every(
+        (bid) =>
+          bid.amountCents <= search.allocation.maxBudgetCents,
+      ),
+  );
+  assert.equal(recoveredFinalBid?.kind, "user");
+  assert.equal(recoveredFinalBid?.wallet, search.wallet);
+  assert.ok(
+    (recoveredFinalBid?.amountCents ?? Number.POSITIVE_INFINITY) <=
+      search.allocation.maxBudgetCents,
+  );
 });
