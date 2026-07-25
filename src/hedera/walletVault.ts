@@ -6,6 +6,7 @@ import {
 } from "node:fs";
 import { resolve } from "node:path";
 import type { Category } from "../domain";
+import { runtimeDataDirectory } from "../server/runtime-data";
 import type { StoredAccount } from "./infra";
 
 export interface LeafWalletRecoveryRecord {
@@ -42,7 +43,7 @@ export function persistLeafWallet(
     mandateId: string;
     category: Category;
   },
-  baseDirectory = process.cwd(),
+  baseDirectory = runtimeDataDirectory(),
 ): string {
   const directory = vaultDirectory(baseDirectory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });

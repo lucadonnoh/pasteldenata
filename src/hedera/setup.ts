@@ -2,6 +2,7 @@ import "dotenv/config";
 import { sellersForLocation } from "../catalog";
 import { connectHedera } from "./client";
 import { ensureInfra } from "./infra";
+import { runtimeDataDirectory } from "../server/runtime-data";
 
 async function main() {
   const requestedMarket = process.argv.slice(2).join(" ").trim() || "Lisbon";
@@ -15,7 +16,9 @@ async function main() {
     console.log(`Claim NFT collection ${infra.claimTokenId}`);
     console.log(`Buyer account        ${infra.buyer.accountId}`);
     console.log(`Seller accounts      ${Object.keys(infra.sellers).length}`);
-    console.log("\nDetails saved to hedera-infra.json (not committed).\n");
+    console.log(
+      `\nDetails saved to ${runtimeDataDirectory()}/hedera-infra.json (not committed).\n`,
+    );
   } finally {
     ctx.client.close();
   }

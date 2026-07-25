@@ -1,6 +1,11 @@
 import { HOMEPAGE_REQUIRED_HBAR } from "./market-runway";
 
 export interface DemoReadiness {
+  zeroG: {
+    mode: "browser-key" | "hosted-demo";
+    serverKeyConfigured: boolean;
+    ready: boolean;
+  };
   hedera: {
     network: "testnet";
     operatorIdConfigured: boolean;
@@ -37,6 +42,9 @@ async function operatorBalanceHbar(
 interface HederaEnvironment {
   HEDERA_OPERATOR_ID?: string | undefined;
   HEDERA_OPERATOR_KEY?: string | undefined;
+  HOSTED_DEMO_MODE?: string | undefined;
+  ZEROG_SERVER_DEMO?: string | undefined;
+  ZEROG_KEY?: string | undefined;
 }
 
 function isConfigured(value: string | undefined): boolean {
@@ -51,6 +59,9 @@ export async function getDemoReadiness(
   environment: HederaEnvironment = {
     HEDERA_OPERATOR_ID: process.env.HEDERA_OPERATOR_ID,
     HEDERA_OPERATOR_KEY: process.env.HEDERA_OPERATOR_KEY,
+    HOSTED_DEMO_MODE: process.env.HOSTED_DEMO_MODE,
+    ZEROG_SERVER_DEMO: process.env.ZEROG_SERVER_DEMO,
+    ZEROG_KEY: process.env.ZEROG_KEY,
   },
   fetcher: typeof fetch = fetch,
 ): Promise<DemoReadiness> {
@@ -62,8 +73,17 @@ export async function getDemoReadiness(
   );
   const balanceOk =
     balance !== null && balance >= HOMEPAGE_REQUIRED_HBAR;
+  const hostedDemo =
+    environment.HOSTED_DEMO_MODE === "true" &&
+    environment.ZEROG_SERVER_DEMO === "true";
+  const serverKeyConfigured = hostedDemo && isConfigured(environment.ZEROG_KEY);
 
   return {
+    zeroG: {
+      mode: hostedDemo ? "hosted-demo" : "browser-key",
+      serverKeyConfigured,
+      ready: serverKeyConfigured,
+    },
     hedera: {
       network: "testnet",
       operatorIdConfigured,

@@ -1,10 +1,12 @@
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { resolve } from "node:path";
 import {
   AccountCreateTransaction,
   Hbar,
@@ -13,6 +15,7 @@ import {
   TokenType,
 } from "@hashgraph/sdk";
 import type { Seller } from "../domain";
+import { runtimeDataDirectory } from "../server/runtime-data";
 import type { HederaContext } from "./client";
 
 export interface StoredAccount {
@@ -39,9 +42,13 @@ export interface HederaInfra {
 
 const MARKET_BUYER_POOL = 4;
 /** Contains generated testnet private keys; kept out of git. */
-const INFRA_PATH = "hedera-infra.json";
+function infraPath(): string {
+  return resolve(runtimeDataDirectory(), "hedera-infra.json");
+}
 
 function persistInfra(infra: HederaInfra): void {
+  const INFRA_PATH = infraPath();
+  mkdirSync(runtimeDataDirectory(), { recursive: true, mode: 0o700 });
   const temporaryPath = `${INFRA_PATH}.tmp`;
   writeFileSync(temporaryPath, `${JSON.stringify(infra, null, 2)}\n`, {
     encoding: "utf8",
@@ -141,6 +148,7 @@ export async function ensureInfra(
   ctx: HederaContext,
   sellers: Seller[],
 ): Promise<HederaInfra> {
+  const INFRA_PATH = infraPath();
   if (existsSync(INFRA_PATH)) {
     chmodSync(INFRA_PATH, 0o600);
     const infra = JSON.parse(readFileSync(INFRA_PATH, "utf8")) as HederaInfra;
