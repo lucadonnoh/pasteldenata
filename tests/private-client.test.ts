@@ -14,6 +14,7 @@ test("private Router client sends the documented TeeML controls", async () => {
       headers.get("X-0G-Provider-Trust-Mode"),
       "private",
     );
+    assert.equal(headers.get("X-0G-Provider-Sort"), "latency");
     assert.equal(headers.get("Authorization"), "Bearer sk-test");
 
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -49,6 +50,35 @@ test("private Router client sends the documented TeeML controls", async () => {
 
     assert.equal(completion.chatId, "header-proof-key");
     assert.match(completion.responseText, /tee_verified/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("private Router client aborts an unresponsive provider route", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) =>
+    new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      signal?.addEventListener(
+        "abort",
+        () => reject(signal.reason),
+        { once: true },
+      );
+    });
+
+  try {
+    await assert.rejects(
+      new ZeroGPrivateRouterClient(10).complete({
+        apiKey: "sk-test",
+        baseUrl: "https://router-api.0g.ai/v1",
+        request: {
+          model: "0gm-1.0-35b-a3b",
+          messages: [{ role: "user", content: "private intent" }],
+        },
+      }),
+      /0G private inference timed out after 0.01 seconds/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

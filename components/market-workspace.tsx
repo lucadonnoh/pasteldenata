@@ -1,12 +1,14 @@
 "use client";
 
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FlaskConical } from "lucide-react";
 import Link from "next/link";
 
 import { AgentSearchExperience } from "@/components/agent-search-experience";
-import { MockExecutionDetails } from "@/components/execution-details";
+import {
+  MockExecutionDetails,
+  ZeroGVerificationReceipt,
+} from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
-import { formatUsd } from "@/src/money";
 
 import styles from "@/app/market/market.module.css";
 
@@ -31,18 +33,20 @@ export function MarketWorkspace() {
 
   return (
     <section className={styles.marketWorkspace}>
-      <div className={styles.verification}>
+      <ZeroGVerificationReceipt result={result} />
+
+      <div className={styles.boundary}>
         <span>
-          <ShieldCheck size={16} />
+          <FlaskConical size={15} aria-hidden="true" />
         </span>
         <div>
-          <strong>Private plan verified</strong>
+          <strong>Trust boundary: verified plan above, mock market below</strong>
           <p>
-            {result.plan.allocations.length} scoped mandates ·{" "}
-            {formatUsd(result.plan.totalBudgetCents)} hard cap
+            The 0G plan is replayed unchanged. Sellers, rivals, auctions, and
+            settlement below are deterministic local simulation data.
           </p>
         </div>
-        <b>TEE VERIFIED</b>
+        <b>MOCK EXECUTION</b>
       </div>
 
       <AgentSearchExperience result={result} />

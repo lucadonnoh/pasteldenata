@@ -57,7 +57,9 @@ export function IntentBox() {
       );
       setResult(purchase);
       setDeparting(true);
-      await new Promise((resolve) => window.setTimeout(resolve, 520));
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        await new Promise((resolve) => window.setTimeout(resolve, 520));
+      }
       router.push("/market");
     } catch (requestError) {
       setDeparting(false);

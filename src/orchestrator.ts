@@ -1,6 +1,5 @@
 import type { DemoResult } from "./domain";
 import { runAuctions } from "./auction";
-import { normalizePlanForMockMarket } from "./market-plan";
 import { settleMockPayments } from "./payments";
 import {
   requireVerifiedPrivateTee,
@@ -12,16 +11,15 @@ async function runPurchase({
   plan,
   attestation,
 }: PlannerResult): Promise<DemoResult> {
-  const marketPlan = normalizePlanForMockMarket(plan);
-  const auctions = await runAuctions(marketPlan);
-  const receipts = settleMockPayments(marketPlan, auctions);
+  const auctions = await runAuctions(plan);
+  const receipts = settleMockPayments(plan, auctions);
   const totalSpentCents = receipts.reduce(
     (sum, receipt) => sum + receipt.amountCents,
     0,
   );
 
   return {
-    plan: marketPlan,
+    plan,
     attestation,
     auctions,
     receipts,

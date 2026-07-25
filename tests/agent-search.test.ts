@@ -3,9 +3,8 @@ import test from "node:test";
 
 import { organizePrivatePurchase } from "../src/orchestrator";
 import {
-  createMockBuyerCompetition,
-  createMockBuyerCompetitions,
   createMockAgentSearches,
+  createMockAuctionReplays,
 } from "../src/mock-agent-search";
 import { MockPrivatePlanner } from "../src/planner";
 
@@ -29,6 +28,7 @@ test("one isolated mock buyer identity is created for every allocation", async (
 
   for (const search of searches) {
     assert.match(search.agentId, /^buyer_[a-z]+_[a-f0-9]{12}$/);
+    assert.equal(search.agentId, search.auction.buyerSubagent.id);
     assert.equal(search.auction.category, search.allocation.category);
     assert.ok(search.auction.listingAuctions.length > 0);
     assert.ok(
@@ -51,79 +51,31 @@ test("mock buyer identities are stable for the same private plan", async () => {
   );
 });
 
-test("buyer agents raise the price while the seller offer stays fixed", async () => {
+test("the UI replay is a lossless view of executed English-auction traces", async () => {
   const result = await organizePrivatePurchase(
     new MockPrivatePlanner(),
     INTENT,
     NOW,
   );
+  const planBeforeReplay = structuredClone(result.plan);
   const searches = createMockAgentSearches(result);
+  const replays = createMockAuctionReplays(searches);
+  const executedListingAuctions = result.auctions.flatMap(
+    (auction) => auction.listingAuctions,
+  );
 
-  for (const search of searches) {
-    const competition = createMockBuyerCompetition(search);
-    const buyerWallets = competition.bids.map((bid) => bid.wallet);
-    const amounts = competition.bids.map((bid) => bid.amountCents);
-    const finalBid = competition.bids.at(-1);
+  assert.equal(replays.length, executedListingAuctions.length);
+  assert.deepEqual(
+    replays.map((replay) => replay.listingAuction),
+    executedListingAuctions,
+  );
+  assert.deepEqual(result.plan, planBeforeReplay);
 
-    assert.ok(competition.bids.length >= 4);
-    assert.equal(new Set(buyerWallets).size, 3);
-    assert.ok(
-      buyerWallets.every((wallet) => /^0x[a-f0-9]{40}$/.test(wallet)),
+  for (const replay of replays) {
+    assert.equal(
+      replay.search.agentId,
+      replay.listingAuction.buyerSubagentId,
     );
-    assert.ok(
-      amounts.every(
-        (amount, index) =>
-          index === 0 || amount > amounts[index - 1]!,
-      ),
-    );
-    assert.equal(finalBid?.kind, "user");
-    assert.equal(finalBid?.wallet, search.wallet);
-    assert.equal(finalBid?.amountCents, search.auction.winner.amountCents);
-    assert.ok(
-      (finalBid?.amountCents ?? Number.POSITIVE_INFINITY) <=
-        search.allocation.maxBudgetCents,
-    );
+    assert.doesNotMatch(replay.search.agentId, /^0x/i);
   }
-});
-
-test("one buyer agent can lose, protect its cap, and win another offer", async () => {
-  const result = await organizePrivatePurchase(
-    new MockPrivatePlanner(),
-    INTENT,
-    NOW,
-  );
-  const search = createMockAgentSearches(result)[1];
-
-  assert.ok(search);
-  const competitions = createMockBuyerCompetitions(search, true);
-  const [lostCompetition, recoveredCompetition] = competitions;
-  const lostFinalBid = lostCompetition?.bids.at(-1);
-  const recoveredFinalBid = recoveredCompetition?.bids.at(-1);
-
-  assert.equal(competitions.length, 2);
-  assert.equal(lostCompetition?.outcome, "lost");
-  assert.equal(recoveredCompetition?.outcome, "won");
-  assert.notEqual(
-    lostCompetition?.offer.sellerId,
-    recoveredCompetition?.offer.sellerId,
-  );
-  assert.equal(lostFinalBid?.kind, "market");
-  assert.ok(
-    (lostFinalBid?.amountCents ?? 0) >
-      search.allocation.maxBudgetCents,
-  );
-  assert.ok(
-    lostCompetition?.bids
-      .filter((bid) => bid.kind === "user")
-      .every(
-        (bid) =>
-          bid.amountCents <= search.allocation.maxBudgetCents,
-      ),
-  );
-  assert.equal(recoveredFinalBid?.kind, "user");
-  assert.equal(recoveredFinalBid?.wallet, search.wallet);
-  assert.ok(
-    (recoveredFinalBid?.amountCents ?? Number.POSITIVE_INFINITY) <=
-      search.allocation.maxBudgetCents,
-  );
 });

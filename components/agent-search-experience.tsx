@@ -3,37 +3,34 @@
 import {
   CarFront,
   Check,
+  CheckCircle2,
   Clapperboard,
+  Clock3,
   Flower2,
   Gavel,
   Palette,
-  Radio,
   RotateCcw,
-  ScanSearch,
-  ShieldCheck,
+  Store,
+  Users,
   UtensilsCrossed,
-  WalletCards,
-  X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { Category, DemoResult } from "@/src/domain";
+import type {
+  Category,
+  DemoResult,
+  EnglishAuctionStep,
+} from "@/src/domain";
 import { formatUsd } from "@/src/money";
 import {
   createMockAgentSearches,
-  createMockBuyerCompetitions,
-  type MockBuyerCompetition,
+  createMockAuctionReplays,
   type MockAgentSearch,
+  type MockAuctionReplay,
 } from "@/src/mock-agent-search";
 
 import styles from "./agent-search-experience.module.css";
-
-const DISCOVERY_DURATION_MS = 4200;
-const BID_INTERVAL_MS = 1050;
-const LOST_AUCTION_HOLD_MS = 3400;
-const RETRY_OFFER_HOLD_MS = 1800;
-const AUCTION_SETTLE_MS = 1500;
 
 const categoryIcons: Record<Category, LucideIcon> = {
   flowers: Flower2,
@@ -43,36 +40,43 @@ const categoryIcons: Record<Category, LucideIcon> = {
   experience: Palette,
 };
 
-const recoveryTargets: Record<Category, string> = {
-  flowers: "florist",
-  cinema: "cinema",
-  dinner: "restaurant",
-  transport: "ride",
-  experience: "experience",
-};
-
-function shortWallet(wallet: string): string {
-  return `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
+interface ReplayFrame {
+  replayIndex: number;
+  stepIndex: number | null;
 }
 
-function createBidEvents(competitions: MockBuyerCompetition[]) {
-  const events: Array<{
-    competitionIndex: number;
-    bidIndex: number;
-    bid: MockBuyerCompetition["bids"][number];
-  }> = [];
+function buildFrames(replays: MockAuctionReplay[]): ReplayFrame[] {
+  return replays.flatMap(
+    (replay, replayIndex): ReplayFrame[] =>
+      replay.listingAuction.steps.length > 0
+        ? replay.listingAuction.steps.map((_, stepIndex) => ({
+            replayIndex,
+            stepIndex,
+          }))
+        : [{ replayIndex, stepIndex: null }],
+  );
+}
 
-  competitions.forEach((competition, competitionIndex) => {
-    competition.bids.forEach((bid, bidIndex) => {
-      events.push({ competitionIndex, bidIndex, bid });
-    });
-  });
+function lastFrameForReplay(
+  frames: ReplayFrame[],
+  replayIndex: number,
+): number {
+  return frames.findLastIndex((frame) => frame.replayIndex === replayIndex);
+}
 
-  return events;
+function statusLabel(replay: MockAuctionReplay): string {
+  if (replay.listingAuction.status === "won") return "buyer won";
+  if (replay.listingAuction.status === "lost") return "mock rival won";
+  return "floor not met";
 }
 
 export function AgentSearchExperience({ result }: { result: DemoResult }) {
   const searches = useMemo(() => createMockAgentSearches(result), [result]);
+  const replays = useMemo(
+    () => createMockAuctionReplays(searches),
+    [searches],
+  );
+  const frames = useMemo(() => buildFrames(replays), [replays]);
   const [run, setRun] = useState(0);
 
   return (
@@ -80,6 +84,8 @@ export function AgentSearchExperience({ result }: { result: DemoResult }) {
       key={`${result.plan.planId}:${run}`}
       result={result}
       searches={searches}
+      replays={replays}
+      frames={frames}
       onReplay={() => setRun((current) => current + 1)}
     />
   );
@@ -88,203 +94,90 @@ export function AgentSearchExperience({ result }: { result: DemoResult }) {
 function AgentSearchRun({
   result,
   searches,
+  replays,
+  frames,
   onReplay,
 }: {
   result: DemoResult;
   searches: MockAgentSearch[];
+  replays: MockAuctionReplay[];
+  frames: ReplayFrame[];
   onReplay: () => void;
 }) {
-  const recoveryIndex = searches.length > 1 ? 1 : 0;
-  const competitions = useMemo(
-    () =>
-      searches.flatMap((search, index) =>
-        createMockBuyerCompetitions(search, index === recoveryIndex),
-      ),
-    [recoveryIndex, searches],
-  );
-  const [phase, setPhase] = useState<
-    "searching" | "bidding" | "complete"
-  >("searching");
-  const [resolvedCount, setResolvedCount] = useState(0);
-  const [bidTick, setBidTick] = useState(0);
-  const bidEvents = useMemo(
-    () => createBidEvents(competitions),
-    [competitions],
-  );
+  const [phase, setPhase] = useState<"replaying" | "complete">("replaying");
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(-1);
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const completionTimer = window.setTimeout(() => {
-        setResolvedCount(searches.length);
+        setCurrentFrameIndex(frames.length - 1);
         setPhase("complete");
       }, 0);
       return () => window.clearTimeout(completionTimer);
     }
 
-    const resolutionTimers = searches.map((_, index) =>
+    const frameDuration = Math.max(
+      55,
+      Math.min(180, Math.floor(5_200 / Math.max(1, frames.length))),
+    );
+    const startDelay = 360;
+    const timers = frames.map((_, index) =>
       window.setTimeout(
-        () => setResolvedCount(index + 1),
-        1100 + index * 900,
+        () => setCurrentFrameIndex(index),
+        startDelay + index * frameDuration,
       ),
     );
-    const auctionTimer = window.setTimeout(
-      () => {
-        setPhase("bidding");
-      },
-      DISCOVERY_DURATION_MS,
+    const completionTimer = window.setTimeout(
+      () => setPhase("complete"),
+      startDelay + frames.length * frameDuration + 650,
     );
 
     return () => {
-      resolutionTimers.forEach(window.clearTimeout);
-      window.clearTimeout(auctionTimer);
+      timers.forEach(window.clearTimeout);
+      window.clearTimeout(completionTimer);
     };
-  }, [searches]);
-
-  useEffect(() => {
-    if (phase !== "bidding") return;
-
-    const event =
-      bidEvents[Math.min(bidTick, bidEvents.length - 1)];
-    const competition = event
-      ? competitions[event.competitionIndex]
-      : undefined;
-
-    if (!event || !competition) {
-      const emptyTimer = window.setTimeout(
-        () => setPhase("complete"),
-        AUCTION_SETTLE_MS,
-      );
-      return () => window.clearTimeout(emptyTimer);
-    }
-
-    const isLastEvent = bidTick >= bidEvents.length - 1;
-    const isRoundResolution =
-      event.bidIndex === competition.bids.length - 1;
-    const delay = isLastEvent
-      ? AUCTION_SETTLE_MS
-      : isRoundResolution && competition.outcome === "lost"
-        ? LOST_AUCTION_HOLD_MS
-        : competition.attempt > 1 && event.bidIndex === 0
-          ? RETRY_OFFER_HOLD_MS
-          : BID_INTERVAL_MS;
-    const bidTimer = window.setTimeout(() => {
-      if (isLastEvent) {
-        setPhase("complete");
-        return;
-      }
-      setBidTick((current) =>
-        Math.min(current + 1, bidEvents.length - 1),
-      );
-    }, delay);
-
-    return () => window.clearTimeout(bidTimer);
-  }, [bidEvents, bidTick, competitions, phase]);
-
-  const activeEvent =
-    bidEvents[Math.min(bidTick, bidEvents.length - 1)];
-  const activeCompetition = activeEvent
-    ? competitions[activeEvent.competitionIndex]
-    : competitions[0];
-  const activeAuctionNumber =
-    searches.findIndex(
-      (search) => search.id === activeCompetition?.search.id,
-    ) + 1;
-  const activeBidNumber = (activeEvent?.bidIndex ?? 0) + 1;
-  const lostAuctionResolved =
-    activeCompetition?.outcome === "lost" &&
-    activeBidNumber === activeCompetition.bids.length;
-  const retryOfferFound =
-    (activeCompetition?.attempt ?? 1) > 1 &&
-    activeBidNumber === 1;
-
-  const phaseCopy = {
-    searching: {
-      eyebrow: `${searches.length} AGENT WALLETS ACTIVE`,
-      title: "Finding the right activities.",
-      description:
-        "Each agent sees one activity, one budget and nothing else.",
-      status: "Discovering",
-    },
-    bidding: {
-      eyebrow: lostAuctionResolved
-        ? "AUCTION LOST · MANDATE PROTECTED"
-        : retryOfferFound
-          ? "ALTERNATIVE SELLER FOUND"
-          : "BUYER AGENTS · LIVE AUCTION",
-      title: lostAuctionResolved
-        ? "Outbid. Walking away."
-        : retryOfferFound
-          ? "New offer. Bidding again."
-          : "Buyer agents are competing.",
-      description: lostAuctionResolved
-        ? "The market passed this wallet’s cap. It will not overspend."
-        : retryOfferFound
-          ? "The same buyer wallet found another seller inside its mandate."
-          : "The seller offer stays fixed while three buyer wallets raise the price.",
-      status: `Activity ${Math.max(activeAuctionNumber, 1)}/${
-        searches.length
-      } · Try ${activeCompetition?.attempt ?? 1} · Bid ${activeBidNumber}`,
-    },
-    complete: {
-      eyebrow: "BUNDLE ASSEMBLED",
-      title: result.plan.occasionTitle,
-      description: `${result.plan.location} · ${result.plan.scheduledFor}`,
-      status: "Ready",
-    },
-  }[phase];
+  }, [frames]);
 
   return (
     <section className={styles.experience} aria-live="polite">
       <header className={styles.heading}>
         <div>
-          <span>{phaseCopy.eyebrow}</span>
-          <h2>{phaseCopy.title}</h2>
-          <p>{phaseCopy.description}</p>
+          <span>LOCAL MOCK MARKET · RECORDED EXECUTION</span>
+          <h2>
+            {phase === "replaying"
+              ? "Replaying the exact English-auction trace."
+              : "Mock purchase bundle assembled."}
+          </h2>
+          <p>
+            {phase === "replaying"
+              ? "The verified 0G plan above is frozen. This animation only " +
+                "plays back the deterministic trace already returned by the local market."
+              : `${result.plan.occasionTitle} · ${result.plan.location} · ${result.plan.scheduledFor}`}
+          </p>
         </div>
         <div className={styles.phasePill}>
-          <i
-            className={
-              phase === "complete"
-                ? styles.completeDot
-                : phase === "bidding"
-                  ? styles.auctionDot
-                  : ""
-            }
-          />
-          {phaseCopy.status}
+          <i className={phase === "complete" ? styles.completeDot : ""} />
+          {phase === "replaying" ? "Mock trace replay" : "Replay complete"}
         </div>
       </header>
 
-      {phase === "searching" ? (
-        <ActivityDiscovery
+      {phase === "replaying" ? (
+        <ReplayWorkspace
           searches={searches}
-          resolvedCount={resolvedCount}
-        />
-      ) : phase === "bidding" ? (
-        <BidAuctionStage
-          searches={searches}
-          competitions={competitions}
-          bidEvents={bidEvents}
-          bidTick={bidTick}
+          replays={replays}
+          frames={frames}
+          currentFrameIndex={currentFrameIndex}
         />
       ) : (
         <>
-          <div className={styles.bundleGrid}>
-            {searches.map((search, index) => (
-              <ResultCard
-                key={search.id}
-                search={search}
-                index={index}
-              />
-            ))}
-          </div>
+          <BundleGrid searches={searches} />
           <button
             className={styles.replayButton}
             type="button"
             onClick={onReplay}
           >
             <RotateCcw size={13} />
-            Replay mock auction trace
+            Replay recorded mock trace
           </button>
         </>
       )}
@@ -292,457 +185,415 @@ function AgentSearchRun({
   );
 }
 
-function ActivityDiscovery({
+function ReplayWorkspace({
   searches,
-  resolvedCount,
+  replays,
+  frames,
+  currentFrameIndex,
 }: {
   searches: MockAgentSearch[];
-  resolvedCount: number;
+  replays: MockAuctionReplay[];
+  frames: ReplayFrame[];
+  currentFrameIndex: number;
+}) {
+  const safeFrameIndex = Math.max(0, currentFrameIndex);
+  const activeFrame = frames[safeFrameIndex] ?? {
+    replayIndex: 0,
+    stepIndex: null,
+  };
+  const activeReplay = replays[activeFrame.replayIndex] ?? replays[0];
+
+  if (!activeReplay) {
+    return (
+      <p className={styles.emptyTrace}>
+        The mocked market returned no listing-auction traces.
+      </p>
+    );
+  }
+
+  const step =
+    activeFrame.stepIndex === null
+      ? null
+      : (activeReplay.listingAuction.steps[activeFrame.stepIndex] ?? null);
+  const replayDone =
+    currentFrameIndex >=
+    lastFrameForReplay(frames, activeFrame.replayIndex);
+  const progress =
+    frames.length === 0
+      ? 100
+      : Math.max(
+          0,
+          Math.round(((currentFrameIndex + 1) / frames.length) * 100),
+        );
+
+  return (
+    <div className={styles.replayLayout}>
+      <BuyerLedger
+        searches={searches}
+        replays={replays}
+        frames={frames}
+        currentFrameIndex={currentFrameIndex}
+      />
+
+      <div className={styles.auctionStage}>
+        <div className={styles.stageHeader}>
+          <div>
+            <span>
+              <Gavel size={12} />
+              MOCK ENGLISH AUCTION REPLAY
+            </span>
+            <strong>
+              Listing {activeFrame.replayIndex + 1} of {replays.length}
+            </strong>
+          </div>
+          <div className={styles.progressCopy}>
+            <span>{progress}%</span>
+            <small>stored trace</small>
+          </div>
+        </div>
+        <div className={styles.progressTrack}>
+          <i style={{ width: `${progress}%` }} />
+        </div>
+
+        <ListingHeader
+          replay={activeReplay}
+          step={step}
+          replayDone={replayDone}
+        />
+
+        <div className={styles.stageGrid}>
+          <ParticipantList replay={activeReplay} step={step} />
+          <PriceStepFeed
+            replays={replays}
+            frames={frames}
+            currentFrameIndex={currentFrameIndex}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuyerLedger({
+  searches,
+  replays,
+  frames,
+  currentFrameIndex,
+}: {
+  searches: MockAgentSearch[];
+  replays: MockAuctionReplay[];
+  frames: ReplayFrame[];
+  currentFrameIndex: number;
 }) {
   return (
-    <div className={styles.discoveryStage}>
-      <div className={styles.discoveryProgress}>
-        <span>
-          <ScanSearch size={12} />
-          DISCOVERING ACTIVITIES
-        </span>
-        <div>
-          {searches.map((search, index) => (
-            <i
-              className={
-                index < resolvedCount ? styles.discoveryStepDone : ""
-              }
-              key={search.id}
-            />
-          ))}
-        </div>
-        <b>
-          {resolvedCount}/{searches.length} FOUND
-        </b>
-      </div>
+    <aside className={styles.buyerLedger}>
+      <header>
+        <span>ALLOCATION BUYERS</span>
+        <b>{searches.length} scoped agents</b>
+      </header>
 
-      <div className={styles.discoveryGrid}>
-        {searches.map((search, index) => {
+      <div className={styles.buyerList}>
+        {searches.map((search) => {
           const CategoryIcon = categoryIcons[search.allocation.category];
-          const isResolved = index < resolvedCount;
+          const searchReplayIndices = replays.flatMap((replay, index) =>
+            replay.search.id === search.id ? [index] : [],
+          );
+          const firstReplay = searchReplayIndices[0] ?? 0;
+          const lastReplay = searchReplayIndices.at(-1) ?? firstReplay;
+          const firstFrame = frames.findIndex(
+            (frame) => frame.replayIndex === firstReplay,
+          );
+          const lastFrame = lastFrameForReplay(frames, lastReplay);
+          const state =
+            currentFrameIndex >= lastFrame
+              ? "complete"
+              : currentFrameIndex >= firstFrame
+                ? "active"
+                : "waiting";
 
           return (
             <article
-              className={`${styles.discoveryCard} ${
-                isResolved ? styles.activityFound : ""
-              }`}
               key={search.id}
+              className={state === "active" ? styles.activeBuyer : ""}
             >
-              <header>
-                <span>
-                  <CategoryIcon size={17} />
-                </span>
-                <b>
-                  {isResolved ? (
-                    <>
-                      <Check size={10} />
-                      Activity found
-                    </>
-                  ) : (
-                    <>
-                      <i />
-                      Searching
-                    </>
-                  )}
-                </b>
-              </header>
-
-              <div className={styles.discoveryWallet}>
-                <span>AGENT WALLET 0{index + 1}</span>
-                <code>{shortWallet(search.wallet)}</code>
+              <span className={styles.buyerIcon}>
+                {state === "complete" ? (
+                  <Check size={13} />
+                ) : (
+                  <CategoryIcon size={13} />
+                )}
+              </span>
+              <div>
+                <strong>{search.allocation.category}</strong>
+                <code>{search.agentId}</code>
+                <small>
+                  {search.auction.listingAuctions.length} listing
+                  {search.auction.listingAuctions.length === 1 ? "" : "s"} ·{" "}
+                  {formatUsd(search.allocation.maxBudgetCents)} mandate
+                </small>
               </div>
-
-              <h3>{search.allocation.category}</h3>
-              <p>
-                {search.allocation.requirements.slice(0, 3).join(" · ")}
-              </p>
-
-              <footer>
-                <span>
-                  <WalletCards size={11} />
-                  {search.auction.listingAuctions.length} eligible listings
-                </span>
-                <strong>
-                  cap {formatUsd(search.allocation.maxBudgetCents)}
-                </strong>
-              </footer>
+              <b>{state}</b>
             </article>
           );
         })}
       </div>
-    </div>
+
+      <p>
+        IDs come from the executed buyer subagents. They are not wallets and no
+        keypairs are implied.
+      </p>
+    </aside>
   );
 }
 
-function BidAuctionStage({
-  searches,
-  competitions,
-  bidEvents,
-  bidTick,
+function ListingHeader({
+  replay,
+  step,
+  replayDone,
 }: {
-  searches: MockAgentSearch[];
-  competitions: MockBuyerCompetition[];
-  bidEvents: ReturnType<typeof createBidEvents>;
-  bidTick: number;
+  replay: MockAuctionReplay;
+  step: EnglishAuctionStep | null;
+  replayDone: boolean;
 }) {
-  const visibleEventCount = Math.min(
-    bidTick + 1,
-    bidEvents.length,
-  );
-  const activeEvent =
-    bidEvents[Math.min(bidTick, bidEvents.length - 1)];
-  const activeIndex = activeEvent?.competitionIndex ?? 0;
-  const activeCompetition =
-    competitions[activeIndex] ?? competitions[0];
-  const visibleBidCount = (activeEvent?.bidIndex ?? 0) + 1;
-  const bidListRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const animationFrame = window.requestAnimationFrame(() => {
-      const bidList = bidListRef.current;
-      if (!bidList) return;
-
-      bidList.scrollTo({
-        top: bidList.scrollHeight,
-        behavior: visibleBidCount > 1 ? "smooth" : "auto",
-      });
-    });
-
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [activeIndex, visibleBidCount]);
-
-  if (!activeCompetition) return null;
-
-  const currentBid = activeEvent?.bid;
-  const visibleBids = activeCompetition.bids.slice(
-    0,
-    visibleBidCount,
-  );
-  const activeSearchIndex = searches.findIndex(
-    (search) => search.id === activeCompetition.search.id,
-  );
-  const roundIsResolved =
-    visibleBidCount === activeCompetition.bids.length;
-  const roundIsLost =
-    activeCompetition.outcome === "lost" && roundIsResolved;
-  const marketWallets = activeCompetition.bids
-    .filter((bid) => bid.kind === "market")
-    .map((bid) => bid.wallet)
-    .filter((wallet, index, wallets) => wallets.indexOf(wallet) === index);
-  const buyerLabel = (bid: MockBuyerCompetition["bids"][number]) => {
-    if (bid.kind === "user") return "YOUR AGENT";
-    return `MARKET AGENT ${marketWallets.indexOf(bid.wallet) + 1}`;
-  };
+  const { listingAuction } = replay;
+  const CategoryIcon = categoryIcons[replay.search.allocation.category];
 
   return (
-    <div className={styles.auctionStage}>
-      <div className={styles.auctionTopline}>
+    <article className={styles.listingHeader}>
+      <span className={styles.listingIcon}>
+        <CategoryIcon size={18} />
+      </span>
+      <div className={styles.listingCopy}>
         <span>
-          <Gavel size={13} />
-          {roundIsLost
-            ? "MANDATE CAP REACHED · FINDING ANOTHER SELLER"
-            : activeCompetition.attempt > 1
-              ? "ALTERNATIVE OFFER · SECOND ATTEMPT"
-              : "MULTI-AGENT PROCUREMENT"}
+          {replay.search.allocation.category} · mock seller · attempt{" "}
+          {replay.attemptNumber}
         </span>
-        <b>
-          {roundIsLost ? <ShieldCheck size={11} /> : <Radio size={11} />}
-          {roundIsLost
-            ? "BUDGET PROTECTED"
-            : `LIVE BID ${visibleEventCount.toString().padStart(2, "0")}`}
-        </b>
+        <h3>{listingAuction.listing.sellerName}</h3>
+        <p>{listingAuction.listing.offering}</p>
+        <code>{listingAuction.auctionId}</code>
       </div>
+      <dl className={styles.priceFacts}>
+        <div>
+          <dt>Seller floor</dt>
+          <dd>{formatUsd(listingAuction.debugSellerFloorPriceCents)}</dd>
+        </div>
+        <div>
+          <dt>{step ? "Current ask" : "Opening result"}</dt>
+          <dd>
+            {step
+              ? formatUsd(step.askingPriceCents)
+              : statusLabel(replay)}
+          </dd>
+        </div>
+        <div>
+          <dt>Recorded outcome</dt>
+          <dd className={replayDone ? styles.outcomeVisible : ""}>
+            {replayDone
+              ? `${statusLabel(replay)}${
+                  listingAuction.clearingPriceCents === null
+                    ? ""
+                    : ` · ${formatUsd(listingAuction.clearingPriceCents)}`
+                }`
+              : "replaying…"}
+          </dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
 
-      <nav className={styles.activityTabs} aria-label="Activity auctions">
-        {searches.map((search, searchIndex) => {
-          const CategoryIcon = categoryIcons[search.allocation.category];
-          const searchCompetitions = competitions.filter(
-            (competition) => competition.search.id === search.id,
+function ParticipantList({
+  replay,
+  step,
+}: {
+  replay: MockAuctionReplay;
+  step: EnglishAuctionStep | null;
+}) {
+  return (
+    <section className={styles.participants}>
+      <header>
+        <div>
+          <Users size={12} />
+          <span>RECORDED PARTICIPANTS</span>
+        </div>
+        <small>debug-only valuation caps</small>
+      </header>
+
+      <div>
+        {replay.listingAuction.participants.map((participant) => {
+          const isActive = step?.activeBidderIds.includes(
+            participant.bidderId,
           );
-          const lastCompetitionIndex = competitions.reduce(
-            (lastIndex, competition, competitionIndex) =>
-              competition.search.id === search.id
-                ? competitionIndex
-                : lastIndex,
-            -1,
+          const hasDropped = step?.droppedBidderIds.includes(
+            participant.bidderId,
           );
-          const isActive = searchIndex === activeSearchIndex;
-          const isComplete = lastCompetitionIndex < activeIndex;
-          const retried = searchCompetitions.length > 1;
+          const isLeader = step?.leadingBidderId === participant.bidderId;
+
           return (
-            <div
-              className={`${styles.activityTab} ${
-                isActive ? styles.activityTabActive : ""
-              } ${isComplete ? styles.activityTabComplete : ""} ${
-                isActive && roundIsLost ? styles.activityTabLost : ""
+            <article
+              key={participant.bidderId}
+              className={`${isLeader ? styles.leader : ""} ${
+                hasDropped ? styles.dropped : ""
               }`}
-              key={search.id}
             >
               <span>
-                <CategoryIcon size={17} />
+                {participant.bidderKind ===
+                "allocation-buyer-subagent" ? (
+                  <CheckCircle2 size={12} />
+                ) : (
+                  <Store size={12} />
+                )}
               </span>
               <div>
-                <small>AUCTION 0{searchIndex + 1}</small>
-                <strong>{search.allocation.category}</strong>
-              </div>
-              <b>
-                {isComplete ? (
-                  <>
-                    <Check size={11} />
-                    {retried ? "WON · TRY 2" : "WON"}
-                  </>
-                ) : isActive && roundIsLost ? (
-                  <>
-                    <X size={11} />
-                    LOST
-                  </>
-                ) : isActive ? (
-                  <>
-                    <Radio size={10} />
-                    {activeCompetition.attempt > 1 ? "RETRY" : "LIVE"}
-                  </>
-                ) : (
-                  "QUEUED"
-                )}
-              </b>
-            </div>
-          );
-        })}
-      </nav>
-
-      <div
-        className={`${styles.focusAuction} ${
-          roundIsLost ? styles.focusAuctionRecovering : ""
-        }`}
-      >
-        <section
-          className={styles.sellerOffer}
-          data-category={activeCompetition.search.allocation.category}
-          data-attempt={activeCompetition.attempt}
-          key={activeCompetition.offer.sellerId}
-          aria-hidden={roundIsLost}
-        >
-          <header>
-            <span>
-              {(() => {
-                const CategoryIcon =
-                  categoryIcons[
-                    activeCompetition.search.allocation.category
-                  ];
-                return <CategoryIcon size={22} />;
-              })()}
-            </span>
-            <div>
-              <small>
-                {activeCompetition.attempt > 1
-                  ? "NEW SELLER OFFER"
-                  : "FIXED SELLER OFFER"}
-              </small>
-              <b>
-                Attempt {activeCompetition.attempt} · Seller does not bid
-              </b>
-            </div>
-          </header>
-
-          <h3>{activeCompetition.offer.sellerName}</h3>
-          <p>{activeCompetition.offer.offering}</p>
-
-          <div className={styles.offerRequirements}>
-            {activeCompetition.search.allocation.requirements
-              .slice(0, 3)
-              .map((requirement) => (
-                <span key={requirement}>{requirement}</span>
-              ))}
-          </div>
-
-          <footer>
-            <span>BUYER AGENT SPEND LIMIT</span>
-            <strong>
-              {formatUsd(
-                activeCompetition.search.allocation.maxBudgetCents,
-              )}
-            </strong>
-          </footer>
-        </section>
-
-        <section
-          className={styles.buyerCompetition}
-          aria-hidden={roundIsLost}
-        >
-          {currentBid && (
-            <div
-              className={`${styles.liveLeader} ${
-                currentBid.kind === "user"
-                  ? styles.liveLeaderUser
-                  : ""
-              } ${roundIsLost ? styles.liveLeaderLost : ""}`}
-              key={currentBid.id}
-            >
-              <div className={styles.leaderIdentity}>
-                <span>
-                  {roundIsLost ? (
-                    <ShieldCheck size={12} />
-                  ) : (
-                    <Radio size={12} />
-                  )}
-                  {roundIsLost
-                    ? "MARKET AGENT WINS · YOUR AGENT STOPS"
-                    : currentBid.kind === "user"
-                    ? "YOUR AGENT TAKES THE LEAD"
-                    : "A MARKET AGENT TAKES THE LEAD"}
-                </span>
-                <strong>{buyerLabel(currentBid)}</strong>
-                <code>{shortWallet(currentBid.wallet)}</code>
-              </div>
-              <div className={styles.currentPrice}>
-                <span>
-                  {roundIsLost ? "FINAL MARKET BID" : "CURRENT BID"}
-                </span>
-                <strong>{formatUsd(currentBid.amountCents)}</strong>
+                <code>{participant.bidderId}</code>
                 <small>
-                  {roundIsLost
-                    ? `Your cap ${formatUsd(
-                        activeCompetition.search.allocation
-                          .maxBudgetCents,
-                      )}`
-                    : `Bid ${(activeEvent?.bidIndex ?? 0) + 1}`}
+                  {participant.bidderKind ===
+                  "allocation-buyer-subagent"
+                    ? "scoped buyer subagent"
+                    : "mock rival"}
                 </small>
               </div>
-            </div>
-          )}
-
-          <div className={styles.bidHistory}>
-            <header>
-              <span>LIVE BID FEED</span>
-              <b>AUTO-FOLLOW ↓</b>
-            </header>
-            <div
-              className={styles.bidHistoryList}
-              aria-label="Incoming buyer bids"
-              ref={bidListRef}
-            >
-              {visibleBids.map((bid, bidIndex) => {
-                const isLatest = bidIndex === visibleBids.length - 1;
-                return (
-                  <div
-                    className={`${styles.buyerBid} ${styles.buyerBidVisible} ${
-                      isLatest ? styles.buyerBidLatest : ""
-                    } ${
-                      bid.kind === "user" ? styles.buyerBidUser : ""
-                    }`}
-                    key={bid.id}
-                  >
-                    <span>
-                      {(bidIndex + 1).toString().padStart(2, "0")}
-                    </span>
-                    <div>
-                      <strong>{buyerLabel(bid)}</strong>
-                      <code>{shortWallet(bid.wallet)}</code>
-                    </div>
-                    <b>{formatUsd(bid.amountCents)}</b>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-
-        {roundIsLost && (
-          <div className={styles.recoveryOverlay} role="status">
-            <div className={styles.lostStamp}>
-              <X size={22} />
-              <strong>LOST</strong>
-              <span>OUTBID ABOVE CAP</span>
-            </div>
-
-            <div className={styles.recoverySearch}>
-              <span>
-                <ScanSearch size={14} />
-                BUYER AGENT RECOVERY
-              </span>
-              <h3>
-                Finding another{" "}
-                {
-                  recoveryTargets[
-                    activeCompetition.search.allocation.category
-                  ]
-                }
-                …
-              </h3>
-              <p>
-                {shortWallet(activeCompetition.search.wallet)} protected its{" "}
-                {formatUsd(
-                  activeCompetition.search.allocation.maxBudgetCents,
-                )}{" "}
-                mandate and restarted discovery.
-              </p>
-              <div className={styles.recoveryTrack}>
-                <i />
-              </div>
-              <small>SCANNING ELIGIBLE SELLERS</small>
-            </div>
-          </div>
-        )}
+              <b>{formatUsd(participant.debugMaxBidCents)}</b>
+              <i>
+                {isLeader
+                  ? "leader"
+                  : hasDropped
+                    ? "dropped"
+                    : isActive
+                      ? "active"
+                      : "waiting"}
+              </i>
+            </article>
+          );
+        })}
       </div>
-    </div>
+    </section>
   );
 }
 
-function ResultCard({
-  search,
-  index,
+function PriceStepFeed({
+  replays,
+  frames,
+  currentFrameIndex,
 }: {
-  search: MockAgentSearch;
-  index: number;
+  replays: MockAuctionReplay[];
+  frames: ReplayFrame[];
+  currentFrameIndex: number;
 }) {
-  const CategoryIcon = categoryIcons[search.allocation.category];
-  const visibleTags =
-    search.matchedTags.length > 0
-      ? search.matchedTags
-      : search.auction.winner.tags.slice(0, 2);
+  const firstVisible = Math.max(0, currentFrameIndex - 7);
+  const visibleFrames =
+    currentFrameIndex < 0
+      ? []
+      : frames.slice(firstVisible, currentFrameIndex + 1);
 
   return (
-    <article
-      className={styles.resultCard}
-      data-category={search.allocation.category}
-    >
-      <div className={styles.resultArt}>
-        <span className={styles.artOrb} />
-        <span className={styles.artGlass} />
-        <CategoryIcon size={30} />
-        <b>0{index + 1}</b>
-      </div>
-
-      <div className={styles.resultBody}>
-        <header>
-          <span>{search.allocation.category}</span>
-          <b>
-            <Check size={9} />
-            Matched
-          </b>
-        </header>
-        <h3>{search.auction.winner.sellerName}</h3>
-        <p>{search.auction.winner.offering}</p>
-
-        <div className={styles.tags}>
-          {visibleTags.slice(0, 3).map((tag) => (
-            <span key={tag}>{tag}</span>
-          ))}
+    <section className={styles.stepFeed}>
+      <header>
+        <div>
+          <Clock3 size={12} />
+          <span>ASCENDING PRICE STEPS</span>
         </div>
+        <small>recorded, not generated by this UI</small>
+      </header>
 
-        <div className={styles.resultFooter}>
-          <div>
-            <span>Mock buyer ID</span>
-            <code>{search.agentId}</code>
-          </div>
-          <strong>{formatUsd(search.auction.winner.amountCents)}</strong>
-        </div>
-      </div>
-    </article>
+      <ol>
+        {visibleFrames.length === 0 ? (
+          <li className={styles.preparing}>
+            Loading the stored mock trace…
+          </li>
+        ) : (
+          visibleFrames.map((frame, index) => {
+            const replay = replays[frame.replayIndex];
+            if (!replay) return null;
+            const step =
+              frame.stepIndex === null
+                ? null
+                : replay.listingAuction.steps[frame.stepIndex];
+            const absoluteIndex = firstVisible + index;
+
+            return (
+              <li
+                key={`${replay.id}:${frame.stepIndex ?? "floor"}`}
+                className={
+                  absoluteIndex === currentFrameIndex
+                    ? styles.currentStep
+                    : ""
+                }
+              >
+                <b>
+                  {step ? `#${step.sequence}` : "—"}
+                </b>
+                <strong>
+                  {step
+                    ? formatUsd(step.askingPriceCents)
+                    : "No opening bid"}
+                </strong>
+                <span>
+                  <code>{replay.listingAuction.listing.sellerName}</code>
+                  <small>
+                    Lead: {step?.leadingBidderId ?? "none"}
+                    {step && step.droppedBidderIds.length > 0
+                      ? ` · Dropped: ${step.droppedBidderIds.join(", ")}`
+                      : ""}
+                  </small>
+                </span>
+              </li>
+            );
+          })
+        )}
+      </ol>
+    </section>
+  );
+}
+
+function BundleGrid({ searches }: { searches: MockAgentSearch[] }) {
+  return (
+    <div className={styles.bundleGrid}>
+      {searches.map((search, index) => {
+        const CategoryIcon = categoryIcons[search.allocation.category];
+        const visibleTags =
+          search.matchedTags.length > 0
+            ? search.matchedTags
+            : search.auction.winner.tags.slice(0, 2);
+
+        return (
+          <article
+            className={styles.resultCard}
+            data-category={search.allocation.category}
+            key={search.id}
+          >
+            <div className={styles.resultArt}>
+              <CategoryIcon size={28} />
+              <b>0{index + 1}</b>
+            </div>
+            <div className={styles.resultBody}>
+              <header>
+                <span>{search.allocation.category}</span>
+                <b>
+                  <Check size={9} />
+                  mock win
+                </b>
+              </header>
+              <h3>{search.auction.winner.sellerName}</h3>
+              <p>{search.auction.winner.offering}</p>
+              <div className={styles.tags}>
+                {visibleTags.slice(0, 3).map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+              <div className={styles.resultFooter}>
+                <div>
+                  <span>Buyer subagent ID</span>
+                  <code>{search.agentId}</code>
+                </div>
+                <strong>
+                  {formatUsd(search.auction.winner.amountCents)}
+                </strong>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
   );
 }

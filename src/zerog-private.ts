@@ -1,5 +1,7 @@
 type JsonObject = Record<string, unknown>;
 
+export const ZEROG_ROUTER_TIMEOUT_MS = 30_000;
+
 export interface ZeroGPrivateCompletion {
   response: JsonObject;
   responseText: string;
@@ -46,24 +48,50 @@ function resolveProofChatId(
 export class ZeroGPrivateRouterClient
   implements ZeroGPrivateCompletionClient
 {
+  constructor(
+    private readonly timeoutMs = ZEROG_ROUTER_TIMEOUT_MS,
+  ) {}
+
   async complete({
     apiKey,
     baseUrl,
     request,
   }: ZeroGPrivateCompletionInput): Promise<ZeroGPrivateCompletion> {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "X-0G-Provider-Trust-Mode": "private",
-      },
-      body: JSON.stringify({
-        ...request,
-        verify_tee: true,
-      }),
-    });
-    const responseText = await response.text();
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(
+      () => timeoutController.abort(),
+      this.timeoutMs,
+    );
+
+    let response: Response;
+    let responseText: string;
+    try {
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "X-0G-Provider-Sort": "latency",
+          "X-0G-Provider-Trust-Mode": "private",
+        },
+        body: JSON.stringify({
+          ...request,
+          verify_tee: true,
+        }),
+        signal: timeoutController.signal,
+      });
+      responseText = await response.text();
+    } catch (error) {
+      if (timeoutController.signal.aborted) {
+        throw new Error(
+          `0G private inference timed out after ${this.timeoutMs / 1_000} seconds. No response was received from the Router; retry later or check private provider availability.`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+
     if (!response.ok) throw parseRouterError(responseText, response.status);
 
     let parsed: unknown;
