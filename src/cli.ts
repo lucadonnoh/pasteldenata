@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { MOCK_SELLERS } from "./catalog";
+import { sellersForLocation } from "./catalog";
 import { connectHedera, type HederaContext } from "./hedera/client";
 import { ensureInfra } from "./hedera/infra";
 import { runMarket, type MarketBuyer } from "./hedera/market";
@@ -94,7 +94,6 @@ async function marketMain(): Promise<void> {
 
   const ctx = connectHedera();
   try {
-    const infra = await ensureInfra(ctx, MOCK_SELLERS);
     const buyers: MarketBuyer[] = await Promise.all(
       MARKET_PERSONAS.map(async (persona) => {
         const { plan } = await createPlanner().plan(persona.intent, new Date());
@@ -105,6 +104,20 @@ async function marketMain(): Promise<void> {
         );
         return { name: persona.name, plan };
       }),
+    );
+    const marketCities = new Set(
+      buyers.map(
+        (buyer) => sellersForLocation(buyer.plan.location)[0]?.city,
+      ),
+    );
+    if (marketCities.size !== 1) {
+      throw new Error(
+        "A shared market run requires every buyer plan to use the same city.",
+      );
+    }
+    const infra = await ensureInfra(
+      ctx,
+      sellersForLocation(buyers[0]?.plan.location ?? "Lisbon"),
     );
     console.log();
 
@@ -220,20 +233,23 @@ async function main(): Promise<void> {
     if (useHedera) {
       hederaCtx = connectHedera();
       const ctx = hederaCtx;
-      const infra = await ensureInfra(ctx, MOCK_SELLERS);
-      console.log(
-        `Hedera testnet ready · NATA ${infra.paymentTokenId} · claims ${infra.claimTokenId}\n`,
-      );
-      settler = useSimpleHedera
-        ? (plan, auctions) =>
-            settleOnHedera(plan, auctions, { ...ctx, infra })
-        : (plan, auctions) =>
-            settleWithSwarm(
+      settler = async (plan, auctions) => {
+        const infra = await ensureInfra(
+          ctx,
+          sellersForLocation(plan.location),
+        );
+        console.log(
+          `Hedera testnet ready · NATA ${infra.paymentTokenId} · claims ${infra.claimTokenId}\n`,
+        );
+        return useSimpleHedera
+          ? settleOnHedera(plan, auctions, { ...ctx, infra })
+          : settleWithSwarm(
               plan,
               auctions,
               { ...ctx, infra },
               { live: useLive },
             );
+      };
     }
 
     const result = await organizePrivatePurchase(

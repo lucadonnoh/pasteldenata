@@ -506,14 +506,19 @@ HEDERA_OPERATOR_ID=0.0.your-testnet-account
 HEDERA_OPERATOR_KEY=your-testnet-private-key
 ```
 
-Then initialize the reusable testnet infrastructure:
+Then initialize the reusable testnet infrastructure for the market you will
+demo (Lisbon is the default):
 
 ```bash
 npm run hedera:setup
+# or, for another market:
+npm run hedera:setup -- Tokyo
 ```
 
-The operator needs enough faucet HBAR to create and fund the configured buyer,
-seller, and scoped agent accounts.
+Only that city's mock sellers are provisioned. Accounts are checkpointed
+one at a time, and another city is added lazily when first used. The operator
+needs enough faucet HBAR to create and fund the selected sellers, buyer, and
+scoped agent accounts.
 
 ### Hedera CLI modes
 

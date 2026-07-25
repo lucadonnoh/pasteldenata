@@ -105,7 +105,7 @@ export function SellerStudio() {
             <label>
               <span className="field-caption">OPENING FLOOR</span>
               <div className="input-with-prefix">
-                <b>€</b>
+                <b>$</b>
                 <input
                   inputMode="decimal"
                   value={price}
@@ -213,7 +213,7 @@ export function SellerStudio() {
 
               <div className="preview-price">
                 <span>Auction starts at</span>
-                <strong>€{price || "—"}</strong>
+                <strong>${price || "—"} USD</strong>
               </div>
             </div>
           </div>

@@ -17,12 +17,18 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { DemoResult } from "@/src/domain";
+import type { DemoResult, PlannerAttestation } from "@/src/domain";
 import { UnknownCityError } from "@/src/catalog";
 import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
-import { ZeroGPrivatePlanner } from "@/src/planner";
+import {
+  VerifiedUnknownCityError,
+  ZeroGPrivatePlanner,
+} from "@/src/planner";
 import { privateKeyToAccount } from "viem/accounts";
-import { PrivacyDetails } from "@/components/execution-details";
+import {
+  PrivacyDetails,
+  ZeroGVerificationReceipt,
+} from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
 
 const examples = [
@@ -84,6 +90,7 @@ export function IntentBox() {
   const [cityMiss, setCityMiss] = useState<{
     location: string;
     available: string[];
+    attestation?: PlannerAttestation;
   } | null>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -196,7 +203,13 @@ export function IntentBox() {
       router.push("/market");
     } catch (requestError) {
       setDeparting(false);
-      if (requestError instanceof UnknownCityError) {
+      if (requestError instanceof VerifiedUnknownCityError) {
+        setCityMiss({
+          location: requestError.location,
+          available: requestError.available,
+          attestation: requestError.attestation,
+        });
+      } else if (requestError instanceof UnknownCityError) {
         setCityMiss({
           location: requestError.location,
           available: requestError.available,
@@ -429,37 +442,44 @@ export function IntentBox() {
 
         <div className="intent-column">
           {cityMiss ? (
-            <div className="no-market" role="alert">
-              <span className="no-market-eyebrow">NO MARKET HERE YET</span>
-              <h2>We don&apos;t have sellers in {cityMiss.location}.</h2>
-              <p>
-                Your private plan was understood — but no seller has listed
-                inventory in this city. Pick a live market and your agents
-                will take it from there.
-              </p>
-              <div className="no-market-cities">
-                {cityMiss.available.map((city) => (
-                  <button
-                    key={city}
-                    type="button"
-                    onClick={() => {
-                      setIntent(
-                        `Organize me a date tomorrow in ${city}. My budget is $200.`,
-                      );
-                      setCityMiss(null);
-                    }}
-                  >
-                    {city}
-                  </button>
-                ))}
+            <div className="no-market-result">
+              <div className="no-market" role="alert">
+                <span className="no-market-eyebrow">NO MARKET HERE YET</span>
+                <h2>We don&apos;t have sellers in {cityMiss.location}.</h2>
+                <p>
+                  Your private plan was understood — but no seller has listed
+                  inventory in this city. Pick a live market and your agents
+                  will take it from there.
+                </p>
+                <div className="no-market-cities">
+                  {cityMiss.available.map((city) => (
+                    <button
+                      key={city}
+                      type="button"
+                      onClick={() => {
+                        setIntent(
+                          `Organize me a date tomorrow in ${city}. My budget is $200.`,
+                        );
+                        setCityMiss(null);
+                      }}
+                    >
+                      {city}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="no-market-reset"
+                  type="button"
+                  onClick={() => setCityMiss(null)}
+                >
+                  New request
+                </button>
               </div>
-              <button
-                className="no-market-reset"
-                type="button"
-                onClick={() => setCityMiss(null)}
-              >
-                New request
-              </button>
+              {cityMiss.attestation && (
+                <ZeroGVerificationReceipt
+                  attestation={cityMiss.attestation}
+                />
+              )}
             </div>
           ) : (
             <>

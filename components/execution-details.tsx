@@ -1,7 +1,11 @@
 "use client";
 
 import { ExternalLink, ShieldCheck } from "lucide-react";
-import type { DemoResult } from "@/src/domain";
+import type {
+  DemoResult,
+  PlannerAttestation,
+  PrivatePlan,
+} from "@/src/domain";
 import { formatUsd, neuronToOg } from "@/src/money";
 
 const PRIVACY_DOCS =
@@ -76,14 +80,26 @@ export function PrivacyDetails() {
   );
 }
 
-export function ZeroGVerificationReceipt({
-  result,
-}: {
-  result: DemoResult;
-}) {
-  const costOg = neuronToOg(result.attestation.costNeuron);
-  const trace = result.attestation.routerTrace;
-  const proof = result.attestation.independentVerification;
+type ZeroGVerificationReceiptProps =
+  | { result: DemoResult; attestation?: never; plan?: never }
+  | {
+      result?: never;
+      attestation: PlannerAttestation;
+      plan?: PrivatePlan;
+    };
+
+export function ZeroGVerificationReceipt(
+  props: ZeroGVerificationReceiptProps,
+) {
+  const attestation =
+    "result" in props && props.result
+      ? props.result.attestation
+      : props.attestation;
+  const plan =
+    "result" in props && props.result ? props.result.plan : props.plan;
+  const costOg = neuronToOg(attestation.costNeuron);
+  const trace = attestation.routerTrace;
+  const proof = attestation.independentVerification;
   if (!proof) return null;
 
   const providerExplorerUrl =
@@ -244,15 +260,15 @@ export function ZeroGVerificationReceipt({
             <div>
               <dt>Router model</dt>
               <dd>
-                <code>{result.attestation.model}</code>
+                <code>{attestation.model}</code>
               </dd>
             </div>
             <div>
               <dt>Inference cost</dt>
               <dd>
-                {result.attestation.costNeuron ? (
+                {attestation.costNeuron ? (
                   <>
-                    <code>{result.attestation.costNeuron} neuron</code>
+                    <code>{attestation.costNeuron} neuron</code>
                     {costOg ? ` (${costOg} 0G)` : ""}
                   </>
                 ) : (
@@ -264,24 +280,25 @@ export function ZeroGVerificationReceipt({
         </div>
       </details>
 
-      <details className="zerog-plan-drawer">
-        <summary>
-          <span>View the 0G-generated private plan</span>
-          <small>
-            {result.plan.allocations.length} scoped allocations ·{" "}
-            {formatUsd(result.plan.totalBudgetCents)} cap
-          </small>
-        </summary>
-        <div className="zerog-plan-body">
-          <div className="trace-heading">
-            <div>
-              <span>VERIFIED PROPOSAL · LOCAL POLICY ENFORCED</span>
-              <h3>Scoped purchasing mandates</h3>
+      {plan && (
+        <details className="zerog-plan-drawer">
+          <summary>
+            <span>View the 0G-generated private plan</span>
+            <small>
+              {plan.allocations.length} scoped allocations ·{" "}
+              {formatUsd(plan.totalBudgetCents)} cap
+            </small>
+          </summary>
+          <div className="zerog-plan-body">
+            <div className="trace-heading">
+              <div>
+                <span>VERIFIED PROPOSAL · LOCAL POLICY ENFORCED</span>
+                <h3>Scoped purchasing mandates</h3>
+              </div>
+              <code>{plan.planId}</code>
             </div>
-            <code>{result.plan.planId}</code>
-          </div>
-          {result.attestation.localPolicyAdjustments &&
-            result.attestation.localPolicyAdjustments.length > 0 && (
+            {attestation.localPolicyAdjustments &&
+              attestation.localPolicyAdjustments.length > 0 && (
               <div className="verification-caveat prominent">
                 <p>
                   0G proposed allocations outside the hard local policy. The
@@ -289,42 +306,43 @@ export function ZeroGVerificationReceipt({
                   inference; these changes are not claimed as TEE model output.
                 </p>
                 <pre>
-                  {result.attestation.localPolicyAdjustments.join("\n")}
+                  {attestation.localPolicyAdjustments.join("\n")}
                 </pre>
               </div>
-            )}
-          <div className="plan-summary">
-            <span>
-              Global cap <b>{formatUsd(result.plan.totalBudgetCents)}</b>
-            </span>
-            <span>
-              Allocated{" "}
-              <b>
-                {formatUsd(
-                  result.plan.totalBudgetCents -
-                    result.plan.unallocatedBudgetCents,
-                )}
-              </b>
-            </span>
-            <span>
-              Contingency{" "}
-              <b>{formatUsd(result.plan.unallocatedBudgetCents)}</b>
-            </span>
+              )}
+            <div className="plan-summary">
+              <span>
+                Global cap <b>{formatUsd(plan.totalBudgetCents)}</b>
+              </span>
+              <span>
+                Allocated{" "}
+                <b>
+                  {formatUsd(
+                    plan.totalBudgetCents -
+                      plan.unallocatedBudgetCents,
+                  )}
+                </b>
+              </span>
+              <span>
+                Contingency{" "}
+                <b>{formatUsd(plan.unallocatedBudgetCents)}</b>
+              </span>
+            </div>
+            <div className="mandate-list">
+              {plan.allocations.map((allocation) => (
+                <article key={allocation.category}>
+                  <header>
+                    <strong>{allocation.category}</strong>
+                    <span>{formatUsd(allocation.maxBudgetCents)} cap</span>
+                  </header>
+                  <p>{allocation.requirements.join(" · ")}</p>
+                  <small>Priority {allocation.priority}/5</small>
+                </article>
+              ))}
+            </div>
           </div>
-          <div className="mandate-list">
-            {result.plan.allocations.map((allocation) => (
-              <article key={allocation.category}>
-                <header>
-                  <strong>{allocation.category}</strong>
-                  <span>{formatUsd(allocation.maxBudgetCents)} cap</span>
-                </header>
-                <p>{allocation.requirements.join(" · ")}</p>
-                <small>Priority {allocation.priority}/5</small>
-              </article>
-            ))}
-          </div>
-        </div>
-      </details>
+        </details>
+      )}
     </section>
   );
 }

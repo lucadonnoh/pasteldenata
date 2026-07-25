@@ -1,10 +1,14 @@
 import { z } from "zod";
 import {
+  CITY_LABELS,
+  UnknownCityError,
+  cityForLocation,
   publicCatalogForPlanner,
   sellersForLocation,
 } from "./catalog";
 import {
   CATEGORIES,
+  type City,
   type PlanAllocation,
   type PlannerAttestation,
   type PrivatePlan,
@@ -16,7 +20,7 @@ import {
   type IndependentTeeVerifier,
   ZeroGIndependentTeeVerifier,
 } from "./tee-verifier";
-import { tomorrowInLisbon } from "./time";
+import { tomorrowInCity, tomorrowInLisbon } from "./time";
 import {
   type ZeroGPrivateCompletionClient,
   ZeroGPrivateRouterClient,
@@ -75,6 +79,16 @@ interface RouterResponse {
 export interface PlannerResult {
   plan: PrivatePlan;
   attestation: PlannerAttestation;
+}
+
+export class VerifiedUnknownCityError extends UnknownCityError {
+  constructor(
+    unknownCity: UnknownCityError,
+    readonly attestation: PlannerAttestation,
+  ) {
+    super(unknownCity.location);
+    this.name = "VerifiedUnknownCityError";
+  }
 }
 
 export interface PrivatePlanner {
@@ -237,7 +251,11 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
 
   async plan(intent: string, now = new Date()): Promise<PlannerResult> {
     const totalBudgetCents = parseBudgetCents(intent);
-    const expectedDate = tomorrowInLisbon(now);
+    const targetDatesByMarket = Object.fromEntries(
+      (Object.entries(CITY_LABELS) as Array<[City, string]>).map(
+        ([city, label]) => [label, tomorrowInCity(city, now)],
+      ),
+    );
 
     const completion = await this.privateClient.complete({
       apiKey: this.apiKey,
@@ -258,7 +276,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
               "Choose a practical bundle, normally 2-4 categories.",
               "Never exceed the hard total budget.",
               "Leave a small unallocated contingency when practical.",
-              "The scheduledFor date must equal the supplied target date.",
+              "The scheduledFor date must equal the target date for the chosen market.",
               "Return JSON only with: occasionTitle, location, scheduledFor, allocations.",
               "Each allocation has: category, maxBudgetCents, requirements, priority (1-5).",
               "Amounts are integer US cents.",
@@ -270,7 +288,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
               privateIntent: intent,
               hardBudgetCents: totalBudgetCents,
               currency: "USD",
-              targetDate: expectedDate,
+              targetDatesByMarket,
               defaultLocation: "Lisbon",
               availableServices: publicCatalogForPlanner(),
             }),
@@ -310,13 +328,36 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
       provider: trace.provider,
       tee_verified: true,
     };
+    const baseAttestation: PlannerAttestation = {
+      mode: "0g-private-tee",
+      teeVerified: true,
+      model: raw.model ?? this.model,
+      provider: trace.provider,
+      ...(costNeuron ? { costNeuron } : {}),
+      requestId: trace.request_id,
+      chatId,
+      routerTrace,
+      independentVerification,
+    };
 
-    const plan = enforcePlan(
-      modelPlan,
-      totalBudgetCents,
-      expectedDate,
-      intent,
-    );
+    let plan: PrivatePlan;
+    try {
+      const city = cityForLocation(modelPlan.location);
+      const expectedDate = city
+        ? tomorrowInCity(city, now)
+        : tomorrowInLisbon(now);
+      plan = enforcePlan(
+        modelPlan,
+        totalBudgetCents,
+        expectedDate,
+        intent,
+      );
+    } catch (error) {
+      if (error instanceof UnknownCityError) {
+        throw new VerifiedUnknownCityError(error, baseAttestation);
+      }
+      throw error;
+    }
     const localPolicyAdjustments = modelPlan.allocations.flatMap(
       (allocation) => {
         const enforced = plan.allocations.find(
@@ -334,15 +375,7 @@ export class ZeroGPrivatePlanner implements PrivatePlanner {
     return {
       plan,
       attestation: {
-        mode: "0g-private-tee",
-        teeVerified: true,
-        model: raw.model ?? this.model,
-        provider: trace.provider,
-        ...(costNeuron ? { costNeuron } : {}),
-        requestId: trace.request_id,
-        chatId,
-        routerTrace,
-        independentVerification,
+        ...baseAttestation,
         ...(localPolicyAdjustments.length > 0
           ? { localPolicyAdjustments }
           : {}),

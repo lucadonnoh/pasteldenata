@@ -10,8 +10,19 @@ import {
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import type { AuctionResult, PrivatePlan } from "../src/domain";
-import { parsePrivateKey } from "../src/hedera/client";
+import type {
+  AuctionResult,
+  PrivatePlan,
+  Seller,
+} from "../src/domain";
+import {
+  parsePrivateKey,
+  type HederaContext,
+} from "../src/hedera/client";
+import {
+  type HederaInfra,
+  upgradeInfra,
+} from "../src/hedera/infra";
 import {
   ascendingRanking,
   fetchItemState,
@@ -78,6 +89,60 @@ test("bare operator keys default to ECDSA without DER misclassification", () => 
     parsedEd25519.publicKey.toStringRaw(),
     ed25519.publicKey.toStringRaw(),
   );
+});
+
+test("Hedera seller provisioning checkpoints progress and resumes", async () => {
+  const sellers = [
+    { id: "seller-a" },
+    { id: "seller-b" },
+  ] as Seller[];
+  const infra: HederaInfra = {
+    network: "testnet",
+    paymentTokenId: "0.0.1",
+    claimTokenId: "0.0.2",
+    buyer: { accountId: "0.0.3", privateKey: "buyer-key" },
+    sellers: {},
+    marketBuyers: [
+      { accountId: "0.0.10", privateKey: "pool-1" },
+      { accountId: "0.0.11", privateKey: "pool-2" },
+      { accountId: "0.0.12", privateKey: "pool-3" },
+      { accountId: "0.0.13", privateKey: "pool-4" },
+    ],
+  };
+  const checkpoints: HederaInfra[] = [];
+  let attempts = 0;
+
+  await assert.rejects(
+    upgradeInfra({} as HederaContext, infra, sellers, {
+      createStoredAccount: async () => {
+        attempts += 1;
+        if (attempts === 2) throw new Error("testnet unavailable");
+        return {
+          accountId: `0.0.${100 + attempts}`,
+          privateKey: `key-${attempts}`,
+        };
+      },
+      persist: (value) => checkpoints.push(structuredClone(value)),
+    }),
+    /testnet unavailable/,
+  );
+
+  assert.equal(checkpoints.length, 1);
+  assert.equal(checkpoints[0]?.sellers["seller-a"]?.accountId, "0.0.101");
+  assert.equal(Object.hasOwn(infra.sellers, "seller-b"), false);
+
+  const resumedCreations: string[] = [];
+  await upgradeInfra({} as HederaContext, infra, sellers, {
+    createStoredAccount: async () => {
+      resumedCreations.push("created");
+      return { accountId: "0.0.200", privateKey: "resumed-key" };
+    },
+    persist: (value) => checkpoints.push(structuredClone(value)),
+  });
+
+  assert.equal(resumedCreations.length, 1);
+  assert.equal(infra.sellers["seller-a"]?.accountId, "0.0.101");
+  assert.equal(infra.sellers["seller-b"]?.accountId, "0.0.200");
 });
 
 async function withMirrorMessages<T>(

@@ -2954,6 +2954,11 @@ a.readiness-item:hover {
   color: #568738;
 }
 
+.no-market-result {
+  display: grid;
+  gap: 16px;
+}
+
 .no-market {
   display: grid;
   gap: 14px;
