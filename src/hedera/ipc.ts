@@ -77,6 +77,8 @@ export type ParentToLeaf =
   /** Market mode: the item was already sold to another agent. */
   | { type: "PREPARE_REJECTED" }
   | { type: "SIGNED"; txBytesB64: string }
+  /** Market mode: clearing submitted the fully authorized atomic swap. */
+  | { type: "SETTLED"; txBytesB64: string; transactionId: string }
   | { type: "SETTLEMENT_RECORDED" }
   /** grantedCents = 0 means the root refused the top-up. */
   | { type: "BUDGET_GRANTED"; grantedCents: number };

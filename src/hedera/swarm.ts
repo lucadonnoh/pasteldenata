@@ -26,7 +26,12 @@ import type {
 import { fundSellerFees, LiveAuctioneer } from "./liveAuction";
 import { leafAgentPath } from "./leafPath";
 import { AuctionLog } from "./log";
-import { TESTNET_MIRROR_BASE } from "./mirror";
+import {
+  fetchTopicBids,
+  standingOffers,
+  TESTNET_MIRROR_BASE,
+} from "./mirror";
+import { assertExactAtomicSwap } from "./marketPolicy";
 import {
   fundBuyer,
   HederaPartialSettlementError,
@@ -436,6 +441,15 @@ async function runLeaf(
     });
     let doneResult: LeafResult | undefined;
     let confirmedResult: LeafResult | undefined;
+    let prepared:
+      | {
+          sellerId: string;
+          amountCents: number;
+          sellerAccountId: string;
+          claimNftSerial: number;
+        }
+      | undefined;
+    let sellerSigned = false;
     let pendingError: Error | undefined;
     const warnings: string[] = [];
     let finished = false;
@@ -556,6 +570,32 @@ async function runLeaf(
                 `The ${auction.category} agent chose an ineligible listing.`,
               );
             }
+            const authorized = new Map(
+              liveListings.map(({ seller, item, account }) => [
+                item.id,
+                {
+                  sellerId: seller.id,
+                  accountId: account.accountId,
+                },
+              ]),
+            );
+            const standing = standingOffers(
+              await fetchTopicBids(
+                TESTNET_MIRROR_BASE,
+                log.topicId,
+                auction.auctionId,
+                authorized,
+              ),
+            ).get(message.listingId);
+            if (
+              !standing ||
+              standing.sellerId !== message.sellerId ||
+              standing.amountCents !== message.amountCents
+            ) {
+              throw new Error(
+                `The ${auction.category} agent selected an offer that is not standing on HCS.`,
+              );
+            }
           } else if (
             message.sellerId !== auction.winner.sellerId ||
             message.listingId !== auction.winner.listingId ||
@@ -571,22 +611,43 @@ async function runLeaf(
             seller,
             message.listingId,
           );
+          const sellerAccountId = sellerAccount(message.sellerId).accountId;
+          prepared = {
+            sellerId: message.sellerId,
+            amountCents: message.amountCents,
+            sellerAccountId,
+            claimNftSerial: serial,
+          };
           sendToLeaf({
             type: "PREPARED",
-            sellerAccountId: sellerAccount(message.sellerId).accountId,
+            sellerAccountId,
             claimNftSerial: serial,
           });
           break;
         }
 
         case "SIGN_REQUEST": {
-          // Leaf agents are explicitly trusted. The seller counter-signs the
-          // atomic swap assembled by that trusted agent.
-          const seller = sellerAccount(message.sellerId);
+          if (
+            !prepared ||
+            sellerSigned ||
+            message.sellerId !== prepared.sellerId
+          ) {
+            throw new Error("Seller received an unauthorized signing request.");
+          }
           const swap = Transaction.fromBytes(
             Buffer.from(message.txBytesB64, "base64"),
           );
+          assertExactAtomicSwap(swap, {
+            buyerAccountId: wallet.accountId,
+            sellerAccountId: prepared.sellerAccountId,
+            amountCents: prepared.amountCents,
+            paymentTokenId: ctx.infra.paymentTokenId,
+            claimTokenId: ctx.infra.claimTokenId,
+            claimNftSerial: prepared.claimNftSerial,
+          });
+          const seller = sellerAccount(prepared.sellerId);
           await swap.sign(parsePrivateKey(seller.privateKey));
+          sellerSigned = true;
           sendToLeaf({
             type: "SIGNED",
             txBytesB64: Buffer.from(swap.toBytes()).toString("base64"),

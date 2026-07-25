@@ -1216,6 +1216,16 @@ function BundleGrid({
                     Atomic swap
                     <ExternalLink size={9} aria-hidden="true" />
                   </a>
+                  {receipt.auctionTopicUrl && (
+                    <a
+                      href={receipt.auctionTopicUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      HCS auction proof
+                      <ExternalLink size={9} aria-hidden="true" />
+                    </a>
+                  )}
                   {receipt.claimNftSerial !== undefined &&
                     receipt.escrowAccountId && (
                       <a

@@ -18,11 +18,18 @@ import type {
 import { publishToTopic } from "./log";
 import {
   ascendingLeader,
+  ascendingRanking,
   fetchItemState,
   fetchTopicBids,
   standingOffers,
   type LiveBid,
 } from "./mirror";
+import {
+  assertExactAtomicSwap,
+  MARKET_HARD_CLOSE_MS,
+  MARKET_MIN_AUCTION_MS,
+  MARKET_QUIET_CLOSE_MS,
+} from "./marketPolicy";
 
 /**
  * An isolated buyer agent. It runs in its own process, holds only its own
@@ -39,9 +46,6 @@ const TOP_UP_AFTER_QUIET_MS = 10_000;
 const HARD_CLOSE_MS = 120_000;
 // Contested (multi-buyer) auctions wait longer so rivals get to counter-bid
 // before a leader can close — otherwise the first floor bid snipes the item.
-const CONTESTED_MIN_MS = 30_000;
-const CONTESTED_QUIET_MS = 14_000;
-const CONTESTED_HARD_MS = 180_000;
 
 const inbox: ParentToLeaf[] = [];
 let waiter: ((message: ParentToLeaf) => void) | undefined;
@@ -367,13 +371,26 @@ async function contestedRun(
       sellerId: listing.sellerId,
       txBytesB64: Buffer.from(swap.toBytes()).toString("base64"),
     });
-    const signed = await expectMessage("SIGNED");
+    const completed = await expectMessage("SETTLED");
     const settlement = Transaction.fromBytes(
-      Buffer.from(signed.txBytesB64, "base64"),
+      Buffer.from(completed.txBytesB64, "base64"),
     );
-    const response = await settlement.execute(client);
-    await response.getReceipt(client);
-    const transactionId = response.transactionId.toString();
+    assertExactAtomicSwap(settlement, {
+      buyerAccountId: me,
+      sellerAccountId: reply.sellerAccountId,
+      amountCents,
+      paymentTokenId: init.paymentTokenId,
+      claimTokenId: init.claimTokenId,
+      claimNftSerial: reply.claimNftSerial,
+    });
+    if (
+      settlement.transactionId?.toString() !== completed.transactionId
+    ) {
+      throw new Error(
+        "Marketplace returned a transaction id that does not match the signed swap.",
+      );
+    }
+    const transactionId = completed.transactionId;
     console.log(
       `${tag} WON ${listing.sellerName} at ${usd(amountCents)} · ${transactionId}`,
     );
@@ -436,6 +453,17 @@ async function contestedRun(
       | undefined;
     let waitingForMirror = false;
     for (const { listing, state } of states) {
+      if (state.closure) {
+        const ownBid = ascendingRanking(state.bids).find(
+          (bid) => bid.bidder === me,
+        );
+        if (ownBid) {
+          const won = await trySettle(listing, ownBid.amountCents);
+          if (won) return;
+        }
+        closed.add(listing.itemId);
+        continue;
+      }
       if (state.settlement) {
         closed.add(listing.itemId);
         continue;
@@ -465,8 +493,9 @@ async function contestedRun(
       const quiet =
         now - (lastNewBidAt.get(leading.listing.itemId) ?? startedAt);
       if (
-        (elapsed > CONTESTED_MIN_MS && quiet > CONTESTED_QUIET_MS) ||
-        elapsed > CONTESTED_HARD_MS
+        (elapsed > MARKET_MIN_AUCTION_MS &&
+          quiet > MARKET_QUIET_CLOSE_MS) ||
+        elapsed > MARKET_HARD_CLOSE_MS
       ) {
         const won = await trySettle(leading.listing, leading.amountCents);
         if (won) return;
@@ -475,8 +504,29 @@ async function contestedRun(
       continue; // Hold while leading: the cap backs exactly one bid.
     }
     if (waitingForMirror) continue;
-    if (elapsed > CONTESTED_HARD_MS) {
-      console.log(`${tag} lost: auction closed while outbid`);
+    if (elapsed > MARKET_HARD_CLOSE_MS) {
+      const fallback = states
+        .filter(
+          ({ listing, state }) =>
+            !closed.has(listing.itemId) && !state.settlement,
+        )
+        .map(({ listing, state }) => ({
+          listing,
+          ownBid: ascendingRanking(state.bids).find(
+            (bid) => bid.bidder === me,
+          ),
+        }))
+        .find((candidate) => candidate.ownBid !== undefined);
+      if (fallback?.ownBid) {
+        const won = await trySettle(
+          fallback.listing,
+          fallback.ownBid.amountCents,
+        );
+        if (won) return;
+        closed.add(fallback.listing.itemId);
+        continue;
+      }
+      console.log(`${tag} lost: auction closed without an eligible bid`);
       return report({});
     }
 
@@ -511,6 +561,18 @@ async function contestedRun(
           );
           continue;
         }
+      }
+      const hasRankedFallback = states.some(
+        ({ listing, state }) =>
+          !closed.has(listing.itemId) &&
+          !state.settlement &&
+          state.bids.some((bid) => bid.bidder === me),
+      );
+      if (hasRankedFallback) {
+        // Being unable to raise does not erase this account's last valid bid.
+        // Stay online so a non-settling higher bidder can time out and this
+        // agent can claim its fixed fallback position.
+        continue;
       }
       console.log(`${tag} lost: outbid beyond the mandate everywhere`);
       return report({});
@@ -626,6 +688,14 @@ async function run(init: LeafInit): Promise<void> {
     const settlement = Transaction.fromBytes(
       Buffer.from(signed.txBytesB64, "base64"),
     );
+    assertExactAtomicSwap(settlement, {
+      buyerAccountId: wallet.accountId,
+      sellerAccountId: prepared.sellerAccountId,
+      amountCents: winner.amountCents,
+      paymentTokenId: init.paymentTokenId,
+      claimTokenId: init.claimTokenId,
+      claimNftSerial: prepared.claimNftSerial,
+    });
     const response = await settlement.execute(client);
     await response.getReceipt(client);
     const transactionId = response.transactionId.toString();

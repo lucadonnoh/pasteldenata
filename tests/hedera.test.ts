@@ -3,14 +3,27 @@ import { mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { PrivateKey } from "@hashgraph/sdk";
+import {
+  Client,
+  Hbar,
+  PrivateKey,
+  Transaction,
+  TransferTransaction,
+} from "@hashgraph/sdk";
 import type { AuctionResult, PrivatePlan } from "../src/domain";
 import { parsePrivateKey } from "../src/hedera/client";
 import {
+  ascendingRanking,
   fetchItemState,
   fetchTopicBids,
 } from "../src/hedera/mirror";
 import { marketItemId } from "../src/hedera/market";
+import {
+  assertExactAtomicSwap,
+  assertVerifiedMarketClaim,
+  marketCloseDelayMs,
+  verifiedMarketClaimState,
+} from "../src/hedera/marketPolicy";
 import {
   persistLeafWallet,
   readLeafWallet,
@@ -29,11 +42,13 @@ function mirrorMessage(
   message: string;
   payer_account_id: string;
   sequence_number: number;
+  consensus_timestamp: string;
 } {
   return {
     message: Buffer.from(JSON.stringify(payload)).toString("base64"),
     payer_account_id: payer,
     sequence_number: sequence,
+    consensus_timestamp: `${1_700_000_000 + sequence}.000000000`,
   };
 }
 
@@ -115,6 +130,11 @@ test("market messages bind bidder identity to payer and settlement to clearing",
   const state = await withMirrorMessages(
     [
       mirrorMessage(
+        { type: "LISTED", itemId: "item-1", floorCents: 2000 },
+        "0.0.clearing",
+        0,
+      ),
+      mirrorMessage(
         { type: "BID", itemId: "item-1", bidder: "0.0.201", amountCents: 2500 },
         "0.0.201",
         1,
@@ -136,6 +156,41 @@ test("market messages bind bidder identity to payer and settlement to clearing",
         3,
       ),
       mirrorMessage(
+        { type: "CLOSED", itemId: "item-1" },
+        "0.0.attacker",
+        4,
+      ),
+      mirrorMessage(
+        { type: "CLOSED", itemId: "item-1" },
+        "0.0.clearing",
+        5,
+      ),
+      mirrorMessage(
+        {
+          type: "FORFEITED",
+          itemId: "item-1",
+          bidder: "0.0.201",
+          amountCents: 2500,
+        },
+        "0.0.attacker",
+        6,
+      ),
+      mirrorMessage(
+        {
+          type: "FORFEITED",
+          itemId: "item-1",
+          bidder: "0.0.201",
+          amountCents: 2500,
+        },
+        "0.0.clearing",
+        7,
+      ),
+      mirrorMessage(
+        { type: "BID", itemId: "item-1", bidder: "0.0.202", amountCents: 9999 },
+        "0.0.202",
+        8,
+      ),
+      mirrorMessage(
         {
           type: "SETTLED",
           itemId: "item-1",
@@ -144,7 +199,7 @@ test("market messages bind bidder identity to payer and settlement to clearing",
           transactionId: "0.0.201@1.2",
         },
         "0.0.clearing",
-        4,
+        9,
       ),
     ],
     () =>
@@ -157,13 +212,246 @@ test("market messages bind bidder identity to payer and settlement to clearing",
   );
 
   assert.deepEqual(state.bids, [
-    { bidder: "0.0.201", amountCents: 2500, sequenceNumber: 1 },
+    {
+      bidder: "0.0.201",
+      amountCents: 2500,
+      sequenceNumber: 1,
+      consensusTimestampMs: 1_700_000_001_000,
+    },
+  ]);
+  assert.deepEqual(state.opening, {
+    sequenceNumber: 0,
+    consensusTimestampMs: 1_700_000_000_000,
+  });
+  assert.deepEqual(state.closure, {
+    sequenceNumber: 5,
+    consensusTimestampMs: 1_700_000_005_000,
+  });
+  assert.deepEqual(state.forfeitures, [
+    {
+      bidder: "0.0.201",
+      amountCents: 2500,
+      sequenceNumber: 7,
+      consensusTimestampMs: 1_700_000_007_000,
+    },
   ]);
   assert.deepEqual(state.settlement, {
     bidder: "0.0.201",
     amountCents: 2500,
     transactionId: "0.0.201@1.2",
   });
+});
+
+test("seller policy independently derives the winner before signing", () => {
+  const open = {
+    opening: {
+      sequenceNumber: 1,
+      consensusTimestampMs: 990_000,
+    },
+    bids: [
+      {
+        bidder: "0.0.202",
+        amountCents: 2550,
+        sequenceNumber: 1,
+        consensusTimestampMs: 1_005_000,
+      },
+      {
+        bidder: "0.0.201",
+        amountCents: 2500,
+        sequenceNumber: 2,
+        consensusTimestampMs: 1_010_000,
+      },
+      {
+        bidder: "0.0.202",
+        amountCents: 2600,
+        sequenceNumber: 3,
+        consensusTimestampMs: 1_012_000,
+      },
+    ],
+    forfeitures: [],
+  };
+
+  assert.equal(
+    marketCloseDelayMs(
+      open,
+      { buyerAccountId: "0.0.202", amountCents: 2600 },
+      1_020_000,
+    ),
+    6_000,
+  );
+  assert.throws(
+    () =>
+      marketCloseDelayMs(
+        open,
+        { buyerAccountId: "0.0.201", amountCents: 2500 },
+        1_030_000,
+      ),
+    /not the current highest bidder/,
+  );
+
+  assert.equal(
+    marketCloseDelayMs(
+      open,
+      { buyerAccountId: "0.0.201", amountCents: 2500 },
+      1_170_000,
+    ),
+    0,
+  );
+
+  const closed = {
+    ...open,
+    closure: {
+      sequenceNumber: 4,
+      consensusTimestampMs: 1_030_000,
+    },
+  };
+  assert.doesNotThrow(() =>
+    assertVerifiedMarketClaim(
+      closed,
+      {
+        buyerAccountId: "0.0.202",
+        amountCents: 2600,
+      },
+      1_040_000,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertVerifiedMarketClaim(
+        closed,
+        {
+          buyerAccountId: "0.0.201",
+          amountCents: 2500,
+        },
+        1_040_000,
+      ),
+    /does not match the current claim/,
+  );
+
+  const earlyForfeiture = {
+    ...closed,
+    forfeitures: [
+      {
+        bidder: "0.0.202",
+        amountCents: 2600,
+        sequenceNumber: 5,
+        consensusTimestampMs: 1_059_999,
+      },
+    ],
+  };
+  assert.throws(
+    () => verifiedMarketClaimState(earlyForfeiture),
+    /before its claim deadline/,
+  );
+
+  const promoted = {
+    ...closed,
+    forfeitures: [
+      {
+        bidder: "0.0.202",
+        amountCents: 2600,
+        sequenceNumber: 5,
+        consensusTimestampMs: 1_060_000,
+      },
+    ],
+  };
+  assert.equal(
+    verifiedMarketClaimState(promoted).currentWinner?.bidder,
+    "0.0.201",
+  );
+  assert.doesNotThrow(() =>
+    assertVerifiedMarketClaim(
+      promoted,
+      {
+        buyerAccountId: "0.0.201",
+        amountCents: 2500,
+      },
+      1_070_000,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertVerifiedMarketClaim(
+        promoted,
+        {
+          buyerAccountId: "0.0.201",
+          amountCents: 2500,
+        },
+        1_090_000,
+      ),
+    /claim window has expired/,
+  );
+
+  assert.deepEqual(
+    ascendingRanking(open.bids).map((bid) => [
+      bid.bidder,
+      bid.amountCents,
+    ]),
+    [
+      ["0.0.202", 2600],
+      ["0.0.201", 2500],
+    ],
+  );
+});
+
+test("seller signs only the exact auction-bound NATA for claim swap", async () => {
+  const buyerId = "0.0.201";
+  const sellerId = "0.0.301";
+  const paymentTokenId = "0.0.401";
+  const claimTokenId = "0.0.402";
+  const buyerKey = PrivateKey.generateED25519();
+  const client = Client.forTestnet().setOperator(buyerId, buyerKey);
+  const expected = {
+    buyerAccountId: buyerId,
+    sellerAccountId: sellerId,
+    amountCents: 2600,
+    paymentTokenId,
+    claimTokenId,
+    claimNftSerial: 7,
+  };
+
+  const exact = new TransferTransaction()
+    .addTokenTransfer(paymentTokenId, buyerId, -2600)
+    .addTokenTransfer(paymentTokenId, sellerId, 2600)
+    .addNftTransfer(claimTokenId, 7, sellerId, buyerId)
+    .freezeWith(client);
+  await exact.sign(buyerKey);
+  const decoded = Transaction.fromBytes(exact.toBytes());
+  assert.doesNotThrow(() => assertExactAtomicSwap(decoded, expected));
+
+  const wrongPrice = new TransferTransaction()
+    .addTokenTransfer(paymentTokenId, buyerId, -2500)
+    .addTokenTransfer(paymentTokenId, sellerId, 2500)
+    .addNftTransfer(claimTokenId, 7, sellerId, buyerId)
+    .freezeWith(client);
+  assert.throws(
+    () => assertExactAtomicSwap(wrongPrice, expected),
+    /payment does not match/,
+  );
+
+  const hiddenHbarLeg = new TransferTransaction()
+    .addTokenTransfer(paymentTokenId, buyerId, -2600)
+    .addTokenTransfer(paymentTokenId, sellerId, 2600)
+    .addNftTransfer(claimTokenId, 7, sellerId, buyerId)
+    .addHbarTransfer(buyerId, Hbar.fromTinybars(-1))
+    .addHbarTransfer(sellerId, Hbar.fromTinybars(1))
+    .freezeWith(client);
+  assert.throws(
+    () => assertExactAtomicSwap(hiddenHbarLeg, expected),
+    /unexpected HBAR/,
+  );
+
+  const wrongClaim = new TransferTransaction()
+    .addTokenTransfer(paymentTokenId, buyerId, -2600)
+    .addTokenTransfer(paymentTokenId, sellerId, 2600)
+    .addNftTransfer(claimTokenId, 8, sellerId, buyerId)
+    .freezeWith(client);
+  assert.throws(
+    () => assertExactAtomicSwap(wrongClaim, expected),
+    /claim NFT transfer does not match/,
+  );
+
+  client.close();
 });
 
 test("leaf wallet recovery records are local and owner-only", () => {

@@ -16,6 +16,7 @@ interface MirrorMessage {
   message: string;
   payer_account_id: string;
   sequence_number: number;
+  consensus_timestamp?: string;
 }
 
 export interface AuthorizedSeller {
@@ -152,6 +153,24 @@ export interface AscendingBid {
   bidder: string;
   amountCents: number;
   sequenceNumber: number;
+  consensusTimestampMs: number;
+}
+
+export interface ItemClosure {
+  sequenceNumber: number;
+  consensusTimestampMs: number;
+}
+
+export interface ItemForfeiture {
+  bidder: string;
+  amountCents: number;
+  sequenceNumber: number;
+  consensusTimestampMs: number;
+}
+
+export interface ItemOpening {
+  sequenceNumber: number;
+  consensusTimestampMs: number;
 }
 
 export interface ItemSettlement {
@@ -162,12 +181,31 @@ export interface ItemSettlement {
 
 export interface ItemState {
   bids: AscendingBid[];
+  opening?: ItemOpening;
+  closure?: ItemClosure;
+  forfeitures: ItemForfeiture[];
   settlement?: ItemSettlement;
 }
 
+function consensusTimestampMs(value: unknown): number | undefined {
+  if (
+    typeof value !== "string" ||
+    !/^\d{1,10}\.\d{1,9}$/.test(value)
+  ) {
+    return undefined;
+  }
+  const [seconds, nanos = ""] = value.split(".");
+  const milliseconds =
+    Number(seconds) * 1000 +
+    Number(nanos.padEnd(9, "0").slice(0, 3));
+  return Number.isSafeInteger(milliseconds) ? milliseconds : undefined;
+}
+
 /**
- * Read an ascending item auction. BID identities must match the actual payer,
- * and SETTLED is accepted only from the marketplace clearing account.
+ * Read an ascending item auction. BID identities must match the actual payer.
+ * CLOSED, FORFEITED, and SETTLED are accepted only from marketplace clearing;
+ * bids ordered after the first authenticated close do not participate in the
+ * result.
  */
 export async function fetchItemState(
   mirrorBaseUrl: string,
@@ -176,20 +214,64 @@ export async function fetchItemState(
   settlementPayerAccountId: string,
 ): Promise<ItemState> {
   const bids: AscendingBid[] = [];
+  let opening: ItemOpening | undefined;
+  let closure: ItemClosure | undefined;
+  const forfeitures: ItemForfeiture[] = [];
   let settlement: ItemSettlement | undefined;
   for (const item of await allTopicMessages(mirrorBaseUrl, topicId)) {
     const parsed = parseMessage(item.message);
     if (!parsed || parsed.itemId !== itemId) continue;
+    const timestampMs = consensusTimestampMs(item.consensus_timestamp);
     if (
+      !opening &&
+      parsed.type === "LISTED" &&
+      item.payer_account_id === settlementPayerAccountId &&
+      timestampMs !== undefined
+    ) {
+      opening = {
+        sequenceNumber: item.sequence_number,
+        consensusTimestampMs: timestampMs,
+      };
+    }
+    if (
+      !closure &&
       parsed.type === "BID" &&
       nonEmptyString(parsed.bidder) &&
       parsed.bidder === item.payer_account_id &&
-      positiveCents(parsed.amountCents)
+      positiveCents(parsed.amountCents) &&
+      timestampMs !== undefined
     ) {
       bids.push({
         bidder: parsed.bidder,
         amountCents: parsed.amountCents,
         sequenceNumber: item.sequence_number,
+        consensusTimestampMs: timestampMs,
+      });
+    }
+    if (
+      !closure &&
+      parsed.type === "CLOSED" &&
+      item.payer_account_id === settlementPayerAccountId &&
+      timestampMs !== undefined
+    ) {
+      closure = {
+        sequenceNumber: item.sequence_number,
+        consensusTimestampMs: timestampMs,
+      };
+    }
+    if (
+      closure &&
+      parsed.type === "FORFEITED" &&
+      item.payer_account_id === settlementPayerAccountId &&
+      nonEmptyString(parsed.bidder) &&
+      positiveCents(parsed.amountCents) &&
+      timestampMs !== undefined
+    ) {
+      forfeitures.push({
+        bidder: parsed.bidder,
+        amountCents: parsed.amountCents,
+        sequenceNumber: item.sequence_number,
+        consensusTimestampMs: timestampMs,
       });
     }
     if (
@@ -206,23 +288,46 @@ export async function fetchItemState(
       };
     }
   }
-  return { bids, ...(settlement ? { settlement } : {}) };
+  return {
+    bids,
+    ...(opening ? { opening } : {}),
+    ...(closure ? { closure } : {}),
+    forfeitures,
+    ...(settlement ? { settlement } : {}),
+  };
 }
 
-/** Highest bid wins; a tie goes to the earlier consensus sequence. */
+/**
+ * Fixed bidder ranking for a closed ascending auction. A bidder occupies one
+ * position using its highest valid bid, so forfeiting a bidder cannot expose
+ * one of that same account's older bids as the next winner.
+ */
+export function ascendingRanking(
+  bids: AscendingBid[],
+): AscendingBid[] {
+  const bestByBidder = new Map<string, AscendingBid>();
+  for (const bid of bids) {
+    const current = bestByBidder.get(bid.bidder);
+    if (
+      !current ||
+      bid.amountCents > current.amountCents ||
+      (bid.amountCents === current.amountCents &&
+        bid.sequenceNumber < current.sequenceNumber)
+    ) {
+      bestByBidder.set(bid.bidder, bid);
+    }
+  }
+  return [...bestByBidder.values()].sort(
+    (left, right) =>
+      right.amountCents - left.amountCents ||
+      left.sequenceNumber - right.sequenceNumber ||
+      left.bidder.localeCompare(right.bidder),
+  );
+}
+
+/** Highest bidder under the fixed per-account ranking. */
 export function ascendingLeader(
   bids: AscendingBid[],
 ): AscendingBid | undefined {
-  let leader: AscendingBid | undefined;
-  for (const bid of bids) {
-    if (
-      !leader ||
-      bid.amountCents > leader.amountCents ||
-      (bid.amountCents === leader.amountCents &&
-        bid.sequenceNumber < leader.sequenceNumber)
-    ) {
-      leader = bid;
-    }
-  }
-  return leader;
+  return ascendingRanking(bids)[0];
 }
