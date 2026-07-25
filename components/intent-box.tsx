@@ -2,6 +2,7 @@
 
 import {
   ArrowUp,
+  ChevronLeft,
   KeyRound,
   ShieldCheck,
   Sparkles,
@@ -25,6 +26,10 @@ const examples = [
   "Arrange a romantic evening tomorrow. I can spend $180.",
 ];
 
+function isUsableZeroGKey(value: string): boolean {
+  return value.trim().startsWith("sk-") && value.trim().length >= 12;
+}
+
 export function IntentBox() {
   const router = useRouter();
   const { setResult } = usePurchaseSession();
@@ -33,8 +38,9 @@ export function IntentBox() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
-  const hasUsableKey =
-    apiKey.trim().startsWith("sk-") && apiKey.trim().length >= 12;
+  const [credentialPanelOpen, setCredentialPanelOpen] = useState(true);
+  const hasUsableKey = isUsableZeroGKey(apiKey);
+  const credentialsCollapsed = hasUsableKey && !credentialPanelOpen;
 
   useEffect(() => {
     if (
@@ -44,6 +50,16 @@ export function IntentBox() {
       window.location.replace("http://localhost:3000/");
     }
   }, []);
+
+  useEffect(() => {
+    if (!hasUsableKey) return;
+
+    const collapseTimer = window.setTimeout(
+      () => setCredentialPanelOpen(false),
+      650,
+    );
+    return () => window.clearTimeout(collapseTimer);
+  }, [hasUsableKey]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -96,8 +112,31 @@ export function IntentBox() {
       className={`workspace ${departing ? "workspace-departing" : ""}`}
       aria-label="Private intent planner"
     >
-      <div className="intent-layout">
-        <aside className="credential-sidebar" aria-label="0G credentials">
+      <div
+        className={`intent-layout ${
+          credentialsCollapsed ? "credentials-collapsed" : ""
+        }`}
+      >
+        <aside
+          className={`credential-sidebar ${
+            credentialsCollapsed ? "credential-sidebar-collapsed" : ""
+          }`}
+          id="zerog-credentials-panel"
+          aria-label="0G credentials"
+        >
+          <button
+            className="credential-sidebar-toggle"
+            type="button"
+            onClick={() => setCredentialPanelOpen(true)}
+            aria-controls="zerog-credentials-panel"
+            aria-expanded={!credentialsCollapsed}
+            aria-label="Open 0G key settings"
+            title="Edit 0G key"
+          >
+            <KeyRound size={17} />
+            <i />
+          </button>
+
           <header>
             <span>
               <KeyRound size={17} />
@@ -106,6 +145,16 @@ export function IntentBox() {
               <small>0G CONNECTION</small>
               <strong>Private compute</strong>
             </div>
+            {hasUsableKey && (
+              <button
+                className="credential-sidebar-close"
+                type="button"
+                onClick={() => setCredentialPanelOpen(false)}
+                aria-label="Collapse 0G key settings"
+              >
+                <ChevronLeft size={15} />
+              </button>
+            )}
           </header>
 
           <label className="sidebar-key-field" htmlFor="zerog-key">
@@ -118,7 +167,13 @@ export function IntentBox() {
                 value={apiKey}
                 autoComplete="off"
                 spellCheck={false}
-                onChange={(event) => setApiKey(event.target.value)}
+                onChange={(event) => {
+                  const nextKey = event.target.value;
+                  setApiKey(nextKey);
+                  if (!isUsableZeroGKey(nextKey)) {
+                    setCredentialPanelOpen(true);
+                  }
+                }}
                 placeholder="sk-…"
                 aria-describedby="zerog-key-help"
               />
