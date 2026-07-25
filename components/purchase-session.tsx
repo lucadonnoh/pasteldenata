@@ -10,9 +10,15 @@ import {
 
 import type { DemoResult } from "@/src/domain";
 
+export type HederaSettlementStatus = "idle" | "pending" | "settled" | "failed";
+
 interface PurchaseSessionValue {
   result: DemoResult | null;
   setResult: (result: DemoResult | null) => void;
+  settlement: HederaSettlementStatus;
+  setSettlement: (status: HederaSettlementStatus) => void;
+  settlementError: string;
+  setSettlementError: (message: string) => void;
 }
 
 const PurchaseSessionContext =
@@ -24,7 +30,20 @@ export function PurchaseSessionProvider({
   children: ReactNode;
 }) {
   const [result, setResult] = useState<DemoResult | null>(null);
-  const value = useMemo(() => ({ result, setResult }), [result]);
+  const [settlement, setSettlement] =
+    useState<HederaSettlementStatus>("idle");
+  const [settlementError, setSettlementError] = useState("");
+  const value = useMemo(
+    () => ({
+      result,
+      setResult,
+      settlement,
+      setSettlement,
+      settlementError,
+      setSettlementError,
+    }),
+    [result, settlement, settlementError],
+  );
 
   return (
     <PurchaseSessionContext.Provider value={value}>

@@ -1,5 +1,4 @@
 import { fork, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import {
   TokenMintTransaction,
   Transaction,
@@ -25,6 +24,7 @@ import type {
   ParentToLeaf,
 } from "./ipc";
 import { fundSellerFees, LiveAuctioneer } from "./liveAuction";
+import { leafAgentPath } from "./leafPath";
 import { AuctionLog } from "./log";
 import { TESTNET_MIRROR_BASE } from "./mirror";
 import {
@@ -38,7 +38,7 @@ import {
 } from "./settle";
 import { persistLeafWallet } from "./walletVault";
 
-const LEAF_AGENT_PATH = fileURLToPath(new URL("./leafAgent.ts", import.meta.url));
+const LEAF_AGENT_PATH = leafAgentPath();
 const LEAF_TIMEOUT_MS = 240_000;
 // Must cover the settlement's maximum fee ceiling, which includes the claim
 // NFT auto-association charged to the leaf as payer.

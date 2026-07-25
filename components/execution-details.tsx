@@ -400,15 +400,23 @@ export function MockExecutionDetails({ result }: { result: DemoResult }) {
         <section className="trace-section">
           <div className="trace-heading">
             <div>
-              <span>MOCKED · SETTLEMENT</span>
+              <span>
+                {result.hedera ? "04 · HEDERA SETTLEMENT" : "04 · MOCK SETTLEMENT"}
+              </span>
               <h3>Independent payment-policy checks</h3>
             </div>
-            <span className="mock-pill">NO REAL PAYMENT</span>
+            {result.hedera ? (
+              <span className="verification-pill">REAL TESTNET PAYMENT</span>
+            ) : (
+              <span className="mock-pill">NO REAL PAYMENT</span>
+            )}
           </div>
           <p className="policy-copy">
             The controller rejects category overspend, global overspend,
             cross-plan mandates, category mismatch, and mandate replay before
-            creating these simulated receipts.
+            settlement.
+            {result.hedera &&
+              " Each purchase below was one atomic transfer on the Hedera testnet: the agent's NATA out, the claim NFT in, signed by both parties."}
           </p>
           <div className="receipt-list">
             {result.receipts.map((receipt) => (
@@ -416,17 +424,48 @@ export function MockExecutionDetails({ result }: { result: DemoResult }) {
                 <span>{receipt.category}</span>
                 <strong>{receipt.sellerName}</strong>
                 <b>{formatUsd(receipt.amountCents)}</b>
-                <code>{receipt.id}</code>
+                {receipt.hashscanUrl ? (
+                  <a
+                    href={receipt.hashscanUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    agent {receipt.escrowAccountId} · claim NFT #
+                    {receipt.claimNftSerial} · HashScan
+                    <ExternalLink size={11} aria-hidden="true" />
+                  </a>
+                ) : (
+                  <code>{receipt.id}</code>
+                )}
               </article>
             ))}
           </div>
           <div className="settlement-total">
-            <span>Simulated total</span>
+            <span>{result.hedera ? "Settled total" : "Simulated total"}</span>
             <strong>{formatUsd(result.totalSpentCents)}</strong>
             <small>
               under {formatUsd(result.plan.totalBudgetCents)} global cap
             </small>
           </div>
+          {result.hedera && (
+            <div className="docs-links">
+              <DocsLink
+                href={`https://hashscan.io/testnet/token/${result.hedera.paymentTokenId}`}
+              >
+                NATA token
+              </DocsLink>
+              <DocsLink
+                href={`https://hashscan.io/testnet/account/${result.hedera.buyerAccountId}`}
+              >
+                Buyer wallet
+              </DocsLink>
+              <DocsLink
+                href={`https://hashscan.io/testnet/token/${result.hedera.claimTokenId}`}
+              >
+                Claim NFTs
+              </DocsLink>
+            </div>
+          )}
         </section>
       </div>
     </details>

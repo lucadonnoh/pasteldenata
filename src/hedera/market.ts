@@ -1,6 +1,5 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import {
   TokenMintTransaction,
   Transaction,
@@ -23,6 +22,7 @@ import type {
   LeafToParent,
   ParentToLeaf,
 } from "./ipc";
+import { leafAgentPath } from "./leafPath";
 import { AuctionLog } from "./log";
 import { fetchItemState, TESTNET_MIRROR_BASE } from "./mirror";
 import {
@@ -35,7 +35,7 @@ import {
 import { mintClaimTo } from "./swarm";
 import { persistLeafWallet } from "./walletVault";
 
-const LEAF_AGENT_PATH = fileURLToPath(new URL("./leafAgent.ts", import.meta.url));
+const LEAF_AGENT_PATH = leafAgentPath();
 const LEAF_TIMEOUT_MS = 360_000;
 const LEAF_FEE_HBAR = 5;
 

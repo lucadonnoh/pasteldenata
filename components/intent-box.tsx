@@ -15,7 +15,11 @@ import {
   useEffect,
   useState,
 } from "react";
-import { organizeVerifiedPrivatePurchase } from "@/src/orchestrator";
+import type { DemoResult } from "@/src/domain";
+import {
+  organizeVerifiedPrivatePurchase,
+  type SettlementResult,
+} from "@/src/orchestrator";
 import { ZeroGPrivatePlanner } from "@/src/planner";
 import { PrivacyDetails } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
@@ -32,7 +36,8 @@ function isUsableZeroGKey(value: string): boolean {
 
 export function IntentBox() {
   const router = useRouter();
-  const { setResult } = usePurchaseSession();
+  const { setResult, setSettlement, setSettlementError } =
+    usePurchaseSession();
   const [intent, setIntent] = useState(examples[0] ?? "");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
@@ -67,6 +72,7 @@ export function IntentBox() {
         intent.trim(),
       );
       setResult(purchase);
+      settleOnHedera(purchase);
       setDeparting(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         await new Promise((resolve) => window.setTimeout(resolve, 520));
@@ -82,6 +88,53 @@ export function IntentBox() {
     } finally {
       setLoading(false);
     }
+  }
+
+  /**
+   * Fire-and-forget: while the market animation plays, the server settles
+   * the bundle for real on Hedera testnet. Only public data leaves the
+   * browser — the plan and auction results, never the intent or the 0G key.
+   * The session context outlives this component, so the update lands after
+   * navigation.
+   */
+  function settleOnHedera(purchase: DemoResult) {
+    setSettlement("pending");
+    setSettlementError("");
+    fetch("/api/hedera/settle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        plan: purchase.plan,
+        auctions: purchase.auctions,
+      }),
+    })
+      .then(async (response) => {
+        const body = (await response.json()) as SettlementResult & {
+          error?: string;
+        };
+        if (!response.ok || !body.receipts) {
+          throw new Error(body.error ?? "Settlement failed.");
+        }
+        const totalSpentCents = body.receipts.reduce(
+          (sum, receipt) => sum + receipt.amountCents,
+          0,
+        );
+        setResult({
+          ...purchase,
+          receipts: body.receipts,
+          totalSpentCents,
+          ...(body.hedera ? { hedera: body.hedera } : {}),
+        });
+        setSettlement("settled");
+      })
+      .catch((settleError: unknown) => {
+        setSettlementError(
+          settleError instanceof Error
+            ? settleError.message
+            : "Settlement failed.",
+        );
+        setSettlement("failed");
+      });
   }
 
   function handleShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {
