@@ -66,6 +66,12 @@ interface DemoReadiness {
     serverKeyConfigured: boolean;
     ready: boolean;
   };
+  world: {
+    mode: "browser" | "hosted-demo";
+    identityAgent?: `0x${string}`;
+    configured: boolean;
+    verified: boolean;
+  };
   hedera: {
     network: "testnet";
     operatorIdConfigured: boolean;
@@ -160,15 +166,19 @@ export function IntentBox() {
   const zeroGReady = hostedDemo
     ? demoReadiness.zeroG.ready
     : zerogStatus === "ok";
+  const worldIdentityReady = hostedDemo
+    ? demoReadiness.world.verified
+    : worldVerified;
   const hederaStatus = demoReadiness?.hedera;
   const canSubmit =
     !loading &&
     intent.trim().length >= 3 &&
     zeroGReady &&
+    (!hostedDemo || worldIdentityReady) &&
     Boolean(hederaStatus?.ready);
   const presentPrerequisites =
     Number(zeroGReady) +
-    Number(worldVerified) +
+    Number(worldIdentityReady) +
     Number(hederaStatus?.ready ?? false);
   const allPrerequisitesPresent = presentPrerequisites === 3;
   const hederaStatusLabel = readinessUnavailable
@@ -349,13 +359,15 @@ export function IntentBox() {
           }
         | undefined;
       let stored: StoredWorldIdentity | null = null;
-      try {
-        const raw = window.localStorage.getItem("pastel-world-identity");
-        stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
-      } catch {
-        // Corrupt optional identity state must not block open listings.
+      if (!hostedDemo) {
+        try {
+          const raw = window.localStorage.getItem("pastel-world-identity");
+          stored = raw ? (JSON.parse(raw) as StoredWorldIdentity) : null;
+        } catch {
+          // Corrupt optional identity state must not block open listings.
+        }
       }
-      if (stored?.humanId && stored.address && stored.privateKey) {
+      if (!hostedDemo && stored?.humanId && stored.address && stored.privateKey) {
         const account = privateKeyToAccount(stored.privateKey);
         if (account.address.toLowerCase() !== stored.address.toLowerCase()) {
           throw new Error("Stored World identity key does not match its address.");
@@ -677,16 +689,22 @@ export function IntentBox() {
                   : "Direct to 0G · verified TEE required"}
               </div>
               <Link
-                className={worldVerified ? "world-note world-note-ok" : "world-note"}
+                className={worldIdentityReady ? "world-note world-note-ok" : "world-note"}
                 href="/world"
                 title={
-                  worldVerified
-                    ? "Your agents are backed by your World ID"
+                  worldIdentityReady
+                    ? hostedDemo
+                      ? "The shared judge identity is registered in World AgentBook"
+                      : "Your agents are backed by your World ID"
                     : "Scarce listings are one-per-human — verify to bid on them"
                 }
               >
                 <UserCheck size={13} />
-                {worldVerified ? "Human-backed · World ID" : "Not verified · scarce listings locked"}
+                {worldIdentityReady
+                  ? hostedDemo
+                    ? "Shared identity · World verified"
+                    : "Human-backed · World ID"
+                  : "Not verified · scarce listings locked"}
               </Link>
               <div className="character-count">
                 <span>⌘ ENTER</span>
@@ -758,7 +776,7 @@ export function IntentBox() {
               </div>
               <Link
                 className={`readiness-item ${
-                  worldVerified ? "readiness-item-ready" : ""
+                  worldIdentityReady ? "readiness-item-ready" : ""
                 }`}
                 href="/world"
                 title="A complete locally stored World identity is required for scarce listings. Its proof is verified during settlement."
@@ -768,7 +786,7 @@ export function IntentBox() {
                   <b>World identity</b>
                   <small>Scarce listings</small>
                 </span>
-                <em>{worldVerified ? "Present" : "Set up"}</em>
+                <em>{worldIdentityReady ? "Verified" : "Set up"}</em>
               </Link>
               <div
                 className={`readiness-item ${

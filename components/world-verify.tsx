@@ -33,7 +33,7 @@ const WORLDSCAN_URL = "https://worldscan.org";
 
 interface StoredIdentity {
   address: `0x${string}`;
-  privateKey: `0x${string}`;
+  privateKey?: `0x${string}`;
   humanId?: string;
   txHash?: `0x${string}`;
 }
@@ -47,7 +47,9 @@ function loadIdentity(): StoredIdentity | null {
   }
 }
 
-function saveIdentity(identity: StoredIdentity): void {
+function saveIdentity(
+  identity: StoredIdentity & { privateKey: `0x${string}` },
+): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(identity));
 }
 
@@ -82,7 +84,7 @@ type Phase =
   | { name: "connecting" }
   | { name: "scan"; qrDataUrl: string; connectorURI: string }
   | { name: "registering" }
-  | { name: "registered"; humanId: string; txHash?: string }
+  | { name: "registered"; humanId?: string; txHash?: string }
   | { name: "error"; message: string };
 
 /**
@@ -95,19 +97,56 @@ type Phase =
 export function WorldVerify() {
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
+  const [hostedDemo, setHostedDemo] = useState(false);
 
   useEffect(() => {
     // Defer past the initial effect flush; localStorage is browser-only and
     // the lint rule forbids synchronous setState inside effects.
-    const timer = window.setTimeout(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/readiness", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.ok) {
+          const readiness = (await response.json()) as {
+            world?: {
+              mode?: "browser" | "hosted-demo";
+              identityAgent?: `0x${string}`;
+              verified?: boolean;
+            };
+          };
+          if (
+            readiness.world?.mode === "hosted-demo" &&
+            readiness.world.identityAgent
+          ) {
+            setHostedDemo(true);
+            setIdentity({ address: readiness.world.identityAgent });
+            if (readiness.world.verified) {
+              setPhase({ name: "registered" });
+            }
+            return;
+          }
+        }
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+        // Fall back to the local browser identity flow.
+      }
       let stored = loadIdentity();
       if (!stored) {
         const privateKey = generatePrivateKey();
-        stored = {
+        const generated = {
           address: privateKeyToAccount(privateKey).address,
           privateKey,
         };
-        saveIdentity(stored);
+        saveIdentity(generated);
+        stored = generated;
       }
       setIdentity(stored);
       if (stored.humanId) {
@@ -119,7 +158,10 @@ export function WorldVerify() {
         });
       }
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
   }, []);
 
   async function verify() {
@@ -138,7 +180,9 @@ export function WorldVerify() {
       });
       if (existing !== 0n) {
         const humanId = `0x${existing.toString(16)}`;
-        saveIdentity({ ...identity, humanId });
+        if (!hostedDemo && identity.privateKey) {
+          saveIdentity({ ...identity, privateKey: identity.privateKey, humanId });
+        }
         const txHash = transactionHash(identity.txHash);
         setPhase({
           name: "registered",
@@ -217,11 +261,14 @@ export function WorldVerify() {
             );
           }
           const txHash = transactionHash(body.txHash);
-          saveIdentity({
-            ...identity,
-            humanId,
-            ...(txHash ? { txHash } : {}),
-          });
+          if (!hostedDemo && identity.privateKey) {
+            saveIdentity({
+              ...identity,
+              privateKey: identity.privateKey,
+              humanId,
+              ...(txHash ? { txHash } : {}),
+            });
+          }
           setPhase({
             name: "registered",
             humanId,
@@ -252,10 +299,20 @@ export function WorldVerify() {
       </header>
 
       <p>
-        Scarce listings in this market are <b>one allocation per human</b>.
-        Registering links your buyer&apos;s identity agent to your anonymous
-        World ID in the AgentBook on World Chain — your agents earn bidding
-        rights; sellers only ever see auction-scoped nullifiers.
+        {hostedDemo ? (
+          <>
+            This judge deployment uses one shared identity agent registered in
+            the real World AgentBook. Its private key stays on Railway; every
+            settlement proves control before requesting scarce-listing passes.
+          </>
+        ) : (
+          <>
+            Scarce listings in this market are <b>one allocation per human</b>.
+            Registering links your buyer&apos;s identity agent to your anonymous
+            World ID in the AgentBook on World Chain — your agents earn bidding
+            rights; sellers only ever see auction-scoped nullifiers.
+          </>
+        )}
       </p>
 
       <dl>
@@ -273,9 +330,13 @@ export function WorldVerify() {
           </dt>
           <dd>
             {phase.name === "registered" ? (
-              <>
-                registered · human <code>{phase.humanId.slice(0, 12)}…</code>
-              </>
+              phase.humanId ? (
+                <>
+                  registered · human <code>{phase.humanId.slice(0, 12)}…</code>
+                </>
+              ) : (
+                "registered · shared demo identity"
+              )
             ) : (
               "not registered"
             )}
@@ -285,7 +346,9 @@ export function WorldVerify() {
 
       {phase.name === "idle" && (
         <button type="button" onClick={() => void verify()}>
-          Verify with World App
+          {hostedDemo
+            ? "Verify shared identity with World App"
+            : "Verify with World App"}
         </button>
       )}
       {phase.name === "connecting" && <p className="world-status">Contacting World Chain…</p>}
@@ -304,7 +367,10 @@ export function WorldVerify() {
       )}
       {phase.name === "registered" && (
         <div className="world-registration-status">
-          <p>✓ Your agents are human-backed.</p>
+          <p>
+            ✓ {hostedDemo ? "The shared judge identity" : "Your agents"}{" "}
+            {hostedDemo ? "is" : "are"} human-backed.
+          </p>
           <a
             className="world-explorer-link"
             href={

@@ -7,12 +7,14 @@ import {
   DemoRateLimitError,
   consumeHostedDemoCapacity,
 } from "@/src/server/demo-rate-limit";
+import { proveHostedWorldIdentity } from "@/src/server/hosted-world-identity";
 import {
   SettlementJobBusyError,
   startSettlementJob,
 } from "@/src/server/settlement-jobs";
 import { parseSettlementRequest } from "@/src/server/settlement-request";
 import { consumeWorldIdentityProof } from "@/src/server/world-identity-auth";
+import { createHumanResolver } from "@/src/server/world-gateway";
 
 export const runtime = "nodejs";
 
@@ -26,9 +28,24 @@ export async function POST(request: Request) {
     assertLocalDemoRequest(request, { mutating: true });
     consumeHostedDemoCapacity(request, "hedera-settlement");
     const body = parseSettlementRequest(await request.json());
-    const identityAgent = body.identityProof
-      ? await consumeWorldIdentityProof(body.identityProof, body.plan.planId)
-      : undefined;
+    const hostedIdentityAgent = await proveHostedWorldIdentity(
+      body.plan.planId,
+    );
+    const identityAgent =
+      hostedIdentityAgent ??
+      (body.identityProof
+        ? await consumeWorldIdentityProof(body.identityProof, body.plan.planId)
+        : undefined);
+    if (hostedIdentityAgent) {
+      const humanId = await (
+        await createHumanResolver()
+      ).lookupHuman(hostedIdentityAgent);
+      if (!humanId) {
+        throw new Error(
+          "The shared hosted identity is not registered in the World AgentBook.",
+        );
+      }
+    }
     const job = await startSettlementJob(
       body.plan,
       {

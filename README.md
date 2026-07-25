@@ -514,6 +514,7 @@ volume mounted at `/data`. Configure these server-only variables:
 HOSTED_DEMO_MODE=true
 ZEROG_SERVER_DEMO=true
 ZEROG_KEY=sk-your-project-key
+WORLD_DEMO_PRIVATE_KEY=0x-your-shared-demo-identity-key
 HEDERA_ALLOW_REMOTE=true
 HEDERA_OPERATOR_ID=0.0.your-testnet-account
 HEDERA_OPERATOR_KEY=your-testnet-private-key
@@ -526,6 +527,12 @@ hardcoded. `railway.json` pins one replica because settlement jobs are
 in-memory and configures `/api/health` without performing billable or external
 checks. The browser calls only same-origin application routes in hosted mode,
 and those routes reject cross-origin browser requests.
+
+The hosted World key derives one public identity-agent address. Register that
+address once from `/world` using World App. Subsequent judges see the canonical
+AgentBook result immediately, while the server proves control of the shared
+address against a fresh plan-bound challenge before every settlement. The
+private key and raw AgentBook human identifier are never returned to clients.
 
 ### Hedera market CLI
 
