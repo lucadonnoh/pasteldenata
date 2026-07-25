@@ -256,7 +256,12 @@ function AgentSearchRun({
   }[phase];
 
   return (
-    <section className={styles.experience} aria-live="polite">
+    <section
+      className={`${styles.experience} ${
+        phase === "complete" ? styles.bundleComplete : ""
+      }`}
+      aria-live="polite"
+    >
       <header className={styles.heading}>
         <div>
           <span>{phaseCopy.eyebrow}</span>
@@ -291,6 +296,20 @@ function AgentSearchRun({
         />
       ) : (
         <>
+          <div className={styles.bundleSummary}>
+            <span>
+              <Check size={18} strokeWidth={2.7} />
+            </span>
+            <div>
+              <small>ALL AUCTIONS COMPLETE</small>
+              <strong>{searches.length} activities secured</strong>
+            </div>
+            <div>
+              <small>TOTAL SETTLED</small>
+              <strong>{formatUsd(result.totalSpentCents)}</strong>
+            </div>
+          </div>
+
           <div className={styles.bundleGrid}>
             {searches.map((search, index) => (
               <ResultCard
@@ -796,21 +815,25 @@ function ResultCard({
       className={styles.resultCard}
       data-category={search.allocation.category}
     >
-      <div className={styles.resultArt}>
-        <span className={styles.artOrb} />
-        <span className={styles.artGlass} />
-        <CategoryIcon size={30} />
-        <b>0{index + 1}</b>
+      <div className={styles.resultCardHeader}>
+        <div className={styles.resultArt}>
+          <span className={styles.artOrb} />
+          <span className={styles.artGlass} />
+          <CategoryIcon size={24} />
+        </div>
+
+        <div className={styles.resultCategory}>
+          <small>ACTIVITY 0{index + 1}</small>
+          <strong>{search.allocation.category}</strong>
+        </div>
+
+        <span className={styles.resultMatched}>
+          <Check size={11} strokeWidth={2.8} />
+          Secured
+        </span>
       </div>
 
       <div className={styles.resultBody}>
-        <header>
-          <span>{search.allocation.category}</span>
-          <b>
-            <Check size={9} />
-            Matched
-          </b>
-        </header>
         <h3>{search.auction.winner.sellerName}</h3>
         <p>{search.auction.winner.offering}</p>
 
