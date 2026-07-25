@@ -2846,11 +2846,55 @@
   transition: color 180ms ease;
 }
 
+.livePrice {
+  animation: livePriceTick 420ms ease-out;
+}
+
 .focusPrice > small {
   margin-top: 8px;
   color: var(--focus-color);
   font-size: 9px;
   font-weight: 620;
+}
+
+.liveBidNudge {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  margin: -9px 0 14px;
+  padding: 9px 11px;
+  border: 1px solid rgba(119, 88, 197, 0.2);
+  border-radius: 13px;
+  background: rgba(119, 88, 197, 0.07);
+  color: #6f50bc;
+  text-align: left;
+  cursor: pointer;
+}
+
+.liveBidNudge > span {
+  min-width: 0;
+  flex: 1;
+  color: rgba(34, 38, 44, 0.48);
+  font-size: 7px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.liveBidNudge strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: rgba(34, 38, 44, 0.82);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.liveBidNudge > b {
+  font-size: 8px;
 }
 
 .auctionCloseStatus {
@@ -2931,6 +2975,18 @@
       var(--focus-color) 11%,
       transparent
     );
+  }
+}
+
+@keyframes livePriceTick {
+  from {
+    opacity: 0.42;
+    transform: translateY(5px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
