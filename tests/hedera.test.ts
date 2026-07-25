@@ -3,7 +3,9 @@ import { mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { PrivateKey } from "@hashgraph/sdk";
 import type { AuctionResult, PrivatePlan } from "../src/domain";
+import { parsePrivateKey } from "../src/hedera/client";
 import {
   fetchItemState,
   fetchTopicBids,
@@ -34,6 +36,25 @@ function mirrorMessage(
     sequence_number: sequence,
   };
 }
+
+test("bare operator keys default to ECDSA without DER misclassification", () => {
+  const ecdsa = PrivateKey.generateECDSA();
+  const parsedEcdsa = parsePrivateKey(ecdsa.toStringRaw());
+  assert.equal(
+    parsedEcdsa.publicKey.toStringRaw(),
+    ecdsa.publicKey.toStringRaw(),
+  );
+
+  const ed25519 = PrivateKey.generateED25519();
+  const parsedEd25519 = parsePrivateKey(
+    ed25519.toStringRaw(),
+    "ED25519",
+  );
+  assert.equal(
+    parsedEd25519.publicKey.toStringRaw(),
+    ed25519.publicKey.toStringRaw(),
+  );
+});
 
 async function withMirrorMessages<T>(
   messages: ReturnType<typeof mirrorMessage>[],
