@@ -102,6 +102,20 @@ the derived plan and mock auction trace to this trusted local process; the
 original prompt and 0G key remain in browser memory. Do not expose the
 coordinator remotely without adding deployment-grade authentication.
 
+### City-scoped mock markets
+
+Seller inventory follows the location returned in the independently verified
+0G plan. The repository currently includes 12 Lisbon sellers and 9 Milan
+sellers, including San Siro match tickets, Brera and Navigli restaurants,
+local transport, cinema seats, and flowers. Recorded auctions, live reverse
+auctions, and the shared ascending market all use the same city roster.
+Unknown locations currently fall back to Lisbon.
+
+The market does not make a second server-side 0G request: each user keeps
+control of their own Router key, and that key never enters the local Hedera
+coordinator. Adding arbitrary-city catalog generation should therefore happen
+in the browser under the same user-owned credential and verification policy.
+
 ## Run
 
 Requires Node.js 22 or newer.

@@ -4,7 +4,7 @@ import {
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import { MOCK_SELLERS } from "../catalog";
+import { sellersForLocation } from "../catalog";
 import type {
   AuctionResult,
   AuctionWin,
@@ -116,6 +116,7 @@ export async function settleWithSwarm(
 ): Promise<SettlementResult> {
   validateSettlement(plan, auctions);
   const live = options.live === true;
+  const roster = sellersForLocation(plan.location);
 
   const buyerKey = parsePrivateKey(ctx.infra.buyer.privateKey);
   await resetBuyerBalance(ctx, buyerKey);
@@ -132,7 +133,7 @@ export async function settleWithSwarm(
   // Fund mocked seller message fees before the buyer moves any NATA into
   // clearing, so a setup failure cannot strand the buyer's payment.
   if (live) {
-    const accounts = MOCK_SELLERS.filter((seller) =>
+    const accounts = roster.filter((seller) =>
       auctions.some((auction) => auction.category === seller.category),
     ).map((seller) => {
       const account = ctx.infra.sellers[seller.id];
@@ -329,6 +330,7 @@ async function runLeaf(
   ctx: HederaSettlementContext,
   shared: SwarmShared,
 ): Promise<LeafRun> {
+  const roster = sellersForLocation(plan.location);
   const requirements = mandateRequirements(plan, auction);
   const log = await AuctionLog.create(ctx.client);
   await log.publish({
@@ -383,7 +385,7 @@ async function runLeaf(
     throw error;
   }
 
-  const liveListings = MOCK_SELLERS.filter(
+  const liveListings = roster.filter(
     (seller) => seller.category === auction.category,
   ).flatMap((seller) => {
     const account = ctx.infra.sellers[seller.id];
@@ -627,7 +629,7 @@ async function runLeaf(
     }
 
     function requireSeller(sellerId: string): Seller {
-      const seller = MOCK_SELLERS.find((item) => item.id === sellerId);
+      const seller = roster.find((item) => item.id === sellerId);
       if (!seller) throw new Error(`Unknown seller ${sellerId}.`);
       return seller;
     }

@@ -3,7 +3,11 @@ import test from "node:test";
 import { Wallet } from "ethers";
 import { runAuctions } from "../src/auction";
 import type { EnglishAuctionBidder } from "../src/buyer-agent";
-import { MOCK_SELLERS, publicCatalogForPlanner } from "../src/catalog";
+import {
+  MOCK_SELLERS,
+  publicCatalogForPlanner,
+  sellersForLocation,
+} from "../src/catalog";
 import type {
   AuctionResult,
   IndependentTeeVerification,
@@ -264,6 +268,38 @@ test("the planner catalog omits seller-private auction inputs", () => {
   assert.equal(serialized.includes("floorPriceCents"), false);
   assert.equal(serialized.includes("marketHeat"), false);
   assert.equal(serialized.includes("privateSalt"), false);
+});
+
+test("mock seller rosters follow the plan location", async () => {
+  const milan = sellersForLocation("Milan, Italy");
+  assert.ok(milan.length > 0);
+  assert.ok(milan.every((seller) => seller.city === "milan"));
+  assert.ok(milan.some((seller) => seller.id === "san-siro"));
+  assert.ok(
+    sellersForLocation("Lisbon").every(
+      (seller) => seller.city === "lisbon",
+    ),
+  );
+
+  const base = await new MockPrivatePlanner().plan(INTENT, NOW);
+  const plan = {
+    ...base.plan,
+    location: "Milan",
+    allocations: base.plan.allocations.filter(
+      (allocation) => allocation.category === "dinner",
+    ),
+  };
+  plan.unallocatedBudgetCents =
+    plan.totalBudgetCents -
+    plan.allocations.reduce(
+      (sum, allocation) => sum + allocation.maxBudgetCents,
+      0,
+    );
+  const [auction] = await runAuctions(plan);
+  assert.ok(auction);
+  assert.ok(
+    milan.some((seller) => seller.id === auction.winner.sellerId),
+  );
 });
 
 test("central cinema seats have higher floors and market estimates", () => {

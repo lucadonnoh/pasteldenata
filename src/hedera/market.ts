@@ -6,7 +6,7 @@ import {
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
-import { MOCK_SELLERS } from "../catalog";
+import { sellersForLocation } from "../catalog";
 import type {
   Category,
   PaymentReceipt,
@@ -160,10 +160,13 @@ export async function runMarket(
       categories.add(allocation.category);
     }
   }
+  const roster = sellersForLocation(
+    buyers[0]?.plan.location ?? "Lisbon",
+  );
 
   const listings = (
     await Promise.all(
-      MOCK_SELLERS.filter((seller) => categories.has(seller.category)).flatMap(
+      roster.filter((seller) => categories.has(seller.category)).flatMap(
         (seller) =>
           seller.inventory.map(async (item): Promise<MarketListing> => {
             const account = ctx.infra.sellers[seller.id];

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { MOCK_SELLERS } from "../catalog";
+import { sellersForLocation } from "../catalog";
 import type { AuctionResult, PrivatePlan } from "../domain";
 import { connectHedera } from "../hedera/client";
 import { ensureInfra, type HederaInfra } from "../hedera/infra";
@@ -160,7 +160,8 @@ async function execute(
   let infra: HederaInfra | undefined;
   try {
     ctx = connectHedera();
-    infra = await ensureInfra(ctx, MOCK_SELLERS);
+    const roster = sellersForLocation(plan.location);
+    infra = await ensureInfra(ctx, roster);
 
     if (job.mode === "live") {
       await assertOperatorRunway(auctions.length, LIVE_LEAF_FLOAT_HBAR);
@@ -200,7 +201,10 @@ async function execute(
     const rivals: MarketBuyer[] = await Promise.all(
       RIVAL_PERSONAS.map(async (persona) => ({
         name: persona.name,
-        plan: (await planner.plan(persona.intent, new Date())).plan,
+        plan: {
+          ...(await planner.plan(persona.intent, new Date())).plan,
+          location: plan.location,
+        },
       })),
     );
     const buyers: MarketBuyer[] = [

@@ -1,10 +1,11 @@
-import type { PublicListing, Seller } from "./domain";
+import type { City, PublicListing, Seller } from "./domain";
 
 export const MOCK_SELLERS: Seller[] = [
   {
     id: "flor-carmo",
     name: "Florista do Carmo",
     category: "flowers",
+    city: "lisbon",
     privateSalt: "carmo-v2",
     inventory: [
       {
@@ -33,6 +34,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "bloom-lx",
     name: "Bloom LX",
     category: "flowers",
+    city: "lisbon",
     privateSalt: "bloom-v2",
     inventory: [
       {
@@ -61,6 +63,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinema-ideal",
     name: "Cinema Ideal",
     category: "cinema",
+    city: "lisbon",
     privateSalt: "ideal-v2",
     inventory: [
       {
@@ -99,6 +102,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinema-sao-jorge",
     name: "Cinema São Jorge",
     category: "cinema",
+    city: "lisbon",
     privateSalt: "jorge-v2",
     inventory: [
       {
@@ -137,6 +141,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "cinemateca",
     name: "Cinemateca Portuguesa",
     category: "cinema",
+    city: "lisbon",
     privateSalt: "cinemateca-v2",
     inventory: [
       {
@@ -175,6 +180,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "prado",
     name: "Prado",
     category: "dinner",
+    city: "lisbon",
     privateSalt: "prado-v2",
     inventory: [
       {
@@ -203,6 +209,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "taberna-lx",
     name: "Taberna LX",
     category: "dinner",
+    city: "lisbon",
     privateSalt: "taberna-v2",
     inventory: [
       {
@@ -221,6 +228,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "miradouro-table",
     name: "Miradouro Table",
     category: "dinner",
+    city: "lisbon",
     privateSalt: "miradouro-v2",
     inventory: [
       {
@@ -239,6 +247,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "lisbon-cab",
     name: "Lisbon Cab Co.",
     category: "transport",
+    city: "lisbon",
     privateSalt: "cab-v2",
     inventory: [
       {
@@ -257,6 +266,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "eco-ride",
     name: "Eco Ride Lisboa",
     category: "transport",
+    city: "lisbon",
     privateSalt: "eco-v2",
     inventory: [
       {
@@ -275,6 +285,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "tejo-sunset",
     name: "Tejo Sunset",
     category: "experience",
+    city: "lisbon",
     privateSalt: "tejo-v2",
     inventory: [
       {
@@ -293,6 +304,7 @@ export const MOCK_SELLERS: Seller[] = [
     id: "tile-workshop",
     name: "Azulejo Atelier",
     category: "experience",
+    city: "lisbon",
     privateSalt: "azulejo-v2",
     inventory: [
       {
@@ -307,6 +319,182 @@ export const MOCK_SELLERS: Seller[] = [
       },
     ],
   },
+  {
+    id: "san-siro",
+    name: "San Siro Stadium",
+    category: "experience",
+    city: "milan",
+    privateSalt: "sansiro-v2",
+    inventory: [
+      {
+        id: "san-siro-home-match",
+        offering: "Two tickets to an AC Milan home match",
+        estimatedMarketPriceCents: 9500,
+        floorPriceCents: 7800,
+        quality: 95,
+        marketHeat: 0.9,
+        tags: ["football", "match", "stadium", "two-seats", "evening"],
+        attributes: { partySize: 2, venue: "San Siro", section: "standard" },
+      },
+    ],
+  },
+  {
+    id: "duomo-rooftop",
+    name: "Duomo Rooftop Tour",
+    category: "experience",
+    city: "milan",
+    privateSalt: "duomo-v2",
+    inventory: [
+      {
+        id: "duomo-sunset-two",
+        offering: "Sunset rooftop tour for two",
+        estimatedMarketPriceCents: 4200,
+        floorPriceCents: 3400,
+        quality: 87,
+        marketHeat: 0.64,
+        tags: ["view", "landmark", "sunset", "two-seats"],
+        attributes: { partySize: 2, time: "sunset", venue: "Duomo" },
+      },
+    ],
+  },
+  {
+    id: "osteria-brera",
+    name: "Osteria di Brera",
+    category: "dinner",
+    city: "milan",
+    privateSalt: "brera-v2",
+    inventory: [
+      {
+        id: "brera-seasonal-2030",
+        offering: "Seasonal dinner table for two · 20:30",
+        estimatedMarketPriceCents: 12400,
+        floorPriceCents: 10400,
+        quality: 94,
+        marketHeat: 0.82,
+        tags: ["romantic", "seasonal", "quiet", "central"],
+        attributes: { partySize: 2, time: "20:30", district: "Brera" },
+      },
+    ],
+  },
+  {
+    id: "trattoria-navigli",
+    name: "Trattoria dei Navigli",
+    category: "dinner",
+    city: "milan",
+    privateSalt: "navigli-v2",
+    inventory: [
+      {
+        id: "navigli-table-2100",
+        offering: "Milanese dinner table for two · 21:00",
+        estimatedMarketPriceCents: 9800,
+        floorPriceCents: 8200,
+        quality: 91,
+        marketHeat: 0.73,
+        tags: ["traditional", "canal-side", "romantic", "lively"],
+        attributes: { partySize: 2, time: "21:00", district: "Navigli" },
+      },
+    ],
+  },
+  {
+    id: "risotteria-monza",
+    name: "Risotteria Monza",
+    category: "dinner",
+    city: "milan",
+    privateSalt: "monza-v2",
+    inventory: [
+      {
+        id: "monza-tasting-two",
+        offering: "Risotto tasting for two",
+        estimatedMarketPriceCents: 7600,
+        floorPriceCents: 6300,
+        quality: 86,
+        marketHeat: 0.5,
+        tags: ["local", "cozy", "traditional"],
+        attributes: { partySize: 2, menu: "tasting" },
+      },
+    ],
+  },
+  {
+    id: "milano-taxi",
+    name: "Milano Taxi Co.",
+    category: "transport",
+    city: "milan",
+    privateSalt: "milanotaxi-v2",
+    inventory: [
+      {
+        id: "milano-two-transfers",
+        offering: "Two private transfers across Milan",
+        estimatedMarketPriceCents: 3000,
+        floorPriceCents: 2400,
+        quality: 84,
+        marketHeat: 0.55,
+        tags: ["private", "door-to-door", "evening", "stadium"],
+        attributes: { rides: 2, vehicle: "sedan" },
+      },
+    ],
+  },
+  {
+    id: "atm-passes",
+    name: "ATM Day Passes",
+    category: "transport",
+    city: "milan",
+    privateSalt: "atm-v2",
+    inventory: [
+      {
+        id: "atm-two-day-passes",
+        offering: "Two Milan metro day passes",
+        estimatedMarketPriceCents: 1400,
+        floorPriceCents: 1100,
+        quality: 78,
+        marketHeat: 0.38,
+        tags: ["public", "flexible", "cheap"],
+        attributes: { passengers: 2, duration: "one-day" },
+      },
+    ],
+  },
+  {
+    id: "cinema-anteo",
+    name: "Cinema Anteo",
+    category: "cinema",
+    city: "milan",
+    privateSalt: "anteo-v2",
+    inventory: [
+      {
+        id: "anteo-e8-e9",
+        offering: "Main screen · Row E · Seats 8–9",
+        estimatedMarketPriceCents: 2800,
+        floorPriceCents: 2300,
+        quality: 88,
+        marketHeat: 0.58,
+        tags: ["arthouse", "central", "evening", "two-seats"],
+        attributes: {
+          screen: "main",
+          row: "E",
+          seats: ["8", "9"],
+          position: "center",
+        },
+      },
+    ],
+  },
+  {
+    id: "fioraio-brera",
+    name: "Fioraio di Brera",
+    category: "flowers",
+    city: "milan",
+    privateSalt: "fioraio-v2",
+    inventory: [
+      {
+        id: "brera-hand-tied",
+        offering: "Hand-tied seasonal bouquet",
+        estimatedMarketPriceCents: 3000,
+        floorPriceCents: 2500,
+        quality: 85,
+        marketHeat: 0.54,
+        tags: ["romantic", "local", "delivery"],
+        attributes: { size: "medium", delivery: true },
+      },
+    ],
+  },
 ];
 
 export function toPublicListing(
@@ -317,6 +505,7 @@ export function toPublicListing(
     id: item.id,
     sellerId: seller.id,
     sellerName: seller.name,
+    city: seller.city,
     category: seller.category,
     offering: item.offering,
     estimatedMarketPriceCents: item.estimatedMarketPriceCents,
@@ -330,4 +519,13 @@ export function publicCatalogForPlanner(): PublicListing[] {
   return MOCK_SELLERS.flatMap((seller) =>
     seller.inventory.map((item) => toPublicListing(seller, item)),
   );
+}
+
+export function cityForLocation(location: string): City {
+  return /\bmilan(?:o)?\b/i.test(location) ? "milan" : "lisbon";
+}
+
+export function sellersForLocation(location: string): Seller[] {
+  const city = cityForLocation(location);
+  return MOCK_SELLERS.filter((seller) => seller.city === city);
 }

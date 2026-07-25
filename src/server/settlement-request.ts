@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MOCK_SELLERS } from "../catalog";
+import { sellersForLocation } from "../catalog";
 import {
   CATEGORIES,
   type AuctionResult,
@@ -111,6 +111,7 @@ const SettlementRequestSchema = z
     mode: z.enum(["live", "market"]).default("market"),
   })
   .superRefine(({ plan, auctions }, context) => {
+    const roster = sellersForLocation(plan.location);
     if (auctions.length !== plan.allocations.length) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -145,7 +146,7 @@ const SettlementRequestSchema = z
       auctionCategories.add(auction.category);
       mandateIds.add(auction.mandate.id);
 
-      const seller = MOCK_SELLERS.find(
+      const seller = roster.find(
         (candidate) =>
           candidate.id === auction.winner.sellerId &&
           candidate.category === auction.category,
