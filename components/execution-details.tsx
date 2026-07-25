@@ -344,7 +344,7 @@ export function ZeroGVerificationReceipt(
           </div>
         </details>
       )}
-    </section>
+    </details>
   );
 }
 
