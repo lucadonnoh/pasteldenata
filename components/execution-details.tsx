@@ -429,7 +429,7 @@ export function MockExecutionDetails({ result }: { result: DemoResult }) {
             cross-plan mandates, category mismatch, and mandate replay before
             settlement.
             {result.hedera &&
-              " Each purchase below was one atomic transfer on the Hedera testnet: the agent's NATA out, the claim NFT in, signed by both parties."}
+              " For each live market purchase, the coordinator replayed payer-bound HCS bids and the authenticated close. Every ranked buyer had a fixed claim window; an expired winner could be promoted only through an authenticated HCS FORFEITED event. The seller rechecked the current winner and exact NATA-for-claim bytes before signing, then the coordinator submitted the fully authorized atomic swap."}
           </p>
           <div className="receipt-list">
             {result.receipts.map((receipt) => (

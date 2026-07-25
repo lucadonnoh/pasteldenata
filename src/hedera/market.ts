@@ -27,6 +27,13 @@ import { leafAgentPath } from "./leafPath";
 import { AuctionLog } from "./log";
 import { fetchItemState, TESTNET_MIRROR_BASE } from "./mirror";
 import {
+  assertExactAtomicSwap,
+  assertVerifiedMarketClaim,
+  marketCloseDelayMs,
+  verifiedMarketClaimState,
+  type MarketWinnerExpectation,
+} from "./marketPolicy";
+import {
   HederaPartialSettlementError,
   sweepLeafBalance,
   tokenBalanceCents,
@@ -37,8 +44,13 @@ import { mintClaimTo } from "./swarm";
 import { persistLeafWallet } from "./walletVault";
 
 const LEAF_AGENT_PATH = leafAgentPath();
-const LEAF_TIMEOUT_MS = 360_000;
+const LEAF_TIMEOUT_MS = 600_000;
 const LEAF_FEE_HBAR = 5;
+const SELLER_POLICY_POLL_MS = 1_500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface MarketBuyer {
   name: string;
@@ -123,9 +135,43 @@ interface MarketLeafRun {
 
 interface SharedMarketState {
   sold: Set<string>;
+  reservations: Map<
+    string,
+    {
+      buyerAccountId: string;
+      amountCents: number;
+      expiresAtMs: number;
+      sellerSigned: boolean;
+    }
+  >;
+  itemActions: Map<string, Promise<void>>;
+  pendingCloses: Set<string>;
+  pendingForfeitures: Map<string, string>;
   contingency: number[];
   runtimes: MarketRuntime[];
   onEvent: (event: MarketEvent) => void;
+}
+
+async function withItemAction<T>(
+  shared: SharedMarketState,
+  itemId: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = shared.itemActions.get(itemId) ?? Promise.resolve();
+  let release = (): void => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  shared.itemActions.set(itemId, current);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (shared.itemActions.get(itemId) === current) {
+      shared.itemActions.delete(itemId);
+    }
+  }
 }
 
 function hash(value: string): string {
@@ -303,6 +349,10 @@ export async function runMarket(
 
   const shared: SharedMarketState = {
     sold: new Set(),
+    reservations: new Map(),
+    itemActions: new Map(),
+    pendingCloses: new Set(),
+    pendingForfeitures: new Map(),
     contingency: buyers.map((buyer) => buyer.plan.unallocatedBudgetCents),
     runtimes: [],
     onEvent,
@@ -597,7 +647,14 @@ async function runMarketLeaf(
       execArgv: ["--import", "tsx"],
     });
     let reserved: MarketListing | undefined;
+    let prepared:
+      | {
+          amountCents: number;
+          claimNftSerial: number;
+        }
+      | undefined;
     let sellerSigned = false;
+    let submittedTransactionId: string | undefined;
     let confirmed: LeafResult | undefined;
     let done: LeafResult | undefined;
     let pendingError: Error | undefined;
@@ -617,12 +674,11 @@ async function runMarketLeaf(
       finished = true;
       clearTimeout(timer);
       const result = done ?? confirmed;
-      // Before seller signature the reservation is safely reusable. After a
-      // signed swap leaves the root, an agent crash creates an uncertain
-      // submission window, so keeping the item locked is safer than allowing
-      // a second settlement in the same run.
       if (!confirmed && reserved && !sellerSigned) {
-        shared.sold.delete(reserved.itemId);
+        const reservation = shared.reservations.get(reserved.itemId);
+        if (reservation?.buyerAccountId === wallet.accountId) {
+          shared.reservations.delete(reserved.itemId);
+        }
       }
       if (result) {
         if (!done && pendingError) warnings.push(pendingError.message);
@@ -670,6 +726,158 @@ async function runMarketLeaf(
       }
       finish();
     });
+
+    async function closeAndVerifyAuction(
+      listing: MarketListing,
+      expected: MarketWinnerExpectation,
+    ): Promise<boolean> {
+      for (;;) {
+        const state = await fetchItemState(
+          TESTNET_MIRROR_BASE,
+          listing.topicId,
+          listing.itemId,
+          ctx.operatorId.toString(),
+        );
+        if (state.settlement || shared.sold.has(listing.itemId)) return false;
+        if (state.closure) {
+          shared.pendingCloses.delete(listing.itemId);
+          const pendingForfeiture =
+            shared.pendingForfeitures.get(listing.itemId);
+          if (
+            pendingForfeiture &&
+            state.forfeitures.some(
+              (forfeiture) => forfeiture.bidder === pendingForfeiture,
+            )
+          ) {
+            shared.pendingForfeitures.delete(listing.itemId);
+          }
+
+          let claim: ReturnType<typeof verifiedMarketClaimState>;
+          try {
+            claim = verifiedMarketClaimState(state);
+          } catch {
+            return false;
+          }
+          const requester = claim.ranking.find(
+            (bid) => bid.bidder === expected.buyerAccountId,
+          );
+          if (
+            !requester ||
+            requester.amountCents !== expected.amountCents ||
+            claim.forfeitedBidders.has(requester.bidder)
+          ) {
+            return false;
+          }
+          const nowMs = Date.now();
+          if (
+            claim.currentWinner?.bidder === requester.bidder &&
+            claim.currentWinner.amountCents === requester.amountCents &&
+            nowMs < claim.deadlineMs
+          ) {
+            return true;
+          }
+          if (nowMs < claim.deadlineMs) {
+            await sleep(
+              Math.min(
+                claim.deadlineMs - nowMs,
+                SELLER_POLICY_POLL_MS,
+              ),
+            );
+            continue;
+          }
+
+          await withItemAction(shared, listing.itemId, async () => {
+            const fresh = await fetchItemState(
+              TESTNET_MIRROR_BASE,
+              listing.topicId,
+              listing.itemId,
+              ctx.operatorId.toString(),
+            );
+            if (fresh.settlement || !fresh.closure) return;
+            const current = verifiedMarketClaimState(fresh);
+            const winner = current.currentWinner;
+            const actionNowMs = Date.now();
+            if (!winner || actionNowMs < current.deadlineMs) return;
+
+            const reservation = shared.reservations.get(listing.itemId);
+            if (
+              reservation?.buyerAccountId === winner.bidder &&
+              reservation.expiresAtMs > actionNowMs
+            ) {
+              return;
+            }
+            if (reservation && reservation.expiresAtMs <= actionNowMs) {
+              shared.reservations.delete(listing.itemId);
+            }
+            if (shared.pendingForfeitures.has(listing.itemId)) return;
+
+            shared.pendingForfeitures.set(
+              listing.itemId,
+              winner.bidder,
+            );
+            try {
+              await listing.log.publish({
+                type: "FORFEITED",
+                itemId: listing.itemId,
+                bidder: winner.bidder,
+                amountCents: winner.amountCents,
+                reason: "claim-window-expired",
+              });
+            } catch (error) {
+              shared.pendingForfeitures.delete(listing.itemId);
+              throw error;
+            }
+          });
+          await sleep(SELLER_POLICY_POLL_MS);
+          continue;
+        }
+
+        let delayMs: number;
+        try {
+          delayMs = marketCloseDelayMs(state, expected, Date.now());
+        } catch {
+          return false;
+        }
+        if (delayMs > 0) {
+          await sleep(Math.min(delayMs, SELLER_POLICY_POLL_MS));
+          continue;
+        }
+
+        await withItemAction(shared, listing.itemId, async () => {
+          const fresh = await fetchItemState(
+            TESTNET_MIRROR_BASE,
+            listing.topicId,
+            listing.itemId,
+            ctx.operatorId.toString(),
+          );
+          if (
+            fresh.closure ||
+            fresh.settlement ||
+            shared.pendingCloses.has(listing.itemId)
+          ) {
+            return;
+          }
+          const freshDelay = marketCloseDelayMs(
+            fresh,
+            expected,
+            Date.now(),
+          );
+          if (freshDelay > 0) return;
+
+          shared.pendingCloses.add(listing.itemId);
+          try {
+            await listing.log.publish({
+              type: "CLOSED",
+              itemId: listing.itemId,
+            });
+          } catch (error) {
+            shared.pendingCloses.delete(listing.itemId);
+            throw error;
+          }
+        });
+        await sleep(SELLER_POLICY_POLL_MS);
+      }
+    }
 
     async function handleLeafMessage(message: LeafToParent): Promise<void> {
       switch (message.type) {
@@ -729,13 +937,78 @@ async function runMarketLeaf(
             sendToLeaf({ type: "PREPARE_REJECTED" });
             break;
           }
-          shared.sold.add(listing.itemId);
+          const closed = await closeAndVerifyAuction(listing, {
+            buyerAccountId: wallet.accountId,
+            amountCents: message.amountCents,
+          });
+          if (!closed) {
+            sendToLeaf({ type: "PREPARE_REJECTED" });
+            break;
+          }
+          if (shared.sold.has(listing.itemId)) {
+            sendToLeaf({ type: "PREPARE_REJECTED" });
+            break;
+          }
+
+          const expiresAtMs = await withItemAction(
+            shared,
+            listing.itemId,
+            async (): Promise<number | undefined> => {
+              if (shared.sold.has(listing.itemId)) return undefined;
+              const state = await fetchItemState(
+                TESTNET_MIRROR_BASE,
+                listing.topicId,
+                listing.itemId,
+                ctx.operatorId.toString(),
+              );
+              const nowMs = Date.now();
+              assertVerifiedMarketClaim(
+                state,
+                {
+                  buyerAccountId: wallet.accountId,
+                  amountCents: message.amountCents,
+                },
+                nowMs,
+              );
+              const claim = verifiedMarketClaimState(state);
+              const existing = shared.reservations.get(listing.itemId);
+              if (existing && existing.expiresAtMs > nowMs) {
+                return undefined;
+              }
+              if (existing) shared.reservations.delete(listing.itemId);
+              shared.reservations.set(listing.itemId, {
+                buyerAccountId: wallet.accountId,
+                amountCents: message.amountCents,
+                expiresAtMs: claim.deadlineMs,
+                sellerSigned: false,
+              });
+              return claim.deadlineMs;
+            },
+          );
+          if (!expiresAtMs) {
+            sendToLeaf({ type: "PREPARE_REJECTED" });
+            break;
+          }
+
           reserved = listing;
           const serial = await mintClaimTo(
             ctx,
             listing.seller,
             listing.listingId,
           );
+          if (Date.now() >= expiresAtMs) {
+            const reservation = shared.reservations.get(listing.itemId);
+            if (reservation?.buyerAccountId === wallet.accountId) {
+              shared.reservations.delete(listing.itemId);
+            }
+            reserved = undefined;
+            sendToLeaf({ type: "PREPARE_REJECTED" });
+            break;
+          }
+          prepared = {
+            amountCents: message.amountCents,
+            claimNftSerial: serial,
+          };
           sendToLeaf({
             type: "PREPARED",
             sellerAccountId: listing.sellerAccountId,
@@ -745,41 +1018,95 @@ async function runMarketLeaf(
         }
 
         case "SIGN_REQUEST": {
-          const account = ctx.infra.sellers[message.sellerId];
-          if (!account) throw new Error(`No account for ${message.sellerId}.`);
+          if (
+            !reserved ||
+            !prepared ||
+            sellerSigned ||
+            message.sellerId !== reserved.sellerId
+          ) {
+            throw new Error("Seller received an unauthorized signing request.");
+          }
+          const reservation = shared.reservations.get(reserved.itemId);
+          if (
+            !reservation ||
+            reservation.buyerAccountId !== wallet.accountId ||
+            reservation.amountCents !== prepared.amountCents ||
+            reservation.sellerSigned ||
+            Date.now() >= reservation.expiresAtMs
+          ) {
+            throw new Error("The winner's settlement reservation expired.");
+          }
+          const state = await fetchItemState(
+            TESTNET_MIRROR_BASE,
+            reserved.topicId,
+            reserved.itemId,
+            ctx.operatorId.toString(),
+          );
+          assertVerifiedMarketClaim(
+            state,
+            {
+              buyerAccountId: wallet.accountId,
+              amountCents: prepared.amountCents,
+            },
+            Date.now(),
+          );
           const swap = Transaction.fromBytes(
             Buffer.from(message.txBytesB64, "base64"),
           );
+          assertExactAtomicSwap(swap, {
+            buyerAccountId: wallet.accountId,
+            sellerAccountId: reserved.sellerAccountId,
+            amountCents: prepared.amountCents,
+            paymentTokenId: ctx.infra.paymentTokenId,
+            claimTokenId: ctx.infra.claimTokenId,
+            claimNftSerial: prepared.claimNftSerial,
+          });
+          const account = ctx.infra.sellers[reserved.sellerId];
+          if (!account) {
+            throw new Error(`No account for ${reserved.sellerId}.`);
+          }
           await swap.sign(parsePrivateKey(account.privateKey));
           sellerSigned = true;
-          sendToLeaf({
-            type: "SIGNED",
-            txBytesB64: Buffer.from(swap.toBytes()).toString("base64"),
-          });
-          break;
-        }
-
-        case "SETTLEMENT_CONFIRMED":
-          assertMarketResult(message.result, runtime, reserved);
-          confirmed = message.result;
-          if (!reserved) {
-            throw new Error("Market settlement has no reserved listing.");
-          }
+          reservation.sellerSigned = true;
+          const response = await swap.execute(ctx.client);
+          await response.getReceipt(ctx.client);
+          submittedTransactionId = response.transactionId.toString();
+          shared.sold.add(reserved.itemId);
+          shared.reservations.delete(reserved.itemId);
           await reserved.log.publish({
             type: "SETTLED",
             itemId: reserved.itemId,
             listingId: reserved.listingId,
             sellerId: reserved.sellerId,
-            bidder: message.result.leafAccountId,
-            amountCents: message.result.amountCents,
-            claimNftSerial: message.result.claimNftSerial,
-            transactionId: message.result.transactionId,
+            bidder: wallet.accountId,
+            amountCents: prepared.amountCents,
+            claimNftSerial: prepared.claimNftSerial,
+            transactionId: submittedTransactionId,
           });
           shared.onEvent({
             type: "ITEM_SOLD",
             itemId: reserved.itemId,
             category: allocation.category,
           });
+          sendToLeaf({
+            type: "SETTLED",
+            txBytesB64: Buffer.from(swap.toBytes()).toString("base64"),
+            transactionId: submittedTransactionId,
+          });
+          break;
+        }
+
+        case "SETTLEMENT_CONFIRMED":
+          assertMarketResult(message.result, runtime, reserved);
+          if (
+            !submittedTransactionId ||
+            message.result.transactionId !== submittedTransactionId
+          ) {
+            throw new Error(
+              "Leaf reported a transaction other than the submitted atomic swap.",
+            );
+          }
+          confirmed = message.result;
           sendToLeaf({ type: "SETTLEMENT_RECORDED" });
           break;
 

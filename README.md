@@ -1,271 +1,516 @@
 # Pastel de Nata
 
-Private agentic payments for ETHGlobal Lisbon 2026.
+Private agentic procurement for ETHGlobal Lisbon 2026.
 
-A user can say:
+A user can ask:
 
 > Organize me a date tomorrow in Lisbon. My budget is $200.
 
-The request is planned through 0G Private Computer. The resulting budget is
-split into category-scoped spending mandates. Each allocation creates one
-independent buyer subagent, which enters seller-run English auctions for
-flower, cinema, dinner, transport, or experience inventory. A policy controller
-settles the winning bundle only if every category cap and the global cap still
-hold.
+Pastel de Nata turns that private intent into a bundle of scoped purchasing
+mandates. Independent buyer agents compete for flowers, cinema seats, dinner
+reservations, transport, or experiences without disclosing the user's entire
+intent or total budget to every seller. Winning purchases can settle on Hedera
+testnet as one atomic exchange of a payment token for a claim NFT.
 
-## What is implemented
+The product combines three ideas:
 
-- 0G Router privacy mode, restricted to private TeeML sealed inference
-- Router-side TEE verification plus independent browser-side EIP-191 signer
-  verification are required before a plan is accepted
-- The model chooses categories, requirements, priorities, and allocations
-- Budget, category, replay, and atomic settlement checks are enforced in code
-- One scoped buyer subagent is created for every model allocation
-- Buyer subagents follow ascending prices and drop at their private valuation
+1. **Private planning:** 0G private TeeML inference converts the user's intent
+   into a structured procurement plan.
+2. **Scoped buyer agents:** every allocation becomes a separate agent with its
+   own requirements, spending cap, and funded wallet.
+3. **Auditable markets and settlement:** HCS records the auction transcript,
+   while HTS atomically exchanges payment for the reservation or ticket claim.
 
-## What is mocked
+This is a hackathon prototype. The privacy, market, and settlement layers have
+different trust boundaries, which are documented below.
 
-- Seller auction houses and their heterogeneous inventory
-- Seller-set opening floor prices
-- Rival buyers and market demand
-- USD payment settlement
+## Product offering
 
-No real payment is sent.
+The intended product is a private buyer-side concierge:
 
-## Privacy boundaries
+1. The user supplies a natural-language intent and hard budget.
+2. A confidential planner chooses a practical bundle, such as flowers,
+   cinema, and dinner.
+3. Local policy converts the plan into category-scoped mandates whose sum
+   cannot exceed the user's hard budget.
+4. One buyer agent per mandate searches the available seller inventory and
+   bids only within its own cap.
+5. Each winning seller confirms by signing an atomic payment-for-claim
+   transaction.
+6. The user receives payment receipts, HCS auction proofs, and claim NFTs that
+   represent the booked products or services.
 
-- The original intent and global budget go only to a private TeeML provider,
-  where 0G documents that the model and prompt remain inside the enclave.
-- Sellers receive an RFQ containing category, date, location, and requirements.
-- Sellers never receive the original prompt, global budget, or category cap.
-- A buyer subagent derives a listing-specific private valuation below its
-  mandate and never sends the mandate ceiling to the seller.
-- Each buyer subagent receives only its category allocation and scoped mandate.
-- Receipts contain payment metadata, not the private prompt.
+The claim NFT is analogous to a restaurant reservation confirmation or event
+ticket. In the current prototype it proves the on-chain exchange, not the
+physical delivery of dinner, flowers, or another off-chain service.
 
-## Mock seller economics
+## What runs today
 
-Each seller owns inventory instead of publishing one flat offer. Cinema
-inventory, for example, identifies the screen or section, row, and exact pair
-of seats. Center seats have higher quality, demand, market estimates, and floor
-prices than front-side or rear seats.
+The repository contains several progressively more realistic modes:
 
-Each listing runs a mocked English auction:
+| Layer | Local/default flow | Hedera market flow |
+| --- | --- | --- |
+| Planning | Real 0G private TeeML call, or deterministic mock planner | Uses the already accepted plan; no second 0G call |
+| Seller catalog | Mocked Lisbon or Milan inventory | Same mocked inventory |
+| Rival demand | Deterministic mock rivals | Mock rival personas using real testnet accounts |
+| Auction | In-process English-auction trace | Real HCS messages and Mirror Node replay |
+| Payment | Simulated receipt | Real HTS transfer of test token `NATA` |
+| Product claim | Simulated receipt metadata | Real testnet `NATAC` NFT |
+| Fulfillment | Not implemented | Not implemented |
 
-1. The auction house opens at the seller's floor price.
-2. The allocation-scoped buyer subagent and mock rival buyers respond to each
-   visible asking price.
-3. The price rises in $0.50 increments and bidders drop when it exceeds their
-   private valuation.
-4. The last active bidder wins and pays the final asking price.
-5. Sold inventory cannot be auctioned again.
+No real merchant is paid. `NATA` has no economic value and all Hedera activity
+uses testnet. A real 0G inference request may still consume credit associated
+with the user's own 0G Router key.
 
-The default flow runs in one process for the hackathon. It demonstrates the
-protocol and economic shape with deterministic mock sellers and rival buyers.
-The Hedera modes below replace the simulated payment/market trace with real
-testnet accounts, authenticated HCS messages, and atomic HTS settlement.
+The sellers, their inventory, floor prices, and rival buyer strategies are
+mocked. The Hedera accounts, HCS consensus messages, HTS transfers, transaction
+signatures, and claim NFTs are real testnet operations.
 
-## Hedera testnet settlement
+## Architecture
 
-The CLI can replace simulated payment with HTS transfers on Hedera testnet:
-
-```bash
-npm run hedera:setup
-npm run demo:hedera:mock
+```text
+USER'S BROWSER
+  private intent + hard budget + user-owned 0G key
+                         |
+                         | HTTPS JSON request
+                         v
+                    0G ROUTER
+             private-provider routing
+                         |
+                         v
+                TeeML model provider
+                         |
+              verified structured plan
+                         v
+        browser policy and mock market preview
+                         |
+                         | derived plan + auction shape only
+                         | original prompt and 0G key are omitted
+                         v
+          LOCALHOST HEDERA COORDINATOR
+              /          |          \
+       flowers agent  cinema agent  dinner agent
+          scoped wallet + mandate + category cap
+              \          |          /
+                  HCS AUCTIONS
+                         |
+              exact buyer/seller signatures
+                         v
+          ATOMIC HTS PAYMENT <-> CLAIM NFT
 ```
 
-`demo:hedera:mock` uses the recorded English-auction winners. `demo:live:mock`
-runs authenticated reverse-auction messages on HCS, while `demo:market:mock`
-starts several private buyer plans in a shared ascending market. These modes
-use testnet assets only.
+### 1. Browser and 0G planner
 
-Each mandate runs in a separate trusted child process with a fresh Hedera
-wallet funded to its scoped cap. The process boundary compartmentalizes buyer
-data; it is not a sandbox for untrusted agent code. Every HCS auction topic has
-a fresh submit key, and readers accept a bid only when its Mirror Node payer
-matches the registered seller or bidder identity.
+The browser holds the user's 0G key in React memory for the current tab. It
+calls the 0G Router directly and requests only private TeeML providers. The
+application does not proxy the prompt or key through its own server.
 
-Leaf keys are written before funding to
-`.pasteldenata/hedera-wallets/<account>.json`. Both the directory and files are
-owner-only (`0700` and `0600`) and ignored by git. The records contain plaintext
-testnet keys and must not be copied into the web application or committed.
+The planner receives more than the free-form text. The request contains:
 
-Settlement does not fail fast. The root waits for every leaf to exit, compares
-confirmed receipts with actual token balances, sweeps every recoverable
-remainder, refunds buyers, and then reports any partial failure together with
-transactions that already became irreversible.
+- the original private intent;
+- the hard budget in integer US cents;
+- the target date;
+- the currency and default location;
+- the public catalog of available categories, sellers, inventory, quality,
+  tags, attributes, and market estimates;
+- instructions to return a JSON object containing categories, requirements,
+  priorities, and scoped allocations.
 
-The web settlement endpoint is a local demo coordinator, not a public backend.
-It accepts same-origin requests on loopback only, validates the complete plan
-and auction shape, and runs at most one ledger job at a time. The browser sends
-the derived plan and mock auction trace to this trusted local process; the
-original prompt and 0G key remain in browser memory. Do not expose the
-coordinator remotely without adding deployment-grade authentication.
+The browser rejects malformed plans, duplicate categories, impossible dates,
+and budget violations. Small allocation inconsistencies can be repaired
+deterministically; every repair is displayed separately and is not presented
+as TEE model output.
 
-### City-scoped mock markets
+### 2. Scoped buyer agents
 
-Seller inventory follows the location returned in the independently verified
-0G plan. The repository currently includes 12 Lisbon sellers and 9 Milan
-sellers, including San Siro match tickets, Brera and Navigli restaurants,
-local transport, cinema seats, and flowers. Recorded auctions, live reverse
-auctions, and the shared ascending market all use the same city roster.
-Unknown locations currently fall back to Lisbon.
+Every accepted allocation becomes one child process with:
 
-The market does not make a second server-side 0G request: each user keeps
-control of their own Router key, and that key never enters the local Hedera
-coordinator. Adding arbitrary-city catalog generation should therefore happen
-in the browser under the same user-owned credential and verification policy.
+- one category;
+- only that category's requirements;
+- a category spending cap;
+- a fresh Hedera testnet wallet funded to that cap;
+- access to public listings for that category.
 
-## Run
+The child does not receive the original prompt, the global budget, sibling
+mandates, or sibling wallet keys. The coordinator creates the child and its
+wallet, so this is compartmentalization within a trusted local system—not
+protection from a malicious coordinator and not a sandbox for untrusted code.
+
+### 3. Seller-facing data
+
+A seller-side auction receives only:
+
+- auction and listing identifiers;
+- category;
+- location and scheduled date;
+- category-specific requirements.
+
+It does not receive the original intent, global budget, category cap, or the
+agent's private valuation. In the shared Hedera market, public HCS messages
+additionally expose seller listings, floor prices, bidder account IDs, bid
+amounts, close and forfeiture events, and final transaction IDs.
+
+### 4. Local coordinator
+
+The Next.js settlement endpoint is intentionally a localhost-only demo
+coordinator. It:
+
+- validates the complete plan-to-auction relationship;
+- owns the Hedera testnet operator credential and mocked seller credentials;
+- creates and funds buyer-agent wallets;
+- starts at most one settlement job at a time;
+- streams actual HCS and Mirror Node state to the browser;
+- reconciles final token balances, sweeps recoverable remainders, and reports
+  partial failures without hiding transactions that already finalized.
+
+The job store is in memory and survives development hot reloads, but not a full
+process restart. This endpoint is not a production payment API.
+
+## Auction protocol
+
+### Local English-auction simulation
+
+Mock sellers own heterogeneous inventory rather than publishing one flat
+offer. A cinema listing identifies a screen, row, and exact pair of seats.
+Central seats generally have higher quality, estimated value, demand, and
+floor prices than side or rear seats.
+
+The local simulation:
+
+1. opens at the seller's floor;
+2. lets the scoped buyer and mock rivals respond to ascending prices;
+3. drops a bidder when the price exceeds its private valuation;
+4. awards the item to the last active bidder;
+5. prevents the same inventory from being sold twice.
+
+The UI replays the actual recorded simulation trace. It does not invent bids
+for display.
+
+### HCS shared market
+
+The Hedera market gives each scarce listing a fresh HCS topic:
+
+1. `LISTED` records the inventory and seller floor.
+2. `BID` records a bidder account and amount. A bid is valid only when Mirror
+   Node identifies the same Hedera payer account named in the message.
+3. `CLOSED` freezes the auction after the configured minimum duration and
+   quiet period, or at the hard deadline. Later bids are ignored.
+4. The fixed ranking keeps the highest bid from each distinct account, orders
+   higher amounts first, and breaks equal bids by earlier HCS consensus
+   sequence.
+5. Each ranked buyer receives a 30-second claim window.
+6. If the current winner never provides its buyer signature, the coordinator
+   records an authenticated `FORFEITED` event after the deadline. The next
+   distinct account in the fixed ranking becomes eligible.
+7. `SETTLED` records the successful Hedera transaction ID.
+
+Seller policy independently replays the payer-bound listing, bids, close,
+deadlines, and forfeitures before it signs. A premature forfeiture, incorrect
+winner, incorrect amount, or post-close bid causes settlement to fail.
+
+An honest lower-ranked agent stays online after it can no longer afford another
+raise. Its last valid bid remains eligible if higher bidders time out.
+
+## Atomic Hedera settlement
+
+The testnet infrastructure creates:
+
+- `NATA`, a fungible HTS demo token with two decimals;
+- `NATAC`, an HTS NFT collection for reservation and ticket claims;
+- mocked seller accounts;
+- buyer funding accounts and fresh scoped bidding-agent accounts.
+
+The winning buyer constructs and signs one frozen `TransferTransaction`. Before
+adding the seller signature, seller policy requires all of the following:
+
+- the transaction fee payer is the winning buyer;
+- the exact winning amount of `NATA` moves buyer to seller;
+- the exact prepared `NATAC` serial moves seller to buyer;
+- the buyer, seller, token IDs, and NFT serial match the replayed auction;
+- there are no additional fungible-token, NFT, or HBAR transfers.
+
+The seller's signature is the reservation confirmation. If the seller refuses
+to sign, the reservation is unavailable: the transaction cannot execute, the
+buyer pays nothing, and no claim NFT moves to the buyer. This is an acceptable
+availability outcome, like a restaurant declining a reservation request.
+
+Once both signatures exist, the trusted coordinator submits the fully
+authorized transaction. The buyer cannot withhold submission after authorizing
+the purchase. Hedera applies the payment and NFT transfer atomically, so the
+seller cannot receive `NATA` while withholding that on-chain claim.
+
+Atomicity does not enforce the off-chain service. The buyer trusts the seller
+to honor the claim NFT when the user arrives at the restaurant, cinema, or
+other venue.
+
+## Privacy model
+
+### What is protected from whom
+
+| Data | Visible to |
+| --- | --- |
+| 0G key | Browser tab and 0G Router request endpoint |
+| Original intent and hard budget | Browser, 0G Router request path, selected TeeML inference environment |
+| Public seller catalog | Browser and 0G planner |
+| Derived global plan | Browser and trusted local coordinator |
+| Scoped category mandate | Coordinator and that buyer child process |
+| Seller request | Relevant seller-side auction logic |
+| HCS listing, bids, accounts, amounts, outcomes | Public Hedera observers |
+| Hedera wallet private keys | Trusted local coordinator/child and local recovery files |
+| Off-chain fulfillment details | Not implemented |
+
+The application server does not receive the original prompt or 0G key. After
+planning, the browser deliberately sends the derived plan and mock auction
+shape to the localhost coordinator so it can create mandates and settle them.
+The derived plan is therefore not private from that trusted local process.
+
+HCS is a public audit log, not a privacy system. Anyone can inspect bid amounts,
+Hedera accounts, auction timing, claim NFTs, and transaction IDs. The original
+prompt and global budget are not written to HCS, but public activity can still
+reveal purchasing categories and create linkability.
+
+### 0G private inference
+
+The request uses the OpenAI-compatible 0G Router endpoint with:
+
+- `X-0G-Provider-Trust-Mode: private`;
+- `verify_tee: true`;
+- fail-closed validation requiring
+  `x_0g_trace.tee_verified === true`;
+- a complete Router trace containing the request and provider identity.
+
+Private trust mode prevents silent fallback to a non-private provider. The app
+accepts a plan only after Router verification and a separate signer check both
+succeed.
+
+The browser independently:
+
+1. reads the provider's service record from the 0G Compute
+   `InferenceServing` contract on 0G Mainnet;
+2. requires `TeeML` verifiability and an acknowledged TEE signer;
+3. fetches the provider's signed proof payload using the chat ID;
+4. recovers the EIP-191 signer;
+5. requires it to match the acknowledged on-chain TEE signer.
+
+This independent check establishes that the proof was signed by the registered
+TEE signer. It does **not** independently prove that the exact plan bytes
+received from the Router match the provider's signed response hash. The Router
+adds or transforms response fields before the browser receives the response,
+so exact content binding currently relies on the Router's synchronous
+`tee_verified` result.
+
+### What “private” does not mean here
+
+The browser posts a normal JSON request over HTTPS to the 0G Router. This
+repository does not implement the separate HPKE `_e2ee` envelope or another
+browser-to-enclave encrypted payload. It therefore does not claim cryptographic
+end-to-end encryption from the browser directly to the model enclave. The 0G
+Router remains inside the request-confidentiality trust boundary.
+
+TEE verification proves provider identity and execution provenance under the
+0G and hardware trust assumptions. It does not prove that the model chose a
+good plan, that the public catalog is truthful, or that an off-chain seller
+will fulfill a claim.
+
+### Key handling
+
+For the web flow, each user enters their own 0G key. The key stays in React
+memory for the current tab and is not written to local storage, cookies, the
+Hedera coordinator, or an application database. A compromised frontend,
+browser extension, or same-origin script could still read it.
+
+For the CLI, `ZEROG_KEY` is read from the local `.env`.
+
+Generated Hedera testnet credentials are stored in `hedera-infra.json` and
+`.pasteldenata/hedera-wallets/`. They are ignored by git and written with
+owner-only permissions, but they are plaintext testnet keys and are not
+production-grade custody.
+
+## Trust model
+
+| Actor or component | Trusted for | Enforced or auditable boundary |
+| --- | --- | --- |
+| User's browser | Holding the 0G key, validating the plan, enforcing the frontend flow | Key is memory-only; accepted proof and policy adjustments are displayed |
+| 0G Router | Handling request plaintext confidentially, private routing, and exact response verification | Private mode, `verify_tee`, complete trace, and fail-closed checks |
+| TeeML provider and TEE stack | Confidential model execution and signed proof production | Provider service record and EIP-191 signer are independently checked |
+| Local coordinator | Availability, orchestration, wallet funding, mocked seller signing, and correct progression | Plan validation, public HCS history, exact transaction checks, and ledger reconciliation make deviations observable |
+| User's own buyer agents | Choosing listings and authorizing spend within their mandates | Each wallet contains its scoped cap plus only explicitly granted contingency; parent policy revalidates results |
+| Other buyers | Not trusted | Bids are payer-bound, ranking is deterministic, and non-settling winners time out |
+| Seller | May refuse availability; not trusted to receive payment without transferring the claim | Both signatures are required and payment-for-NFT settlement is atomic |
+| Seller for off-chain service | Trusted to honor a valid claim NFT | Not enforced by this prototype |
+| Hedera consensus and Mirror Node | Consensus ordering, final settlement, and readable HCS state | HashScan links and full topics are public; Mirror availability is still required by the app |
+
+The coordinator is trusted but auditable, not trustless. It can censor, delay,
+or stop the market. Incorrect close, ranking, forfeiture, or settlement
+messages are detectable from HCS, but the protocol does not force an offline
+coordinator to make progress.
+
+The current mocked seller private keys are held by the coordinator. The code
+demonstrates the seller verification policy and atomic transaction shape, not
+an adversarial remote seller deployment. In a production marketplace each
+seller would run or control its own signing service.
+
+## Limitations and open work
+
+### Marketplace and fulfillment
+
+- Sellers, inventory, floor prices, and rival personas are mocked.
+- Lisbon and Milan have explicit catalogs; unknown locations currently fall
+  back to Lisbon.
+- A `NATAC` claim is not a legal reservation, ticket, refund right, or delivery
+  guarantee.
+- Seller refusal is safe but unavailable: no signature means no payment and no
+  claim. The current prototype reports the failure rather than guaranteeing an
+  automatic alternative booking.
+- Seller fulfillment, cancellations, refunds, disputes, identity, reputation,
+  and claim redemption are not implemented.
+
+### Auction liveness and market integrity
+
+- Bid amounts are not collateralized or locked when submitted.
+- A non-settling bidder is delayed by one 30-second claim window and then
+  forfeited.
+- This restores liveness across a finite fixed ranking, but it is not Sybil
+  resistance. One attacker can use multiple funded accounts and consume one
+  timeout per account.
+- Preventing cheap repeated griefing requires bid bonds, collateral and
+  slashing, identity admission, or contract-enforced bids.
+- A trusted coordinator or required network service going offline can pause
+  progress.
+
+### Privacy and verification
+
+- The app excludes its own server from the original prompt path, but does not
+  implement browser-to-enclave cryptographic E2EE.
+- Request confidentiality still trusts the 0G Router and its private inference
+  path.
+- Independent EIP-191 verification proves the registered signer, while exact
+  response-to-plan content binding still trusts Router `tee_verified`.
+- The derived plan is intentionally disclosed to the localhost coordinator.
+- HCS auction metadata is public and linkable.
+- Process isolation limits accidental data sharing but is not a security
+  sandbox, and the coordinator creates the child keys.
+
+### Deployment and operations
+
+- The Hedera endpoint is protected for a localhost demo by loopback,
+  same-origin, and request-marker checks; it has no production authentication
+  or authorization.
+- Settlement jobs and progress state are in memory.
+- Hedera keys are plaintext local testnet keys.
+- The app relies on 0G Router, the provider signature endpoint, 0G RPC, Hedera
+  consensus, and Hedera Mirror Node availability.
+- A deployed frontend origin needs 0G CORS approval. Adding an application
+  proxy would expose the user's 0G key and prompt to that proxy.
+- The 30-second claim window and other auction timings are prototype constants,
+  not production service-level parameters.
+
+## Run locally
 
 Requires Node.js 22 or newer.
 
 ```bash
 npm install
 cp .env.example .env
-# Put the Router key in .env as ZEROG_KEY
-
-npm run demo -- \
-  "Organize me a date tomorrow in Lisbon. My budget is $200."
 ```
 
-Run the full flow without calling 0G:
+### Local flow without 0G or Hedera
 
 ```bash
 npm run demo:mock
 ```
 
-Validate the policy invariants:
+This uses the deterministic planner, mock auctions, and simulated receipts.
+
+### CLI with real 0G private inference
+
+Set `ZEROG_KEY` in `.env`, then run:
 
 ```bash
-npm run check
+npm run demo -- \
+  "Organize me a date tomorrow in Lisbon. My budget is $200."
 ```
 
-## Flow
-
-```text
-private intent + hard cap
-          |
-          v
-  0G private planner
-          |
-          v
- scoped spend mandates
-     /      |      \
- flowers  cinema  dinner     buyer subagents
-     |       |       |
- ascending English auctions  seller floors + mock rivals
-     \       |      /
-          winners
-             |
-             v
-  independent policy checks
-             |
-             v
-  simulated atomic settlement
-```
-
-## Web interface
-
-The repository also includes a minimal Next.js interface for the live demo. It
-keeps the primary interaction focused on one Liquid Glass intent box. After a
-successful request, it navigates to an in-memory market route. The recorded
-local mock-market execution is presented first, with the live 0G verification
-receipt immediately below it. The receipt includes the private trust mode,
-Router TEE result, 0G chain ID, provider service contract, on-chain TEE signer,
-recovered EIP-191 signer, raw signature, and signed proof payload. Provider,
-signer, and service contract addresses link to 0G ChainScan. The Router's exact
-`x_0g_trace` remains visible alongside the independent proof.
-
-The accepted plan stays attached to that live receipt. If 0G slightly
-overshoots the hard budget or underfunds a mocked market floor, deterministic
-browser policy repairs the scoped cents before any auction; every adjustment
-is listed in the receipt and is explicitly not represented as TEE model output.
-An explicit trust-boundary banner separates the plan from a visible playback
-of the recorded mock English-auction trace. That playback uses the executed
-buyer IDs, listing attempts, asking prices, leaders, and dropouts; it does not
-synthesize fake bids or wallet addresses. The complete mock transcript, seller
-floors, debug valuations, and simulated receipts remain available in a
-separate collapsed drawer.
-
-Each user enters their own 0G Router key. The key is held only in React memory
-for the current browser tab: it is not persisted in local storage, cookies, or
-an application database. The browser calls the 0G Router directly, so neither
-the key nor the private prompt passes through an application server.
-
-The production request follows 0G's documented privacy-mode API:
-
-1. `POST /v1/chat/completions` with a normal OpenAI-compatible `messages` body.
-2. `X-0G-Provider-Trust-Mode: private` restricts routing to TeeML providers. If
-   none is available, 0G fails the request rather than falling back.
-3. `verify_tee: true` asks the Router to verify the provider's signature.
-4. The response is accepted only when
-   `x_0g_trace.tee_verified === true` and the trace names a request and provider.
-
-0G describes this as private or sealed inference: the model itself runs in the
-TEE, prompts do not leave the enclave, and the host sees encrypted traffic. It
-is distinct from the separate draft `_e2ee` HPKE payload protocol; this app does
-not send that unsupported envelope to the public Router.
-
-The browser also performs the documented independent signer check. It uses
-`ZG-Res-Key` when exposed, otherwise derives the provider proof key from the
-`chatcmpl-<ZG-Res-Key>` response ID. It then:
-
-1. Re-reads the provider's service record and acknowledged TEE signer from the
-   official 0G Compute `InferenceServing` contract on 0G Mainnet.
-2. Fetches the signed proof payload and EIP-191 signature from the provider's
-   public signature endpoint using the chat ID.
-3. Recovers the EIP-191 signer and requires it to equal the on-chain TEE signer.
-4. Exposes the complete signed payload, raw signature, expected signer, and
-   recovered signer.
-
-Only successful Router verification and independent signer recovery allow the
-plan to be parsed and the local auctions to start. A generic top-level claim,
-mock response, incomplete trace, missing proof key, wrong signer, invalid
-signature, or unacknowledged signer fails closed.
-
-Trust boundary: the independent EIP-191 check proves that the proof came from
-the acknowledged TeeML signer. The exact response-hash-to-plan comparison still
-relies on the Router's synchronous `tee_verified` result because the Router adds
-its own trace and billing fields before the browser receives the response.
-The UI states this rather than presenting Router verification as a fully
-independent content proof.
-
-```text
-user key + private intent
-          |
-          v
- browser -> 0G Router -- private only --> TeeML provider
-          |
-  require x_0g_trace.tee_verified === true
-                        |
-             read 0G service contract
-             fetch provider signature
-                        |
-        independently match EIP-191 signer
-                   no /       \ yes
-                  fail     parse verified plan
-                               |
-                        local mock auctions
-                                  |
-                                  v
-                          local payment checks
-```
-
-Run the interface locally:
+### Web flow
 
 ```bash
-npm install
 npm run dev
 ```
 
-Then open `http://localhost:3000`, paste your own 0G key into the password
-field, and submit an intent containing a USD budget. The interface renders the
-0G verification receipt only after Router verification and the independent
-signer check pass; it does not render the private prompt in the result.
+Open `http://localhost:3000` and enter your own 0G Router key in the interface.
+The web flow keeps that key in the browser; it does not read `ZEROG_KEY` from
+the server environment.
 
-0G currently permits this direct browser call from localhost. A deployed
-production origin must be registered with 0G for CORS before the same static
-frontend can call the Router. Do not add an application proxy as a workaround:
-that would expose both the user's key and private prompt to the application
-server.
+For Hedera settlement from the web interface, also configure:
+
+```dotenv
+HEDERA_OPERATOR_ID=0.0.your-testnet-account
+HEDERA_OPERATOR_KEY=your-testnet-private-key
+```
+
+Then initialize the reusable testnet infrastructure:
+
+```bash
+npm run hedera:setup
+```
+
+The operator needs enough faucet HBAR to create and fund the configured buyer,
+seller, and scoped agent accounts.
+
+### Hedera CLI modes
+
+```bash
+# Recorded local winners, atomic Hedera testnet settlement
+npm run demo:hedera:mock
+
+# Mock sellers bid through authenticated HCS reverse auctions
+npm run demo:live:mock
+
+# Multiple buyer plans compete in shared HCS ascending auctions
+npm run demo:market:mock
+```
+
+All three commands use mock planning. Remove `:mock` where a corresponding
+script exists to use `ZEROG_KEY` for the user's plan.
+
+### Validate
+
+```bash
+npm run check
+npm run build
+```
+
+## What the demo exposes
+
+The interface keeps proof and execution detail available without putting it in
+the primary interaction:
+
+- the accepted 0G plan and any local policy adjustments;
+- the exact Router `x_0g_trace`;
+- provider service-contract and signer addresses;
+- the signed provider proof, raw signature, expected signer, and recovered
+  signer;
+- the complete local auction playback and debug drawer;
+- real Hedera agent accounts and HCS bid streams;
+- HashScan links for auction topics, atomic transactions, accounts, and claim
+  NFTs.
+
+These details let judges distinguish real 0G and Hedera operations from the
+mocked marketplace actors.
+
+## Repository map
+
+```text
+src/planner.ts                 0G request, plan parsing, local budget policy
+src/zerog-private.ts           private Router request and fail-closed handling
+src/tee-verifier.ts            on-chain service and EIP-191 signer verification
+src/auction.ts                 local scoped-agent auction orchestration
+src/sellers.ts                 mocked seller English-auction behavior
+src/hedera/market.ts           shared HCS market and coordinator settlement
+src/hedera/marketPolicy.ts     close, ranking, timeout, and exact-swap policy
+src/hedera/mirror.ts           payer-bound HCS replay
+src/hedera/leafAgent.ts        isolated scoped buyer agent
+src/server/settlement-jobs.ts  localhost settlement job coordinator
+components/execution-details.tsx
+                               visible 0G and Hedera proof details
+```
