@@ -832,17 +832,19 @@
 .buyerCompetition {
   min-width: 0;
   padding: 11px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.74);
   border-radius: 21px;
   background: linear-gradient(
     145deg,
-    rgba(41, 44, 50, 0.96),
-    rgba(15, 17, 21, 0.93)
+    rgba(255, 255, 255, 0.48),
+    rgba(255, 255, 255, 0.22)
   );
   box-shadow:
-    0 18px 42px rgba(24, 29, 36, 0.18),
-    inset 0 1px 1px rgba(255, 255, 255, 0.14);
-  color: white;
+    0 17px 40px rgba(46, 55, 67, 0.11),
+    inset 0 1px 1px rgba(255, 255, 255, 0.88);
+  color: rgba(30, 34, 40, 0.82);
+  backdrop-filter: blur(26px) saturate(170%);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
 }
 
 .liveLeader {
@@ -856,10 +858,13 @@
   background:
     radial-gradient(
       circle at 82% 18%,
-      rgba(255, 141, 70, 0.2),
+      rgba(255, 159, 96, 0.21),
       transparent 43%
     ),
-    rgba(255, 255, 255, 0.06);
+    rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 8px 22px rgba(121, 76, 47, 0.07);
   grid-template-columns: minmax(0, 1fr) auto;
   animation: leaderChanges 460ms both
     cubic-bezier(0.16, 1, 0.3, 1);
@@ -870,10 +875,10 @@
   background:
     radial-gradient(
       circle at 82% 18%,
-      rgba(127, 209, 80, 0.2),
+      rgba(143, 210, 102, 0.23),
       transparent 43%
     ),
-    rgba(255, 255, 255, 0.06);
+    rgba(247, 255, 242, 0.34);
 }
 
 .liveLeaderLost {
@@ -881,28 +886,28 @@
   background:
     radial-gradient(
       circle at 82% 18%,
-      rgba(226, 72, 62, 0.23),
+      rgba(226, 92, 82, 0.2),
       transparent 43%
     ),
-    rgba(255, 255, 255, 0.06);
+    rgba(255, 245, 243, 0.36);
 }
 
 .liveLeaderLost .leaderIdentity > span {
-  color: #ff9c93;
+  color: #af4842;
 }
 
 .leaderIdentity > span {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #ffad76;
+  color: #a95a2a;
   font-size: 8px;
   font-weight: 760;
   letter-spacing: 0.08em;
 }
 
 .liveLeaderUser .leaderIdentity > span {
-  color: #a7df83;
+  color: #56823a;
 }
 
 .leaderIdentity > span svg {
@@ -921,7 +926,7 @@
 }
 
 .leaderIdentity code {
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(34, 38, 44, 0.46);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 10px;
 }
@@ -938,7 +943,7 @@
 }
 
 .currentPrice span {
-  color: rgba(255, 255, 255, 0.44);
+  color: rgba(34, 38, 44, 0.43);
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -953,7 +958,7 @@
 }
 
 .currentPrice small {
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(34, 38, 44, 0.44);
   font-size: 8px;
 }
 
@@ -970,7 +975,7 @@
 
 .bidHistory > header span,
 .bidHistory > header b {
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(34, 38, 44, 0.42);
   font-size: 7px;
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -985,7 +990,7 @@
   overscroll-behavior: contain;
   flex-direction: column;
   scroll-behavior: smooth;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-color: rgba(43, 48, 55, 0.2) transparent;
   scrollbar-width: thin;
 }
 
@@ -997,9 +1002,9 @@
   align-items: center;
   gap: 7px;
   padding: 6px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.46);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.14);
   opacity: 0.3;
   grid-template-columns: auto minmax(0, 1fr) auto;
   transition:
@@ -1009,7 +1014,7 @@
 }
 
 .buyerBid > span {
-  color: rgba(255, 255, 255, 0.28);
+  color: rgba(34, 38, 44, 0.3);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 8px;
 }
@@ -1029,7 +1034,7 @@
 }
 
 .buyerBid code {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(34, 38, 44, 0.43);
   font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   font-size: 7px;
 }
@@ -1041,26 +1046,30 @@
 }
 
 .buyerBidVisible {
-  border-color: rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.31);
   opacity: 1;
   animation: bidArrives 420ms both cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .buyerBidUser {
-  color: #c9ecb4;
+  color: #4f7b35;
 }
 
 .buyerBidLatest {
-  border-color: rgba(255, 153, 88, 0.52);
-  background: rgba(255, 136, 65, 0.11);
-  box-shadow: inset 3px 0 0 rgba(255, 139, 68, 0.7);
+  border-color: rgba(227, 133, 72, 0.42);
+  background: rgba(255, 222, 201, 0.34);
+  box-shadow:
+    inset 3px 0 0 rgba(220, 118, 55, 0.58),
+    0 5px 16px rgba(126, 78, 44, 0.06);
 }
 
 .buyerBidLatest.buyerBidUser {
-  border-color: rgba(145, 216, 102, 0.52);
-  background: rgba(127, 201, 83, 0.11);
-  box-shadow: inset 3px 0 0 rgba(139, 211, 95, 0.72);
+  border-color: rgba(123, 181, 86, 0.42);
+  background: rgba(222, 245, 207, 0.42);
+  box-shadow:
+    inset 3px 0 0 rgba(105, 166, 68, 0.58),
+    0 5px 16px rgba(70, 104, 48, 0.06);
 }
 
 .bidEvent {
