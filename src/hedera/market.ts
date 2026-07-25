@@ -635,13 +635,14 @@ export async function runMarket(
   );
 
   const failures: SettlementFailure[] = [];
+  const operationalWarnings: SettlementFailure[] = [];
   const runs: MarketLeafRun[] = [];
   settled.forEach((outcome, index) => {
     const task = tasks[index];
     if (!task) return;
     if (outcome.status === "fulfilled") {
       runs.push(outcome.value);
-      failures.push(
+      operationalWarnings.push(
         ...outcome.value.warnings.map((message) => ({
           category: task.allocation.category,
           message,
@@ -685,14 +686,23 @@ export async function runMarket(
 
         const run = runs.find((candidate) => candidate.runtime === runtime);
         if (!run || run.outcome.result.amountCents !== spent) {
-          failures.push({
-            category: runtime.allocation.category,
-            message: run
-              ? `Ledger spend ${spent} does not match confirmed receipt ${run.outcome.result.amountCents}.`
-              : `Leaf ended without a receipt after spending ${spent}.`,
-            leafAccountId: runtime.wallet.accountId,
-            observedSpentCents: spent,
-          });
+          const alreadyClassified =
+            !run &&
+            spent === 0 &&
+            failures.some(
+              (failure) =>
+                failure.leafAccountId === runtime.wallet.accountId,
+            );
+          if (!alreadyClassified) {
+            failures.push({
+              category: runtime.allocation.category,
+              message: run
+                ? `Ledger spend ${spent} does not match confirmed receipt ${run.outcome.result.amountCents}.`
+                : `Leaf ended without a receipt after spending ${spent}.`,
+              leafAccountId: runtime.wallet.accountId,
+              observedSpentCents: spent,
+            });
+          }
         }
       } catch (error) {
         failures.push({
@@ -735,20 +745,37 @@ export async function runMarket(
           .reduce((sum, runtime) => sum + runtime.fundedCents, 0);
         refund = amount - funded + (sweptRemainders[index] ?? 0);
         if (refund <= 0) return;
-        await (
-          await new TransferTransaction()
-            .addTokenTransfer(
-              ctx.infra.paymentTokenId,
-              ctx.operatorId,
-              -refund,
-            )
-            .addTokenTransfer(
-              ctx.infra.paymentTokenId,
-              wallet.accountId,
-              refund,
-            )
-            .execute(ctx.client)
-        ).getReceipt(ctx.client);
+        const balanceBeforeRefund = await tokenBalanceCents(
+          ctx,
+          wallet.accountId,
+        );
+        try {
+          await (
+            await new TransferTransaction()
+              .addTokenTransfer(
+                ctx.infra.paymentTokenId,
+                ctx.operatorId,
+                -refund,
+              )
+              .addTokenTransfer(
+                ctx.infra.paymentTokenId,
+                wallet.accountId,
+                refund,
+              )
+              .execute(ctx.client)
+          ).getReceipt(ctx.client);
+        } catch (error) {
+          // getReceipt may time out after consensus. The token balance is the
+          // authoritative postcondition, so do not turn a confirmed refund
+          // into a false partial failure.
+          const balanceAfterError = await tokenBalanceCents(
+            ctx,
+            wallet.accountId,
+          );
+          if (balanceAfterError !== balanceBeforeRefund + refund) {
+            throw error;
+          }
+        }
       } catch (error) {
         failures.push({
           category: `buyer-${index + 1}`,
@@ -762,58 +789,65 @@ export async function runMarket(
     }),
   );
 
+  if (operationalWarnings.length > 0) {
+    console.warn(
+      "Confirmed settlements completed with recoverable leaf cleanup warnings:",
+      JSON.stringify(operationalWarnings),
+    );
+  }
+
   onEvent({ type: "MARKET_PHASE", phase: "verifying-hcs" });
-  const contentionResults = await Promise.allSettled(
-    listings.map(async (listing): Promise<MarketContention> => {
-      try {
-        const state = await fetchItemState(
-          TESTNET_MIRROR_BASE,
-          listing.topicId,
-          listing.itemId,
-          ctx.operatorId.toString(),
-        );
-        return {
-          sellerName: listing.sellerName,
-          offering: listing.offering,
-          category: listing.category,
-          floorCents: listing.floorCents,
-          bids: state.bids.length,
-          bidders: new Set(state.bids.map((bid) => bid.bidder)).size,
-          ...(state.settlement
-            ? { soldForCents: state.settlement.amountCents }
-            : {}),
-          topicUrl: hashscanTopicUrl(listing.topicId),
-        };
-      } finally {
-        onEvent({ type: "HCS_TOPIC_VERIFIED" });
-      }
-    }),
-  );
+  // The public testnet Mirror Node is eventually consistent and rate-limited.
+  // Replaying every topic in one burst immediately after a busy auction can
+  // yield transient 429/5xx responses even though every HCS message and swap
+  // reached consensus. Verify sequentially; mirror.ts retries each individual
+  // read with a bounded timeout before this fail-closed audit reports an error.
   const contention: MarketContention[] = [];
-  contentionResults.forEach((outcome, index) => {
-    if (outcome.status === "fulfilled") {
-      contention.push(outcome.value);
-      return;
+  for (const listing of listings) {
+    try {
+      const state = await fetchItemState(
+        TESTNET_MIRROR_BASE,
+        listing.topicId,
+        listing.itemId,
+        ctx.operatorId.toString(),
+      );
+      contention.push({
+        sellerName: listing.sellerName,
+        offering: listing.offering,
+        category: listing.category,
+        floorCents: listing.floorCents,
+        bids: state.bids.length,
+        bidders: new Set(state.bids.map((bid) => bid.bidder)).size,
+        ...(state.settlement
+          ? { soldForCents: state.settlement.amountCents }
+          : {}),
+        topicUrl: hashscanTopicUrl(listing.topicId),
+      });
+    } catch (error) {
+      failures.push({
+        category: listing.category,
+        message: `Could not replay ${listing.listingId} from Mirror Node: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    } finally {
+      onEvent({ type: "HCS_TOPIC_VERIFIED" });
     }
-    const listing = listings[index];
-    failures.push({
-      category: listing?.category ?? "market",
-      message: `Could not replay ${
-        listing?.listingId ?? "an auction"
-      } from Mirror Node: ${
-        outcome.reason instanceof Error
-          ? outcome.reason.message
-          : String(outcome.reason)
-      }`,
-    });
-  });
+  }
 
   if (failures.length > 0) {
     const receipts = runs
       .filter((run) => !run.outcome.result.lost)
       .map(marketReceipt);
+    const auditFailures = failures.filter((failure) =>
+      failure.message.startsWith("Could not replay "),
+    );
+    const message =
+      auditFailures.length === failures.length
+        ? `All ${receipts.length} Hedera settlement(s) remain confirmed, but independent HCS replay failed for ${auditFailures.length} topic(s) after bounded retries.`
+        : `Hedera market partially failed after reconciliation: ${receipts.length} confirmed settlement(s), ${failures.length} failure(s).`;
     throw new HederaPartialSettlementError(
-      `Hedera market partially failed after reconciliation: ${receipts.length} confirmed settlement(s), ${failures.length} failure(s).`,
+      message,
       receipts,
       failures,
     );
@@ -983,6 +1017,7 @@ async function runMarketLeaf(
     let done: LeafResult | undefined;
     let pendingError: Error | undefined;
     const warnings: string[] = [];
+    let buyerDoneEmitted = false;
     let finished = false;
 
     const timer = setTimeout(() => {
@@ -992,6 +1027,17 @@ async function runMarketLeaf(
       child.kill();
     }, LEAF_TIMEOUT_MS);
     const sendToLeaf = (message: ParentToLeaf) => child.send(message);
+
+    const emitBuyerDone = (result: LeafResult): void => {
+      if (buyerDoneEmitted) return;
+      buyerDoneEmitted = true;
+      shared.onEvent({
+        type: "BUYER_DONE",
+        buyerName: buyer.name,
+        category: allocation.category,
+        lost: result.lost === true,
+      });
+    };
 
     const finish = (): void => {
       if (finished) return;
@@ -1005,6 +1051,7 @@ async function runMarketLeaf(
         }
       }
       if (result) {
+        emitBuyerDone(result);
         if (!done && pendingError) warnings.push(pendingError.message);
         resolve({
           runtime,
@@ -1522,12 +1569,7 @@ async function runMarketLeaf(
             throw new Error("Leaf returned an invalid loss result.");
           }
           done = message.result;
-          shared.onEvent({
-            type: "BUYER_DONE",
-            buyerName: buyer.name,
-            category: allocation.category,
-            lost: message.result.lost === true,
-          });
+          emitBuyerDone(message.result);
           // DONE is emitted only after the child's final ledger action
           // returns its HBAR fee float. End the now-idle process immediately
           // instead of waiting for Node's gRPC handles to drain.

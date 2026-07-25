@@ -268,6 +268,70 @@ test("reverse-auction bids require valid cents and the registered seller payer",
   assert.equal(bids[0]?.payerAccountId, "0.0.100");
 });
 
+test("Mirror reads retry transient rate limits before failing the audit", async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    if (requests < 3) {
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "retry-after": "0" },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        messages: [
+          mirrorMessage(
+            { type: "LISTED", itemId: "item-1" },
+            "0.0.clearing",
+            1,
+          ),
+        ],
+        links: { next: null },
+      }),
+      { status: 200 },
+    );
+  };
+
+  try {
+    const state = await fetchItemState(
+      "https://mirror.invalid",
+      "0.0.9",
+      "item-1",
+      "0.0.clearing",
+    );
+    assert.equal(requests, 3);
+    assert.equal(state.opening?.sequenceNumber, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Mirror reads do not retry a permanent client error", async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return new Response("missing", { status: 404 });
+  };
+
+  try {
+    await assert.rejects(
+      fetchItemState(
+        "https://mirror.invalid",
+        "0.0.404",
+        "item-1",
+        "0.0.clearing",
+      ),
+      /Mirror Node returned 404/,
+    );
+    assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("market messages bind bidder identity to payer and settlement to clearing", async () => {
   const state = await withMirrorMessages(
     [

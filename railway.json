@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npm run hedera:setup -- Lisbon && npm start",
+    "startCommand": "npm run hedera:setup -- --all && npm start",
     "numReplicas": 1,
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 180,
