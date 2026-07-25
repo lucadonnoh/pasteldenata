@@ -1,10 +1,13 @@
 # World AgentKit integration — what is missing, and what is trusted
 
 Status of the `feat/world-agentkit` workstream: the Auction Credential
-Gateway exists, is tested, and demos end to end against a simulated
-AgentBook (`npm run demo:scalper`). This document is the honest gap list
-and the trust model, written for the team and reusable for the prize
-submission.
+Gateway exists, is tested, and is **enforced in the market pipeline** —
+one-per-human listings cannot settle without a valid auction-scoped pass.
+Verified on Hedera testnet in scalper mode: 20 passes issued, 20 sybil
+enrollments rejected, 16 pass-less settlement attempts blocked by the
+seller policy, while the one distinct human won every category. This
+document is the honest gap list and the trust model, written for the team
+and reusable for the prize submission.
 
 ## What exists
 
@@ -12,58 +15,68 @@ submission.
   (agent wallet → anonymous humanId; same human → same id) and emits only
   auction-scoped credentials: `nullifier = H(humanId, auctionId)`, wrapped
   in an HMAC-signed `AuctionPass` bound to one leaf wallet and one auction.
-- Per-human quotas inside an auction (a scalper's ten wallets collapse into
-  one allocation) with unlinkability across auctions (colluding sellers
-  cannot join their datasets on a shared identifier).
-- `npm run demo:scalper` — 10 sybil wallets across two registered agent
-  addresses → 1 pass issued, 9 refused; honest human passes; unregistered
-  bot refused; open listing unaffected.
-- Four tests pinning the trust model: sybil collapse, cross-auction
-  unlinkability, bot rejection, pass tamper-evidence.
-- Real-mode switch (`WORLD_AGENTBOOK=real`) that swaps the mock for the
-  canonical AgentBook verifier on World Chain via `@worldcoin/agentkit`.
+  Per-human quotas inside an auction; unlinkability across auctions.
+- **Seller-chosen policies**: every seller carries a `humanPolicy` —
+  `one-per-human` on the 14 scarce sellers (cinema, dinner, experience in
+  both cities), `open` on flowers and transport. The policy is published in
+  the on-chain `LISTED` message, so the rules an auction ran under are
+  public, consensus-timestamped, and replayable: buyers know them before
+  bidding and sellers cannot change them retroactively.
+- **Enforcement at settlement**: the market coordinator consults an
+  `authorizePurchase` hook in the PREPARE path — the same choke point as
+  the auditable-settlement checks from PR #14. Agents are enrolled with the
+  gateway the moment their wallets are funded; a protected item cannot be
+  claimed without a valid pass, regardless of what was bid.
+- **Live sybil demo**: `worldDemo: "scalper"` on the jobs API collapses all
+  rival personas into one underlying human; the gateway then admits exactly
+  one of their agents per protected item and the coordinator blocks the
+  rest at settlement. The job exposes
+  `world: { passesIssued, sybilRejections, blocked[] }` for the UI.
+  `npm run demo:scalper` remains as the fast offline version.
+- Tests pinning the trust model (43 passing on the branch): sybil collapse,
+  cross-auction unlinkability, bot rejection, pass tamper-evidence.
+- Real-mode switch: `WORLD_AGENTBOOK=real` + `WORLD_IDENTITY_AGENT=<addr>`
+  resolves the user's identity against the canonical AgentBook on World
+  Chain via `@worldcoin/agentkit`, while simulated rival personas stay on
+  the mock book (composite resolver).
 
 ## What is missing
 
-1. **Enforcement in the market pipeline.** Passes can be issued and
-   verified, but no auction requires one yet. Planned wiring: listings gain
-   a seller-chosen `humanPolicy` (`open` | `one-per-human`), leaf wallets
-   are enrolled at spawn time, and the settlement policy refuses to close a
-   protected auction for a wallet without a valid pass. The natural
-   enforcement point is the seller-side settlement policy introduced in
-   PR #14, so this wiring waits for that merge.
-
-2. **Proof of wallet control at enrollment.** The gateway currently trusts
-   the caller's claim of its identity-agent address. Real mode must require
-   a challenge nonce signed by that address, verified with
-   `verifyEVMSignature` from `@worldcoin/agentkit`, before `lookupHuman` is
-   consulted. Without this, anyone could enroll using someone else's
-   registered address.
-
-3. **Real-mode execution.** Everything currently runs against the simulated
-   AgentBook. Going real requires (owner: Davide):
+1. **Real-mode execution.** The user's identity currently resolves through
+   the mock book. Going real requires (owner: Davide):
    - a World Dev Portal account,
    - World App on a phone with a verification — Selfie Check works without
      an Orb and is itself a hackathon beta track,
    - registering an identity wallet: `npx @worldcoin/agentkit-cli register
      <address>` (prompts World App),
-   - setting `WORLD_AGENTBOOK=real` and running the flow once end to end.
-   A mock-only submission reads as a wrapper; at least one real-mode run
-   belongs in the demo evidence.
+   - `WORLD_AGENTBOOK=real WORLD_IDENTITY_AGENT=<address>` and one full
+     end-to-end run for the demo evidence. A mock-only submission reads as
+     a wrapper; at least one real-mode run belongs in the video.
 
-4. **Gateway state persistence.** Quota counters and the HMAC secret are
-   in-memory and reset on dev-server reload. Same fix as the settlement
-   jobs: pin them on `globalThis` (dev) or a real store (production).
+2. **Proof of wallet control at enrollment.** The gateway trusts the
+   coordinator's claim of which identity agent backs a buyer. Fine while
+   the coordinator is the trusted local demo process; real mode should
+   require a challenge nonce signed by the identity address, verified with
+   `verifyEVMSignature` from `@worldcoin/agentkit`, before `lookupHuman` is
+   consulted.
 
-5. **UI surface.** No visible "human-backed" badge on protected listings,
-   no sybil-blocked counter in the market view. Needs coordination with the
-   UI owner; the demo works from the CLI meanwhile.
+3. **UI surface.** The data is on the job API (per-listing `humanPolicy`,
+   pass/rejection/block counters), but nothing renders it yet: a
+   "human-backed · one per human" badge on protected listings, a "sybils
+   blocked" counter during the scalper demo, and an explainer line in the
+   proof drawer. Needs coordination with the UI owner.
 
-6. **Bid-level enforcement (optional hardening).** Current plan enforces at
-   enrollment and settlement. A stricter variant also embeds the pass hash
-   in every `BID` message so replayers can filter unpassed bids; this
-   composes with the payer-verification from PR #14 but is not required for
-   the demo.
+4. **Bid-level enforcement (optional hardening).** Enforcement is at
+   enrollment and settlement; pass-less agents can still place bids they
+   can never win (and, per PR #14's known boundary, consume a timeout
+   each). A stricter variant embeds the pass hash in every `BID` message so
+   replayers filter unpassed bids outright. Composes with the payer
+   verification but is not required for the demo.
+
+5. **Gateway quota persistence across jobs.** Quotas live for the duration
+   of one settlement job, which matches auctions living inside one job. If
+   auctions ever span jobs (e.g. standing listings), quota state must move
+   to a store keyed by nullifier, not process memory.
 
 ## What is trusted, and by whom
 
@@ -79,18 +92,19 @@ nobody sees the whole picture.
 What each party must trust about the gateway:
 
 - **Sellers** trust it to enforce the per-human quota honestly. They can
-  verify pass signatures and see that two bidders carry different
-  nullifiers; they cannot check that the gateway did not issue extra
-  passes. (Misbehavior here is detectable in aggregate: more allocations
-  than distinct nullifiers.)
+  verify pass signatures and see distinct nullifiers per bidder; they
+  cannot check that the gateway never over-issued. Misbehavior is
+  detectable in aggregate (more allocations than distinct nullifiers), and
+  the policy each auction ran under is pinned in its `LISTED` message.
 - **Buyers** trust it not to log the humanId ↔ wallet mapping. This is a
   privacy trust, not a fund-safety trust: a malicious gateway could
-  deanonymize link patterns but could never take money or forge humanity.
+  deanonymize link patterns but can never take money or forge humanity.
 - **Nobody** trusts it for payments: budgets remain enforced by wallet
-  balances, settlement remains a co-signed atomic swap, and the auction
-  history remains independently replayable from HCS.
+  balances, settlement remains a co-signed atomic swap validated on both
+  sides, and the auction history remains independently replayable from
+  HCS.
 
-What World itself provides and what it deliberately does not:
+What World provides and what it deliberately does not:
 
 - AgentKit answers "is this wallet backed by a real, unique human?" with
   the same anonymous id for all of one human's wallets. That is an
@@ -101,20 +115,24 @@ What World itself provides and what it deliberately does not:
 
 The honest claim for the demo:
 
-> Leaf agents are unlinkable to sellers and to each other at the
-> application layer. The gateway is a declared privacy trust point, exactly
-> like the 0G enclave and the clearing account. It cannot mint humanity and
-> it cannot touch funds; replacing it with auction-scoped zero-knowledge
-> credentials is roadmap, not weekend.
+> Human verification appears exactly where scarcity makes sellers
+> adversarial targets, chosen per listing by the seller and pinned
+> on-chain — not marketplace-wide identity ceremony. Leaf agents stay
+> unlinkable to sellers and to each other; the gateway is a declared
+> privacy trust point that can neither mint humanity nor touch funds.
+> Replacing it with auction-scoped zero-knowledge credentials is roadmap,
+> not weekend.
 
 ## Known adversarial gaps (state them before judges find them)
 
-- **Uncollateralized bids** (noted in PR #14): a distinct human per wallet
-  can still consume one settlement timeout each. The gateway removes the
-  *cheap* version of this attack (one human, many wallets); making bids
-  costly-to-abandon (collateral) removes the expensive version.
+- **Pass-less bidding**: agents without passes can bid (bids are
+  uncollateralized) and waste a settlement timeout each, per the boundary
+  already documented in PR #14. The gateway removes the cheap version of
+  the attack (one human, many *winning* wallets); bid-level pass filtering
+  and/or collateral remove the expensive version.
 - **Gateway availability**: if the gateway is down, protected auctions
   cannot admit new bidders. Open listings are unaffected by design.
-- **Verification freshness**: a pass lives 15 minutes; a stolen leaf key
-  within that window could bid in the enrolled auction only. Blast radius
-  is one compartment, which is the point of the architecture.
+- **Verification freshness**: a pass lives 15 minutes and is bound to one
+  wallet and one auction; a stolen leaf key within that window can bid in
+  the enrolled auction only. Blast radius is one compartment, which is the
+  point of the architecture.
