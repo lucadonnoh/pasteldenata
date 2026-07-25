@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { FormEvent, useState } from "react";
 
+import { CITY_LABELS } from "@/src/catalog";
+
 const categories = ["Dining", "Experience", "Cinema", "Flowers", "Transport"];
 
 export function SellerStudio() {
@@ -17,6 +19,9 @@ export function SellerStudio() {
   const [title, setTitle] = useState("Sunset dinner for two");
   const [price, setPrice] = useState("85");
   const [location, setLocation] = useState("Lisbon");
+  const [humanPolicy, setHumanPolicy] = useState<"open" | "one-per-human">(
+    "one-per-human",
+  );
   const [availability, setAvailability] = useState("4");
   const [description, setDescription] = useState(
     "A seasonal tasting menu served by the window, with a welcome drink included.",
@@ -76,6 +81,28 @@ export function SellerStudio() {
             </div>
           </div>
 
+          <div className="category-field">
+            <span className="field-caption">BUYER POLICY</span>
+            <div className="category-options">
+              <button
+                className={humanPolicy === "one-per-human" ? "active" : ""}
+                type="button"
+                onClick={() => setHumanPolicy("one-per-human")}
+                title="Bidders must be backed by a verified human (World ID); one allocation per human"
+              >
+                1 per human
+              </button>
+              <button
+                className={humanPolicy === "open" ? "active" : ""}
+                type="button"
+                onClick={() => setHumanPolicy("open")}
+                title="No identity check — any agent may bid"
+              >
+                open
+              </button>
+            </div>
+          </div>
+
           <div className="compact-fields">
             <label>
               <span className="field-caption">OPENING FLOOR</span>
@@ -107,11 +134,18 @@ export function SellerStudio() {
               <span className="field-caption">LOCATION</span>
               <div className="input-with-icon">
                 <MapPin size={14} />
-                <input
+                <select
+                  required
                   value={location}
                   onChange={(event) => setLocation(event.target.value)}
-                  aria-label="Offer location"
-                />
+                  aria-label="Listing city"
+                >
+                  {Object.values(CITY_LABELS).map((city) => (
+                    <option key={city} value={city}>
+                      {city}
+                    </option>
+                  ))}
+                </select>
               </div>
             </label>
           </div>
@@ -178,6 +212,9 @@ export function SellerStudio() {
                 <div>
                   <Package size={12} />
                   {availability || "0"} available
+                </div>
+                <div title="Seller-chosen access policy, pinned on-chain with the listing">
+                  {humanPolicy === "one-per-human" ? "1/HUMAN · World ID" : "open bidding"}
                 </div>
               </div>
 
