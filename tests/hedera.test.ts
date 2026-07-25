@@ -17,6 +17,12 @@ import {
   fetchItemState,
   fetchTopicBids,
 } from "../src/hedera/mirror";
+import {
+  fetchAllMirrorTopicMessages,
+  marketBidsFromEvents,
+  marketSettlementFromEvents,
+  parseMarketLedgerEvents,
+} from "../src/hedera/marketEvidence";
 import { marketItemId } from "../src/hedera/market";
 import {
   assertExactAtomicSwap,
@@ -239,6 +245,169 @@ test("market messages bind bidder identity to payer and settlement to clearing",
     bidder: "0.0.201",
     amountCents: 2500,
     transactionId: "0.0.201@1.2",
+  });
+});
+
+test("browser market evidence follows every Mirror page", async () => {
+  const first = mirrorMessage(
+    { type: "LISTED", itemId: "item-1" },
+    "0.0.clearing",
+    1,
+  );
+  const second = mirrorMessage(
+    {
+      type: "BID",
+      itemId: "item-1",
+      bidder: "0.0.201",
+      amountCents: 2500,
+    },
+    "0.0.201",
+    101,
+  );
+  const requested: string[] = [];
+
+  const messages = await fetchAllMirrorTopicMessages(
+    "https://mirror.invalid",
+    "0.0.9",
+    async (url) => {
+      requested.push(url);
+      return new Response(
+        JSON.stringify(
+          requested.length === 1
+            ? {
+                messages: [first],
+                links: {
+                  next:
+                    "/api/v1/topics/0.0.9/messages?limit=100&order=asc&sequenceNumber=gt:100",
+                },
+              }
+            : { messages: [second], links: { next: null } },
+        ),
+        { status: 200 },
+      );
+    },
+  );
+
+  assert.equal(requested.length, 2);
+  assert.match(requested[1] ?? "", /^https:\/\/mirror\.invalid\//);
+  assert.deepEqual(
+    messages.map((message) => message.sequence_number),
+    [1, 101],
+  );
+});
+
+test("browser market evidence uses the authenticated settled bidder", () => {
+  const messages = [
+    mirrorMessage(
+      { type: "LISTED", itemId: "item-1", floorCents: 2000 },
+      "0.0.clearing",
+      1,
+    ),
+    mirrorMessage(
+      {
+        type: "BID",
+        itemId: "item-1",
+        bidder: "0.0.202",
+        amountCents: 2600,
+      },
+      "0.0.202",
+      2,
+    ),
+    mirrorMessage(
+      {
+        type: "BID",
+        itemId: "item-1",
+        bidder: "0.0.201",
+        amountCents: 2500,
+      },
+      "0.0.201",
+      3,
+    ),
+    mirrorMessage(
+      { type: "CLOSED", itemId: "item-1" },
+      "0.0.attacker",
+      4,
+    ),
+    mirrorMessage(
+      { type: "CLOSED", itemId: "item-1" },
+      "0.0.clearing",
+      5,
+    ),
+    mirrorMessage(
+      {
+        type: "BID",
+        itemId: "item-1",
+        bidder: "0.0.attacker",
+        amountCents: 9999,
+      },
+      "0.0.attacker",
+      6,
+    ),
+    mirrorMessage(
+      {
+        type: "FORFEITED",
+        itemId: "item-1",
+        bidder: "0.0.202",
+        amountCents: 2600,
+      },
+      "0.0.clearing",
+      7,
+    ),
+    mirrorMessage(
+      {
+        type: "SETTLED",
+        itemId: "item-1",
+        bidder: "0.0.202",
+        amountCents: 2600,
+        transactionId: "0.0.202@1.1",
+      },
+      "0.0.attacker",
+      8,
+    ),
+    mirrorMessage(
+      {
+        type: "SETTLED",
+        itemId: "item-1",
+        bidder: "0.0.201",
+        amountCents: 2500,
+        claimNftSerial: 12,
+        transactionId: "0.0.201@1.2",
+      },
+      "0.0.clearing",
+      9,
+    ),
+  ];
+
+  const events = parseMarketLedgerEvents(
+    messages,
+    "item-1",
+    "0.0.clearing",
+    new Set(["0.0.201"]),
+  );
+
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["LISTED", "BID", "BID", "CLOSED", "FORFEITED", "SETTLED"],
+  );
+  assert.deepEqual(
+    marketBidsFromEvents(events).map((bid) => [
+      bid.bidder,
+      bid.amountCents,
+    ]),
+    [
+      ["0.0.202", 2600],
+      ["0.0.201", 2500],
+    ],
+  );
+  assert.deepEqual(marketSettlementFromEvents(events), {
+    type: "SETTLED",
+    sequenceNumber: 9,
+    payerAccountId: "0.0.clearing",
+    bidder: "0.0.201",
+    amountCents: 2500,
+    transactionId: "0.0.201@1.2",
+    claimNftSerial: 12,
+    yours: true,
   });
 });
 

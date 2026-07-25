@@ -1515,7 +1515,8 @@
   border-top: 1px solid rgba(255, 255, 255, 0.48);
 }
 
-.onchainLinks a {
+.onchainLinks a,
+.onchainLinks span {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1525,6 +1526,10 @@
   letter-spacing: 0.05em;
   text-decoration: none;
   text-transform: uppercase;
+}
+
+.onchainLinks span {
+  color: #7656c6;
 }
 
 .onchainLinks a:hover {
@@ -1924,10 +1929,24 @@
   font-size: 7px;
 }
 
-.marketAgentRail > button > b {
+.marketAgentCap {
+  min-width: 0;
+  text-align: right;
+}
+
+.marketAgentCap b {
+  display: block;
   color: rgba(34, 38, 44, 0.62);
   font-size: 11px;
   font-weight: 650;
+}
+
+.marketAgentCap small {
+  margin: 3px 0 0 !important;
+  color: #568738 !important;
+  font-size: 6px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
 }
 
 .marketAgentRail > button.liveFollowButton {
@@ -2154,7 +2173,8 @@
 }
 
 .priceRange span,
-.priceRange strong {
+.priceRange strong,
+.priceRange small {
   display: block;
 }
 
@@ -2166,6 +2186,13 @@
 
 .priceRange strong {
   font-size: 11px;
+}
+
+.priceRange small {
+  margin-top: 3px;
+  color: #568738;
+  font-size: 6px;
+  white-space: nowrap;
 }
 
 .priceRail {
@@ -2277,7 +2304,8 @@
 }
 
 .focusSettlement small,
-.focusSettlement strong {
+.focusSettlement strong,
+.focusSettlement code {
   display: block;
 }
 
@@ -2291,6 +2319,15 @@
 
 .focusSettlement strong {
   font-size: 9px;
+}
+
+.focusSettlement code {
+  margin-top: 3px;
+  overflow: hidden;
+  color: rgba(34, 38, 44, 0.43);
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .focusSettlement > b {
@@ -2414,9 +2451,15 @@
   animation: ledgerEventIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.marketActivity li.yourMarketBid {
+.marketActivity li.yourMarketEvent,
+.marketActivity li[data-kind="settled"] {
   border-color: rgba(86, 135, 56, 0.18);
   background: rgba(116, 178, 78, 0.07);
+}
+
+.marketActivity li[data-kind="forfeited"] {
+  border-color: rgba(182, 109, 53, 0.18);
+  background: rgba(209, 139, 81, 0.07);
 }
 
 .marketActivity li > span {
@@ -2429,9 +2472,15 @@
   color: rgba(53, 59, 68, 0.58);
 }
 
-.marketActivity li.yourMarketBid > span {
+.marketActivity li.yourMarketEvent > span,
+.marketActivity li[data-kind="settled"] > span {
   background: rgba(116, 178, 78, 0.13);
   color: #568738;
+}
+
+.marketActivity li[data-kind="forfeited"] > span {
+  background: rgba(209, 139, 81, 0.12);
+  color: #a45f2c;
 }
 
 .marketActivity li > div {

@@ -11,6 +11,19 @@ import { MockPrivatePlanner } from "../planner";
 
 export type SettlementMode = "live" | "market";
 
+export interface JobAgent {
+  category: string;
+  accountId: string;
+  buyerName: string;
+  initialCapCents: number;
+  grantedCents: number;
+  effectiveCapCents: number;
+  grantTransactions: Array<{
+    amountCents: number;
+    transactionId: string;
+  }>;
+}
+
 export interface JobListing {
   itemId: string;
   topicId: string;
@@ -26,8 +39,10 @@ export interface SettlementJob {
   id: string;
   status: "running" | "done" | "failed";
   mode: SettlementMode;
+  /** Clearing payer used to authenticate HCS lifecycle messages. */
+  clearingAccountId?: string;
   /** Real leaf wallets, streamed as they are created and funded. */
-  agents: Array<{ category: string; accountId: string; buyerName: string }>;
+  agents: JobAgent[];
   /** Live mode: one auction topic per category. */
   auctions: Array<{
     category: string;
@@ -160,6 +175,7 @@ async function execute(
   let infra: HederaInfra | undefined;
   try {
     ctx = connectHedera();
+    job.clearingAccountId = ctx.operatorId.toString();
     const roster = sellersForLocation(plan.location);
     infra = await ensureInfra(ctx, roster);
 
@@ -169,13 +185,21 @@ async function execute(
         live: true,
         onEvent: (event) => {
           switch (event.type) {
-            case "WALLET_CREATED":
+            case "WALLET_CREATED": {
+              const allocation = plan.allocations.find(
+                (item) => item.category === event.category,
+              );
               job.agents.push({
                 category: event.category,
                 accountId: event.accountId,
                 buyerName: USER_BUYER_NAME,
+                initialCapCents: allocation?.maxBudgetCents ?? 0,
+                grantedCents: 0,
+                effectiveCapCents: allocation?.maxBudgetCents ?? 0,
+                grantTransactions: [],
               });
               break;
+            }
             case "AUCTION_OPEN":
               job.auctions.push({
                 category: event.category,
@@ -236,8 +260,26 @@ async function execute(
               category: event.category,
               accountId: event.accountId,
               buyerName: event.buyerName,
+              initialCapCents: event.initialCapCents,
+              grantedCents: 0,
+              effectiveCapCents: event.initialCapCents,
+              grantTransactions: [],
             });
             break;
+          case "BUDGET_GRANTED": {
+            const agent = job.agents.find(
+              (item) => item.accountId === event.accountId,
+            );
+            if (agent) {
+              agent.grantedCents += event.grantedCents;
+              agent.effectiveCapCents = event.effectiveCapCents;
+              agent.grantTransactions.push({
+                amountCents: event.grantedCents,
+                transactionId: event.transactionId,
+              });
+            }
+            break;
+          }
           case "ITEM_SOLD": {
             const listing = job.listings.find(
               (item) => item.itemId === event.itemId,

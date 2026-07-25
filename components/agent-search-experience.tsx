@@ -40,6 +40,7 @@ import {
   type MockAgentSearch,
   type MockAuctionReplay,
 } from "@/src/mock-agent-search";
+import { marketSettlementFromEvents } from "@/src/hedera/marketEvidence";
 import type { LiveAuctionView } from "@/components/use-settlement-job";
 
 import styles from "./agent-search-experience.module.css";
@@ -127,9 +128,9 @@ export function AgentSearchExperience({
 
 /**
  * The real thing: phases driven by the settlement job instead of timers.
- * Wallets appear as the swarm funds them, the bidding stage streams actual
- * HCS bids read from Mirror Node, and the result cards carry the on-chain
- * receipts.
+ * Wallets appear as the swarm funds them, the bidding stage streams the
+ * payer-authenticated HCS lifecycle from Mirror Node, and the result cards
+ * carry the on-chain receipts.
  */
 function LiveAgentSearchRun({
   result,
@@ -254,6 +255,13 @@ function shortAccount(accountId: string): string {
     : accountId;
 }
 
+function hashscanTransactionUrl(transactionId: string): string {
+  const [payer, timestamp] = transactionId.split("@");
+  return timestamp
+    ? `https://hashscan.io/testnet/transaction/${payer}-${timestamp.replace(".", "-")}`
+    : `https://hashscan.io/testnet/transaction/${transactionId}`;
+}
+
 function ActivityDiscovery({
   searches,
   resolvedCount,
@@ -331,6 +339,8 @@ function ActivityDiscovery({
 
 type MarketListing = LiveAuctionView["listings"][number];
 type MarketBid = LiveAuctionView["bidsByItem"][string][number];
+type MarketEvent =
+  LiveAuctionView["ledgerEventsByItem"][string][number];
 type MarketVisualState =
   | "scanning"
   | "live"
@@ -353,9 +363,11 @@ function highestMarketBid(bids: MarketBid[]): MarketBid | undefined {
   );
 }
 
-function latestMarketSequence(bids: MarketBid[]): number {
-  return bids.reduce(
-    (latest, bid) => Math.max(latest, bid.sequenceNumber),
+function latestMarketSequence(
+  messages: Array<{ sequenceNumber: number }>,
+): number {
+  return messages.reduce(
+    (latest, message) => Math.max(latest, message.sequenceNumber),
     0,
   );
 }
@@ -363,9 +375,12 @@ function latestMarketSequence(bids: MarketBid[]): number {
 function listingVisualState(
   listing: MarketListing,
   bids: MarketBid[],
+  events: MarketEvent[],
 ): MarketVisualState {
+  const settlement = marketSettlementFromEvents(events);
   const high = highestMarketBid(bids);
-  if (listing.sold) return high?.yours ? "won" : "sold";
+  if (settlement) return settlement.yours ? "won" : "sold";
+  if (listing.sold) return "sold";
   if (high?.yours) return "leading";
   if (bids.some((bid) => bid.yours)) return "outbid";
   return bids.length > 0 ? "live" : "scanning";
@@ -421,10 +436,14 @@ function MarketBidStage({
               (listing) => live.bidsByItem[listing.itemId] ?? [],
             );
           const leading = visible.some((listing) => {
-            if (listing.category !== category || listing.sold) return false;
-            return highestMarketBid(
-              live.bidsByItem[listing.itemId] ?? [],
-            )?.yours;
+            if (listing.category !== category) return false;
+            return (
+              listingVisualState(
+                listing,
+                live.bidsByItem[listing.itemId] ?? [],
+                live.ledgerEventsByItem[listing.itemId] ?? [],
+              ) === "leading"
+            );
           });
           return (
             (leading ? 1_000_000 : 0) +
@@ -434,7 +453,12 @@ function MarketBidStage({
         };
         return activityScore(right) - activityScore(left);
       })[0],
-    [categories, live.bidsByItem, visible],
+    [
+      categories,
+      live.bidsByItem,
+      live.ledgerEventsByItem,
+      visible,
+    ],
   );
 
   const activeCategory =
@@ -448,7 +472,8 @@ function MarketBidStage({
   const automaticFocus = [...activeListings].sort((left, right) => {
     const score = (listing: MarketListing) => {
       const bids = live.bidsByItem[listing.itemId] ?? [];
-      const state = listingVisualState(listing, bids);
+      const events = live.ledgerEventsByItem[listing.itemId] ?? [];
+      const state = listingVisualState(listing, bids, events);
       const stateWeight: Record<MarketVisualState, number> = {
         won: 7,
         leading: 6,
@@ -460,7 +485,7 @@ function MarketBidStage({
       };
       return (
         stateWeight[state] * 1_000_000 +
-        latestMarketSequence(bids)
+        latestMarketSequence(events)
       );
     };
     return score(right) - score(left);
@@ -473,14 +498,18 @@ function MarketBidStage({
   const focusBids = focus
     ? (live.bidsByItem[focus.itemId] ?? [])
     : [];
+  const focusEvents = focus
+    ? (live.ledgerEventsByItem[focus.itemId] ?? [])
+    : [];
   const focusHigh = highestMarketBid(focusBids);
+  const focusSettlement = marketSettlementFromEvents(focusEvents);
   const focusState =
     activeCategory && live.lostCategories.includes(activeCategory)
       ? "lost"
       : focus
-        ? listingVisualState(focus, focusBids)
+        ? listingVisualState(focus, focusBids, focusEvents)
         : "scanning";
-  const recentFocusBids = [...focusBids]
+  const recentFocusEvents = [...focusEvents]
     .sort(
       (left, right) =>
         right.sequenceNumber - left.sequenceNumber,
@@ -489,9 +518,25 @@ function MarketBidStage({
   const focusSearch = searches.find(
     (search) => search.allocation.category === activeCategory,
   );
-  const focusCap = focusSearch?.allocation.maxBudgetCents ?? 0;
+  const focusAgent = live.agents.find(
+    (agent) =>
+      agent.buyerName === "You" &&
+      agent.category === activeCategory,
+  );
+  const initialFocusCap =
+    focusAgent?.initialCapCents ??
+    focusSearch?.allocation.maxBudgetCents ??
+    0;
+  const focusGranted = focusAgent?.grantedCents ?? 0;
+  const focusCap =
+    focusAgent?.effectiveCapCents ??
+    initialFocusCap + focusGranted;
+  const focusGrantTransaction =
+    focusAgent?.grantTransactions?.at(-1);
   const currentPrice = focus
-    ? (focusHigh?.amountCents ?? focus.floorCents)
+    ? (focusSettlement?.amountCents ??
+      focusHigh?.amountCents ??
+      focus.floorCents)
     : 0;
   const priceProgress =
     focus && focusCap > focus.floorCents
@@ -508,11 +553,6 @@ function MarketBidStage({
   const yourLastBid = [...focusBids]
     .reverse()
     .find((bid) => bid.yours);
-  const focusAgent = live.agents.find(
-    (agent) =>
-      agent.buyerName === "You" &&
-      agent.category === activeCategory,
-  );
   const totalBids = Object.values(live.bidsByItem).reduce(
     (sum, bids) => sum + bids.length,
     0,
@@ -535,6 +575,7 @@ function MarketBidStage({
       listingVisualState(
         listing,
         live.bidsByItem[listing.itemId] ?? [],
+        live.ledgerEventsByItem[listing.itemId] ?? [],
       ),
     );
     if (states.includes("leading")) return "leading";
@@ -594,6 +635,13 @@ function MarketBidStage({
           const state = categoryState(category);
           const CategoryIcon = categoryIcons[category];
           const active = category === activeCategory;
+          const initialCap =
+            agent?.initialCapCents ??
+            search?.allocation.maxBudgetCents ??
+            0;
+          const granted = agent?.grantedCents ?? 0;
+          const effectiveCap =
+            agent?.effectiveCapCents ?? initialCap + granted;
 
           return (
             <button
@@ -623,11 +671,19 @@ function MarketBidStage({
                     : "wallet funding…"}
                 </code>
               </span>
-              <b>
-                {formatUsd(
-                  search?.allocation.maxBudgetCents ?? 0,
+              <span
+                className={styles.marketAgentCap}
+                title={
+                  granted > 0
+                    ? `${formatUsd(initialCap)} initial mandate plus ${formatUsd(granted)} on-chain contingency`
+                    : `${formatUsd(initialCap)} funded mandate`
+                }
+              >
+                <b>{formatUsd(effectiveCap)}</b>
+                {granted > 0 && (
+                  <small>+{formatUsd(granted)} grant</small>
                 )}
-              </b>
+              </span>
             </button>
           );
         })}
@@ -680,7 +736,11 @@ function MarketBidStage({
 
               <div className={styles.focusPrice}>
                 <span>
-                  {focus.sold ? "Final clearing price" : "Highest bid"}
+                  {focusSettlement
+                    ? "Final clearing price"
+                    : focus.sold
+                      ? "Settlement indexing"
+                      : "Highest bid"}
                 </span>
                 <strong>{formatUsd(currentPrice)}</strong>
                 <small>
@@ -699,8 +759,18 @@ function MarketBidStage({
                   <b style={{ left: `${priceProgress}%` }} />
                 </div>
                 <div>
-                  <span>Agent mandate</span>
+                  <span>
+                    {focusGranted > 0
+                      ? "Effective cap"
+                      : "Agent mandate"}
+                  </span>
                   <strong>{formatUsd(focusCap)}</strong>
+                  {focusGranted > 0 && (
+                    <small>
+                      {formatUsd(initialFocusCap)} initial · +
+                      {formatUsd(focusGranted)} contingency
+                    </small>
+                  )}
                 </div>
               </div>
 
@@ -724,7 +794,7 @@ function MarketBidStage({
                 </div>
               </div>
 
-              {focusState === "won" && (
+              {focusSettlement?.yours && (
                 <div className={styles.focusSettlement}>
                   <span>
                     <Check size={15} aria-hidden="true" />
@@ -734,8 +804,9 @@ function MarketBidStage({
                     <strong>
                       NATA payment sent · claim NFT received
                     </strong>
+                    <code>{focusSettlement.transactionId}</code>
                   </div>
-                  <b>{formatUsd(currentPrice)}</b>
+                  <b>{formatUsd(focusSettlement.amountCents)}</b>
                 </div>
               )}
 
@@ -760,8 +831,34 @@ function MarketBidStage({
                   Live HCS topic
                   <ExternalLink size={9} aria-hidden="true" />
                 </a>
+                {focusSettlement && (
+                  <a
+                    href={hashscanTransactionUrl(
+                      focusSettlement.transactionId,
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Check size={12} aria-hidden="true" />
+                    Atomic swap
+                    <ExternalLink size={9} aria-hidden="true" />
+                  </a>
+                )}
+                {focusGrantTransaction && (
+                  <a
+                    href={hashscanTransactionUrl(
+                      focusGrantTransaction.transactionId,
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <WalletCards size={12} aria-hidden="true" />
+                    Budget grant
+                    <ExternalLink size={9} aria-hidden="true" />
+                  </a>
+                )}
                 <span>
-                  Every bid is matched to its Hedera payer account.
+                  Bids match their payer; lifecycle events match clearing.
                 </span>
               </footer>
             </article>
@@ -778,39 +875,81 @@ function MarketBidStage({
                 </b>
               </header>
               <ol>
-                {recentFocusBids.map((bid, index) => (
-                  <li
-                    key={bid.sequenceNumber}
-                    className={bid.yours ? styles.yourMarketBid : ""}
-                    data-newest={index === 0 || undefined}
-                  >
-                    <span>
-                      {bid.yours ? (
-                        <Check size={11} aria-hidden="true" />
-                      ) : (
-                        <Store size={11} aria-hidden="true" />
+                {recentFocusEvents.map((event, index) => {
+                  const yours =
+                    "yours" in event && event.yours;
+                  const amount =
+                    "amountCents" in event
+                      ? event.amountCents
+                      : undefined;
+                  const title =
+                    event.type === "LISTED"
+                      ? "Clearing opened the listing"
+                      : event.type === "CLOSED"
+                        ? "Clearing closed bidding"
+                        : event.type === "FORFEITED"
+                          ? yours
+                            ? "Your claim window expired"
+                            : `Bidder ${shortAccount(event.bidder)} forfeited`
+                          : event.type === "SETTLED"
+                            ? yours
+                              ? "Your atomic swap settled"
+                              : `Bidder ${shortAccount(event.bidder)} settled`
+                            : yours
+                              ? "Your agent placed a bid"
+                              : `Rival ${shortAccount(event.bidder)} raised`;
+                  const detail =
+                    event.type === "SETTLED"
+                      ? event.transactionId
+                      : "bidder" in event
+                        ? event.bidder
+                        : event.payerAccountId;
+
+                  return (
+                    <li
+                      key={event.sequenceNumber}
+                      className={
+                        yours ? styles.yourMarketEvent : ""
+                      }
+                      data-kind={event.type.toLowerCase()}
+                      data-newest={index === 0 || undefined}
+                    >
+                      <span>
+                        {event.type === "SETTLED" ? (
+                          <CheckCircle2 size={11} aria-hidden="true" />
+                        ) : event.type === "FORFEITED" ? (
+                          <X size={11} aria-hidden="true" />
+                        ) : event.type === "CLOSED" ? (
+                          <Gavel size={11} aria-hidden="true" />
+                        ) : event.type === "LISTED" ? (
+                          <Radio size={11} aria-hidden="true" />
+                        ) : yours ? (
+                          <Check size={11} aria-hidden="true" />
+                        ) : (
+                          <Store size={11} aria-hidden="true" />
+                        )}
+                      </span>
+                      <div>
+                        <small>
+                          HCS {event.type} #{event.sequenceNumber}
+                        </small>
+                        <strong>{title}</strong>
+                        <code>{detail}</code>
+                      </div>
+                      {amount !== undefined && (
+                        <b>{formatUsd(amount)}</b>
                       )}
-                    </span>
-                    <div>
-                      <small>HCS MESSAGE #{bid.sequenceNumber}</small>
-                      <strong>
-                        {bid.yours
-                          ? "Your agent placed a bid"
-                          : `Rival ${shortAccount(bid.bidder)} raised`}
-                      </strong>
-                      <code>{bid.bidder}</code>
-                    </div>
-                    <b>{formatUsd(bid.amountCents)}</b>
-                  </li>
-                ))}
-                {recentFocusBids.length === 0 && (
+                    </li>
+                  );
+                })}
+                {recentFocusEvents.length === 0 && (
                   <li className={styles.awaitingBid}>
                     <span>
                       <Clock3 size={12} aria-hidden="true" />
                     </span>
                     <div>
                       <small>TOPIC OPEN</small>
-                      <strong>Waiting for the first signed bid</strong>
+                      <strong>Waiting for authenticated HCS evidence</strong>
                       <code>{focus.topicId}</code>
                     </div>
                   </li>
@@ -818,8 +957,8 @@ function MarketBidStage({
               </ol>
               <footer>
                 <span>
-                  Latest {Math.min(7, recentFocusBids.length)} of{" "}
-                  {focusBids.length} messages
+                  Latest {Math.min(7, recentFocusEvents.length)} of{" "}
+                  {focusEvents.length} authenticated events
                 </span>
                 <a
                   href={`https://hashscan.io/testnet/topic/${focus.topicId}`}
@@ -850,8 +989,16 @@ function MarketBidStage({
             <div>
               {otherListings.map((listing) => {
                 const bids = live.bidsByItem[listing.itemId] ?? [];
+                const events =
+                  live.ledgerEventsByItem[listing.itemId] ?? [];
                 const high = highestMarketBid(bids);
-                const state = listingVisualState(listing, bids);
+                const settlement =
+                  marketSettlementFromEvents(events);
+                const state = listingVisualState(
+                  listing,
+                  bids,
+                  events,
+                );
                 return (
                   <button
                     type="button"
@@ -870,7 +1017,9 @@ function MarketBidStage({
                       <small>{marketStateLabel(state)}</small>
                       <strong>
                         {formatUsd(
-                          high?.amountCents ?? listing.floorCents,
+                          settlement?.amountCents ??
+                            high?.amountCents ??
+                            listing.floorCents,
                         )}
                       </strong>
                     </div>
@@ -1507,11 +1656,7 @@ function BundleGrid({
   searches: MockAgentSearch[];
   result: DemoResult;
   lostCategories?: string[];
-  agentAccounts?: Array<{
-    category: string;
-    accountId: string;
-    buyerName: string;
-  }>;
+  agentAccounts?: LiveAuctionView["agents"];
 }) {
   const isLost = (search: MockAgentSearch) =>
     !result.receipts.some(
@@ -1562,10 +1707,12 @@ function BundleGrid({
         );
         const onChain = receipt?.status === "hedera-settled";
         const lost = isLost(search);
-        const agentAccountId = agentAccounts.find(
+        const agent = agentAccounts.find(
           (agent) =>
             agent.category === search.allocation.category,
-        )?.accountId;
+        );
+        const agentAccountId = agent?.accountId;
+        const grantTransaction = agent?.grantTransactions?.at(-1);
         const CategoryIcon = categoryIcons[search.allocation.category];
         const visibleTags =
           search.matchedTags.length > 0
@@ -1657,6 +1804,23 @@ function BundleGrid({
                       rel="noreferrer"
                     >
                       HCS auction proof
+                      <ExternalLink size={9} aria-hidden="true" />
+                      </a>
+                    )}
+                  {receipt.liveGrantedCents !== undefined && (
+                    <span>
+                      +{formatUsd(receipt.liveGrantedCents)} contingency
+                    </span>
+                  )}
+                  {grantTransaction && (
+                    <a
+                      href={hashscanTransactionUrl(
+                        grantTransaction.transactionId,
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Budget grant
                       <ExternalLink size={9} aria-hidden="true" />
                     </a>
                   )}

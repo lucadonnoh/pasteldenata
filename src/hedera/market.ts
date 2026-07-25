@@ -73,6 +73,16 @@ export type MarketEvent =
       buyerName: string;
       category: string;
       accountId: string;
+      initialCapCents: number;
+    }
+  | {
+      type: "BUDGET_GRANTED";
+      buyerName: string;
+      category: string;
+      accountId: string;
+      grantedCents: number;
+      effectiveCapCents: number;
+      transactionId: string;
     }
   | { type: "ITEM_SOLD"; itemId: string; category: string }
   | { type: "BUYER_DONE"; buyerName: string; category: string; lost: boolean };
@@ -640,6 +650,7 @@ async function runMarketLeaf(
     buyerName: buyer.name,
     category: allocation.category,
     accountId: wallet.accountId,
+    initialCapCents: allocation.maxBudgetCents,
   });
 
   return new Promise<MarketLeafRun>((resolve, reject) => {
@@ -892,28 +903,40 @@ async function runMarketLeaf(
           }
           const granted = Math.min(message.neededCents, available);
           shared.contingency[buyerIndex] = available - granted;
+          let transactionId: string | undefined;
           try {
             if (granted > 0) {
-              await (
-                await new TransferTransaction()
-                  .addTokenTransfer(
-                    ctx.infra.paymentTokenId,
-                    ctx.operatorId,
-                    -granted,
-                  )
-                  .addTokenTransfer(
-                    ctx.infra.paymentTokenId,
-                    wallet.accountId,
-                    granted,
-                  )
-                  .execute(ctx.client)
-              ).getReceipt(ctx.client);
+              const response = await new TransferTransaction()
+                .addTokenTransfer(
+                  ctx.infra.paymentTokenId,
+                  ctx.operatorId,
+                  -granted,
+                )
+                .addTokenTransfer(
+                  ctx.infra.paymentTokenId,
+                  wallet.accountId,
+                  granted,
+                )
+                .execute(ctx.client);
+              await response.getReceipt(ctx.client);
+              transactionId = response.transactionId.toString();
               runtime.fundedCents += granted;
             }
           } catch (error) {
             shared.contingency[buyerIndex] =
               (shared.contingency[buyerIndex] ?? 0) + granted;
             throw error;
+          }
+          if (granted > 0 && transactionId) {
+            shared.onEvent({
+              type: "BUDGET_GRANTED",
+              buyerName: buyer.name,
+              category: allocation.category,
+              accountId: wallet.accountId,
+              grantedCents: granted,
+              effectiveCapCents: runtime.fundedCents,
+              transactionId,
+            });
           }
           sendToLeaf({ type: "BUDGET_GRANTED", grantedCents: granted });
           break;
