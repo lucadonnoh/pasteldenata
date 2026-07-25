@@ -1010,7 +1010,14 @@ function MarketBidStage({
                       <Store size={12} aria-hidden="true" />
                     </span>
                     <div>
-                      <small>{listing.sellerName}</small>
+                      <small>
+                        {listing.sellerName}
+                        {listing.humanPolicy === "one-per-human" && (
+                          <i className={styles.humanGate} title="One allocation per verified human (World ID)">
+                            1/human
+                          </i>
+                        )}
+                      </small>
                       <strong>{listing.offering}</strong>
                     </div>
                     <div>

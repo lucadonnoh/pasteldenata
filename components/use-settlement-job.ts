@@ -38,6 +38,7 @@ export interface LiveAgentView {
 
 export interface MarketListingView {
   itemId: string;
+  humanPolicy?: "open" | "one-per-human";
   topicId: string;
   category: string;
   sellerId: string;

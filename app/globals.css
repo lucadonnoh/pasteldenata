@@ -2698,3 +2698,21 @@ main {
   margin-left: 6px;
   font-size: 10px;
 }
+
+.world-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(176, 74, 58, 0.85);
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.world-note:hover {
+  text-decoration: underline;
+}
+
+.world-note-ok {
+  color: #568738;
+}

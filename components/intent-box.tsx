@@ -5,8 +5,10 @@ import {
   ChevronLeft,
   KeyRound,
   ShieldCheck,
+  UserCheck,
   Sparkles,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   FormEvent,
@@ -44,6 +46,19 @@ export function IntentBox() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [departing, setDeparting] = useState(false);
+  const [worldVerified, setWorldVerified] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const raw = window.localStorage.getItem("pastel-world-identity");
+        const stored = raw ? (JSON.parse(raw) as { humanId?: string }) : null;
+        setWorldVerified(Boolean(stored?.humanId));
+      } catch {
+        setWorldVerified(false);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [credentialPanelState, setCredentialPanelState] =
     useState<CredentialPanelState>("open");
   const hasUsableKey = isUsableZeroGKey(apiKey);
@@ -332,6 +347,18 @@ export function IntentBox() {
                 <ShieldCheck size={13} />
                 Direct to 0G · verified TEE required
               </div>
+              <Link
+                className={worldVerified ? "world-note world-note-ok" : "world-note"}
+                href="/world"
+                title={
+                  worldVerified
+                    ? "Your agents are backed by your World ID"
+                    : "Scarce listings are one-per-human — verify to bid on them"
+                }
+              >
+                <UserCheck size={13} />
+                {worldVerified ? "Human-backed · World ID" : "Not verified · scarce listings locked"}
+              </Link>
               <div className="character-count">
                 <span>⌘ ENTER</span>
                 <b>{intent.length.toString().padStart(4, "0")}</b>
