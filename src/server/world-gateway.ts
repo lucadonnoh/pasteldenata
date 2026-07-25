@@ -177,12 +177,10 @@ export class WorldGateway {
  * been registered with `npx @worldcoin/agentkit-cli register <address>`.
  */
 export async function createHumanResolver(): Promise<HumanResolver> {
-  if (process.env.WORLD_AGENTBOOK === "real") {
-    const { createAgentBookVerifier } = await import("@worldcoin/agentkit");
-    const verifier = createAgentBookVerifier();
-    return {
-      lookupHuman: (address: string) => verifier.lookupHuman(address),
-    };
-  }
-  return new MockAgentBook();
+  if (process.env.WORLD_AGENTBOOK === "mock") return new MockAgentBook();
+  const { createAgentBookVerifier } = await import("@worldcoin/agentkit");
+  const verifier = createAgentBookVerifier();
+  return {
+    lookupHuman: (address: string) => verifier.lookupHuman(address),
+  };
 }

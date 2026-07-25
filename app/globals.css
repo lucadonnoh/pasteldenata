@@ -2565,3 +2565,136 @@ main {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ─── World AgentKit verification ─────────────────────────────────────── */
+
+.world-page {
+  display: grid;
+  min-height: 100vh;
+  padding: 48px 20px;
+  place-items: center;
+}
+
+.world-verify {
+  display: grid;
+  gap: 14px;
+  width: min(460px, 100%);
+  padding: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(18px);
+}
+
+.world-verify > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.world-verify > header span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: rgba(86, 135, 56, 0.14);
+  color: #568738;
+  place-items: center;
+}
+
+.world-verify > header small {
+  display: block;
+  color: rgba(36, 39, 44, 0.45);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+}
+
+.world-verify > p {
+  margin: 0;
+  color: rgba(36, 39, 44, 0.62);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.world-verify dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.world-verify dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.world-verify dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(36, 39, 44, 0.45);
+  font-size: 9px;
+  font-weight: 640;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.world-verify dd {
+  margin: 0;
+  font-size: 10px;
+}
+
+.world-verify dd code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.world-verify button {
+  padding: 11px 16px;
+  border: none;
+  border-radius: 12px;
+  background: #25282e;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.world-scan {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+}
+
+.world-scan img {
+  border-radius: 14px;
+}
+
+.world-scan p,
+.world-status {
+  margin: 0;
+  color: rgba(36, 39, 44, 0.6);
+  font-size: 11px;
+}
+
+.world-scan a,
+.world-status a {
+  color: #568738;
+}
+
+.world-error {
+  color: #b04a3a;
+}
+
+.world-error button {
+  padding: 4px 10px;
+  margin-left: 6px;
+  font-size: 10px;
+}

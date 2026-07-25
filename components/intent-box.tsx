@@ -131,6 +131,19 @@ export function IntentBox() {
         plan: purchase.plan,
         auctions: purchase.auctions,
         mode: "market",
+        ...(() => {
+          try {
+            const raw = window.localStorage.getItem("pastel-world-identity");
+            const stored = raw
+              ? (JSON.parse(raw) as { address?: string; humanId?: string })
+              : null;
+            return stored?.humanId && stored.address
+              ? { identityAgent: stored.address }
+              : {};
+          } catch {
+            return {};
+          }
+        })(),
       }),
     })
       .then(async (response) => {

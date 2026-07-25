@@ -27,7 +27,10 @@ export async function POST(request: Request) {
       body.plan,
       body.auctions,
       body.mode,
-      { scalperMode: body.worldDemo === "scalper" },
+      {
+        scalperMode: body.worldDemo === "scalper",
+        ...(body.identityAgent ? { identityAgent: body.identityAgent } : {}),
+      },
     );
     return NextResponse.json({ jobId: job.id });
   } catch (error) {

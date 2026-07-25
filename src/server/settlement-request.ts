@@ -110,6 +110,10 @@ const SettlementRequestSchema = z
     auctions: z.array(AuctionSchema).min(1).max(CATEGORIES.length),
     mode: z.enum(["live", "market"]).default("market"),
     worldDemo: z.enum(["scalper"]).optional(),
+    identityAgent: z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/)
+      .optional(),
   })
   .superRefine(({ plan, auctions }, context) => {
     const roster = sellersForLocation(plan.location);
@@ -169,6 +173,7 @@ export interface ParsedSettlementRequest {
   auctions: AuctionResult[];
   mode: SettlementMode;
   worldDemo?: "scalper";
+  identityAgent?: string;
 }
 
 export function parseSettlementRequest(input: unknown): ParsedSettlementRequest {

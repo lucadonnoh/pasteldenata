@@ -46,6 +46,8 @@ export interface JobListing {
 export interface JobWorld {
   enabled: boolean;
   scalperMode: boolean;
+  /** False once a real AgentBook identity backs the user. */
+  userSimulated?: boolean;
   passesIssued: number;
   sybilRejections: number;
   notHumanBacked: number;
@@ -61,6 +63,8 @@ export interface SettlementJob {
   id: string;
   status: "running" | "done" | "failed";
   mode: SettlementMode;
+  /** Browser-registered identity agent backing the user, when provided. */
+  identityAgent?: string;
   /** Clearing payer used to authenticate HCS lifecycle messages. */
   clearingAccountId?: string;
   /** Real leaf wallets, streamed as they are created and funded. */
@@ -120,6 +124,8 @@ function prune(): void {
 export interface SettlementJobOptions {
   /** Demo switch: all rival buyers share one underlying human. */
   scalperMode?: boolean;
+  /** Browser-registered identity agent (AgentBook, World Chain). */
+  identityAgent?: string;
 }
 
 export function startSettlementJob(
@@ -139,6 +145,7 @@ export function startSettlementJob(
     id: randomUUID(),
     status: "running",
     mode,
+    ...(options.identityAgent ? { identityAgent: options.identityAgent } : {}),
     agents: [],
     auctions: [],
     listings: [],
@@ -291,9 +298,16 @@ async function execute(
     const rivalBook = new MockAgentBook();
     const identityByBuyer = new Map<string, string>();
     const userIdentity =
-      process.env.WORLD_IDENTITY_AGENT ?? "0xYouIdentityAgent";
+      job.identityAgent ??
+      process.env.WORLD_IDENTITY_AGENT ??
+      "0xYouIdentityAgent";
+    const userIsSimulated =
+      !job.identityAgent && !process.env.WORLD_IDENTITY_AGENT;
     identityByBuyer.set(USER_BUYER_NAME, userIdentity);
-    rivalBook.registerAgent(userIdentity, "you");
+    // A real identity must resolve through the canonical AgentBook; only
+    // the default dev persona lives on the mock book.
+    if (userIsSimulated) rivalBook.registerAgent(userIdentity, "you");
+    if (job.world) job.world.userSimulated = userIsSimulated;
     for (const rival of rivals) {
       const address = `0x${rival.name}IdentityAgent`;
       identityByBuyer.set(rival.name, address);
