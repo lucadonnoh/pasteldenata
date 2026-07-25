@@ -15,6 +15,11 @@ import styles from "@/app/market/market.module.css";
 
 export function MarketWorkspace() {
   const { result, settlement, settlementError } = usePurchaseSession();
+  const onChainReceipts =
+    usePurchaseSession().result?.receipts.filter(
+      (receipt) => receipt.status === "hedera-settled",
+    ).length ?? 0;
+  const partial = settlement === "failed" && onChainReceipts > 0;
   const live = useSettlementJob();
 
   if (!result) {
@@ -38,7 +43,7 @@ export function MarketWorkspace() {
       {settlement !== "idle" && (
         <div
           className={`${styles.settlementStrip} ${
-            settlement === "settled"
+            settlement === "settled" || partial
               ? styles.settlementOk
               : settlement === "failed"
                 ? styles.settlementFailed
@@ -53,7 +58,10 @@ export function MarketWorkspace() {
             <strong>
               {settlement === "pending" && "Hedera settlement in progress"}
               {settlement === "settled" && "Settled on Hedera testnet"}
-              {settlement === "failed" && "Hedera settlement unavailable — showing the simulation"}
+              {settlement === "failed" &&
+                (partial
+                  ? `Your bundle settled on-chain — ${onChainReceipts} purchase${onChainReceipts === 1 ? "" : "s"} confirmed`
+                  : "Hedera settlement unavailable — showing the simulation")}
             </strong>
             <p>
               {settlement === "pending" &&
@@ -63,14 +71,16 @@ export function MarketWorkspace() {
                   ? `NATA ${result.hedera.paymentTokenId} · buyer wallet ${result.hedera.buyerAccountId} · receipts link to HashScan below`
                   : "Receipts link to HashScan below.")}
               {settlement === "failed" &&
-                (settlementError ||
-                  "The local coordinator could not settle on testnet; the mock trace below is unaffected.")}
+                (partial
+                  ? `Reconciliation flagged issues elsewhere in the market: ${settlementError || "see the coordinator log."}`
+                  : settlementError ||
+                    "The local coordinator could not settle on testnet; the mock trace below is unaffected.")}
             </p>
           </div>
           <b>
             {settlement === "pending"
               ? "LIVE"
-              : settlement === "settled"
+              : settlement === "settled" || partial
                 ? "ON-CHAIN"
                 : "SIMULATED"}
           </b>
