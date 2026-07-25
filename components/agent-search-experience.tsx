@@ -80,6 +80,13 @@ function describeMarketProgress(
     yourPurchases > 0
       ? "Your confirmed swaps are final."
       : "Your agents have finished without overspending.";
+  const rivalAgentTotal = Math.max(
+    0,
+    progress.totalAgents - yourTotal,
+  );
+  const rivalBuyerLabel = `${live.rivals.length} demo rival buyer${
+    live.rivals.length === 1 ? "" : "s"
+  }`;
   switch (progress.phase) {
     case "preparing-market":
       return {
@@ -150,9 +157,9 @@ function describeMarketProgress(
               : "Your agents finished without overspending.",
           description:
             remainingAgents > 0
-              ? `Your outcome is final. Waiting for ${remainingAgents} rival buyer agent${remainingAgents === 1 ? "" : "s"} to finish before wallet reconciliation starts.`
-              : "All buyer agents have finished. Wallet reconciliation starts next.",
-          counter: `${progress.resolvedAgents}/${progress.totalAgents} all agents`,
+              ? `Your outcome is final. ${remainingAgents} of the ${rivalAgentTotal} agents representing the ${rivalBuyerLabel} are still bidding. Wallet reconciliation starts after they finish.`
+              : "All scoped buyer agents have finished. Wallet reconciliation starts next.",
+          counter: `${progress.resolvedAgents} of ${progress.totalAgents} finished`,
           percent: ratioPercent(
             progress.resolvedAgents,
             progress.totalAgents,
@@ -162,9 +169,8 @@ function describeMarketProgress(
       return {
         stage: "ASCENDING AUCTIONS · ON-CHAIN",
         title: "Buyer agents are competing for scarce items.",
-        description:
-          "Authenticated bids raise seller floors. Each agent can spend only the mandate held by its isolated Hedera wallet.",
-        counter: `${progress.resolvedAgents}/${progress.totalAgents || "—"} all agents`,
+        description: `This run has ${progress.totalAgents} scoped buyer agents: ${yourTotal} for your plan and ${rivalAgentTotal} for the ${rivalBuyerLabel}. ${progress.resolvedAgents} have either settled or stopped bidding.`,
+        counter: `${progress.resolvedAgents} of ${progress.totalAgents || "—"} finished`,
         percent: ratioPercent(
           progress.resolvedAgents,
           progress.totalAgents,
@@ -721,7 +727,7 @@ function MarketBidStage({
             <dd>{live.agents.length}</dd>
           </div>
           <div>
-            <dt>All agents resolved</dt>
+            <dt>Buyer agents finished</dt>
             <dd>
               {live.progress.resolvedAgents}/
               {live.progress.totalAgents || "—"}
