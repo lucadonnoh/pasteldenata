@@ -48,6 +48,8 @@ export function settleMockPayments(
       mandateId: auction.mandate.id,
       sellerId: auction.winner.sellerId,
       sellerName: auction.winner.sellerName,
+      listingId: auction.winner.listingId,
+      offering: auction.winner.offering,
       category: auction.category,
       amountCents: auction.winner.amountCents,
       currency: plan.currency,

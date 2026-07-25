@@ -78,7 +78,7 @@ export function SellerStudio() {
 
           <div className="compact-fields">
             <label>
-              <span className="field-caption">PRICE</span>
+              <span className="field-caption">OPENING FLOOR</span>
               <div className="input-with-prefix">
                 <b>€</b>
                 <input
@@ -182,7 +182,7 @@ export function SellerStudio() {
               </div>
 
               <div className="preview-price">
-                <span>From</span>
+                <span>Auction starts at</span>
                 <strong>€{price || "—"}</strong>
               </div>
             </div>
