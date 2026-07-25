@@ -26,7 +26,7 @@ import { createHmac, createHash, randomBytes } from "node:crypto";
  * would remove that trust point; that is roadmap, not weekend.
  */
 
-export type HumanPolicy = "open" | "one-per-human";
+export type { HumanPolicy } from "../domain";
 
 export interface AuctionPass {
   auctionId: string;

@@ -8,6 +8,13 @@ import { HederaPartialSettlementError } from "../hedera/settle";
 import { settleWithSwarm } from "../hedera/swarm";
 import type { SettlementResult } from "../orchestrator";
 import { MockPrivatePlanner } from "../planner";
+import {
+  createHumanResolver,
+  MockAgentBook,
+  WorldGateway,
+  type AuctionPass,
+  type HumanResolver,
+} from "./world-gateway";
 
 export type SettlementMode = "live" | "market";
 
@@ -33,6 +40,21 @@ export interface JobListing {
   offering: string;
   floorCents: number;
   sold: boolean;
+  humanPolicy?: "open" | "one-per-human";
+}
+
+export interface JobWorld {
+  enabled: boolean;
+  scalperMode: boolean;
+  passesIssued: number;
+  sybilRejections: number;
+  notHumanBacked: number;
+  blocked: Array<{
+    buyerName: string;
+    category: string;
+    itemId: string;
+    reason: string;
+  }>;
 }
 
 export interface SettlementJob {
@@ -61,6 +83,7 @@ export interface SettlementJob {
   settledCategories: string[];
   /** Market mode: categories where the user's agent was outbid everywhere. */
   lostCategories: string[];
+  world?: JobWorld;
   result?: SettlementResult;
   error?: string;
   createdAt: number;
@@ -94,10 +117,16 @@ function prune(): void {
   }
 }
 
+export interface SettlementJobOptions {
+  /** Demo switch: all rival buyers share one underlying human. */
+  scalperMode?: boolean;
+}
+
 export function startSettlementJob(
   plan: PrivatePlan,
   auctions: AuctionResult[],
   mode: SettlementMode,
+  options: SettlementJobOptions = {},
 ): SettlementJob {
   prune();
   const active = [...jobs.values()].find((job) => job.status === "running");
@@ -116,6 +145,18 @@ export function startSettlementJob(
     rivals: mode === "market" ? RIVAL_PERSONAS.map((p) => p.name) : [],
     settledCategories: [],
     lostCategories: [],
+    ...(mode === "market"
+      ? {
+          world: {
+            enabled: true,
+            scalperMode: options.scalperMode === true,
+            passesIssued: 0,
+            sybilRejections: 0,
+            notHumanBacked: 0,
+            blocked: [],
+          },
+        }
+      : {}),
     createdAt: Date.now(),
   };
   jobs.set(job.id, job);
@@ -240,7 +281,89 @@ async function execute(
       MARKET_LEAF_FLOAT_HBAR,
     );
 
+    // World AgentKit: one-per-human listings require an auction-scoped pass.
+    // The user's identity agent resolves through the configured resolver
+    // (real AgentBook with WORLD_AGENTBOOK=real); rival personas are
+    // simulated humans on a mock book. In scalper mode all rivals share ONE
+    // underlying human, so the gateway collapses them to a single
+    // allocation per protected item — the live sybil demo.
+    const scalperMode = job.world?.scalperMode === true;
+    const rivalBook = new MockAgentBook();
+    const identityByBuyer = new Map<string, string>();
+    const userIdentity =
+      process.env.WORLD_IDENTITY_AGENT ?? "0xYouIdentityAgent";
+    identityByBuyer.set(USER_BUYER_NAME, userIdentity);
+    rivalBook.registerAgent(userIdentity, "you");
+    for (const rival of rivals) {
+      const address = `0x${rival.name}IdentityAgent`;
+      identityByBuyer.set(rival.name, address);
+      rivalBook.registerAgent(address, scalperMode ? "scalper" : rival.name);
+    }
+    const baseResolver: HumanResolver = await createHumanResolver();
+    const resolver: HumanResolver = {
+      // Rivals and (in dev) the user live on the mock book; anything else
+      // falls through to the configured resolver (the real AgentBook when
+      // WORLD_AGENTBOOK=real).
+      lookupHuman: async (address) =>
+        (await rivalBook.lookupHuman(address)) ??
+        (await baseResolver.lookupHuman(address)),
+    };
+    const gateway = new WorldGateway(resolver);
+    const passes = new Map<string, AuctionPass>();
+    const refusals = new Map<string, string>();
+    const enrollments: Promise<void>[] = [];
+
+    const syncWorldStats = () => {
+      if (!job.world) return;
+      job.world.passesIssued = gateway.stats.passesIssued;
+      job.world.sybilRejections = gateway.stats.sybilRejections;
+      job.world.notHumanBacked = gateway.stats.notHumanBacked;
+    };
+
+    const enrollAgent = async (
+      buyerName: string,
+      category: string,
+      leafWallet: string,
+    ): Promise<void> => {
+      const identityAgent = identityByBuyer.get(buyerName);
+      if (!identityAgent) return;
+      const protectedItems = job.listings.filter(
+        (listing) =>
+          listing.category === category &&
+          listing.humanPolicy === "one-per-human",
+      );
+      for (const listing of protectedItems) {
+        const enrollment = await gateway.enroll({
+          auctionId: listing.itemId,
+          identityAgent,
+          leafWallet,
+        });
+        if (enrollment.ok && enrollment.pass) {
+          passes.set(`${listing.itemId}|${leafWallet}`, enrollment.pass);
+        } else {
+          refusals.set(
+            `${listing.itemId}|${leafWallet}`,
+            enrollment.reason ?? "enrollment refused",
+          );
+        }
+      }
+      syncWorldStats();
+    };
+
     const market = await runMarket(buyers, { ...ctx, infra }, {
+      authorizePurchase: async ({ itemId, buyerName, leafWallet }) => {
+        await Promise.all(enrollments);
+        const pass = passes.get(`${itemId}|${leafWallet}`);
+        if (pass && gateway.verifyPass(pass, itemId, leafWallet)) {
+          return { ok: true };
+        }
+        return {
+          ok: false,
+          reason:
+            refusals.get(`${itemId}|${leafWallet}`) ??
+            `${buyerName}'s agent holds no auction pass for this item.`,
+        };
+      },
       onEvent: (event) => {
         switch (event.type) {
           case "LISTING_OPEN":
@@ -253,9 +376,13 @@ async function execute(
               offering: event.offering,
               floorCents: event.floorCents,
               sold: false,
+              humanPolicy: event.humanPolicy,
             });
             break;
           case "AGENT_FUNDED":
+            enrollments.push(
+              enrollAgent(event.buyerName, event.category, event.accountId),
+            );
             job.agents.push({
               category: event.category,
               accountId: event.accountId,
@@ -287,6 +414,14 @@ async function execute(
             if (listing) listing.sold = true;
             break;
           }
+          case "PURCHASE_BLOCKED":
+            job.world?.blocked.push({
+              buyerName: event.buyerName,
+              category: event.category,
+              itemId: event.itemId,
+              reason: event.reason,
+            });
+            break;
           case "BUYER_DONE":
             if (event.buyerName !== USER_BUYER_NAME) break;
             if (event.lost) job.lostCategories.push(event.category);

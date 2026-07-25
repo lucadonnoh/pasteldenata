@@ -8,6 +8,7 @@ import {
 } from "@hashgraph/sdk";
 import { sellersForLocation } from "../catalog";
 import type {
+  HumanPolicy,
   Category,
   PaymentReceipt,
   PlanAllocation,
@@ -67,6 +68,7 @@ export type MarketEvent =
       sellerName: string;
       offering: string;
       floorCents: number;
+      humanPolicy: HumanPolicy;
     }
   | {
       type: "AGENT_FUNDED";
@@ -85,10 +87,37 @@ export type MarketEvent =
       transactionId: string;
     }
   | { type: "ITEM_SOLD"; itemId: string; category: string }
+  | {
+      type: "PURCHASE_BLOCKED";
+      itemId: string;
+      category: string;
+      buyerName: string;
+      leafWallet: string;
+      reason: string;
+    }
   | { type: "BUYER_DONE"; buyerName: string; category: string; lost: boolean };
+
+export interface PurchaseAuthorization {
+  ok: boolean;
+  reason?: string;
+}
 
 export interface MarketOptions {
   onEvent?: (event: MarketEvent) => void;
+  /**
+   * Seller-side access control for protected listings (World AgentKit):
+   * consulted before a buyer may settle a one-per-human item. Absent hook
+   * means every listing behaves as open.
+   */
+  authorizePurchase?: (input: {
+    itemId: string;
+    listingId: string;
+    sellerId: string;
+    humanPolicy: HumanPolicy;
+    buyerName: string;
+    buyerIndex: number;
+    leafWallet: string;
+  }) => Promise<PurchaseAuthorization>;
 }
 
 export interface MarketOutcome {
@@ -156,6 +185,7 @@ interface SharedMarketState {
   >;
   itemActions: Map<string, Promise<void>>;
   pendingCloses: Set<string>;
+  authorizePurchase: MarketOptions["authorizePurchase"];
   pendingForfeitures: Map<string, string>;
   contingency: number[];
   runtimes: MarketRuntime[];
@@ -241,6 +271,7 @@ export async function runMarket(
               category: seller.category,
               floorCents: item.floorPriceCents,
               quantity: 1,
+              humanPolicy: seller.humanPolicy ?? "open",
             });
             onEvent({
               type: "LISTING_OPEN",
@@ -251,9 +282,11 @@ export async function runMarket(
               sellerName: seller.name,
               offering: item.offering,
               floorCents: item.floorPriceCents,
+              humanPolicy: seller.humanPolicy ?? "open",
             });
             return {
               itemId,
+              humanPolicy: seller.humanPolicy ?? "open",
               listingId: item.id,
               topicId: log.topicId,
               topicSubmitKey: log.submitKeyDer,
@@ -366,6 +399,7 @@ export async function runMarket(
     contingency: buyers.map((buyer) => buyer.plan.unallocatedBudgetCents),
     runtimes: [],
     onEvent,
+    authorizePurchase: options.authorizePurchase,
   };
   const tasks = buyers.flatMap((buyer, buyerIndex) =>
     buyer.plan.allocations.map((allocation) => ({
@@ -959,6 +993,30 @@ async function runMarketLeaf(
           if (shared.sold.has(listing.itemId)) {
             sendToLeaf({ type: "PREPARE_REJECTED" });
             break;
+          }
+          const policy = listing.humanPolicy ?? "open";
+          if (policy !== "open" && shared.authorizePurchase) {
+            const authorization = await shared.authorizePurchase({
+              itemId: listing.itemId,
+              listingId: listing.listingId,
+              sellerId: listing.sellerId,
+              humanPolicy: policy,
+              buyerName: buyer.name,
+              buyerIndex: runtime.buyerIndex,
+              leafWallet: wallet.accountId,
+            });
+            if (!authorization.ok) {
+              shared.onEvent({
+                type: "PURCHASE_BLOCKED",
+                itemId: listing.itemId,
+                category: allocation.category,
+                buyerName: buyer.name,
+                leafWallet: wallet.accountId,
+                reason: authorization.reason ?? "not authorized",
+              });
+              sendToLeaf({ type: "PREPARE_REJECTED" });
+              break;
+            }
           }
           const closed = await closeAndVerifyAuction(listing, {
             buyerAccountId: wallet.accountId,

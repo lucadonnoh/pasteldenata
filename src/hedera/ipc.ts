@@ -1,4 +1,5 @@
-import type { Category, InventoryAttributes } from "../domain";
+import type {
+  HumanPolicy, Category, InventoryAttributes } from "../domain";
 import type { StoredAccount } from "./infra";
 
 /**
@@ -32,6 +33,8 @@ export interface LeafMandate {
 /** A scarce item listed by a seller: bidding starts at the seller's floor. */
 export interface ContestedListing {
   itemId: string;
+  /** Seller-chosen access policy; defaults to open. */
+  humanPolicy?: HumanPolicy;
   listingId: string;
   topicId: string;
   topicSubmitKey: string;

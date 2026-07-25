@@ -109,6 +109,7 @@ const SettlementRequestSchema = z
     plan: PlanSchema,
     auctions: z.array(AuctionSchema).min(1).max(CATEGORIES.length),
     mode: z.enum(["live", "market"]).default("market"),
+    worldDemo: z.enum(["scalper"]).optional(),
   })
   .superRefine(({ plan, auctions }, context) => {
     const roster = sellersForLocation(plan.location);
@@ -167,6 +168,7 @@ export interface ParsedSettlementRequest {
   plan: PrivatePlan;
   auctions: AuctionResult[];
   mode: SettlementMode;
+  worldDemo?: "scalper";
 }
 
 export function parseSettlementRequest(input: unknown): ParsedSettlementRequest {
