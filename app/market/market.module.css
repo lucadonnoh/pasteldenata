@@ -145,3 +145,72 @@
     animation-duration: 0.001ms;
   }
 }
+
+.settlementStrip {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+  padding: 8px 12px;
+  border: 1px solid rgba(86, 135, 56, 0.22);
+  border-radius: 17px;
+  background: rgba(238, 247, 231, 0.5);
+  color: rgba(44, 54, 38, 0.7);
+}
+
+.settlementStrip > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(86, 135, 56, 0.12);
+  color: #568738;
+}
+
+.settlementStrip strong {
+  display: block;
+  margin-bottom: 2px;
+  color: rgba(40, 48, 35, 0.85);
+  font-size: 10px;
+}
+
+.settlementStrip p {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settlementStrip > b {
+  margin-left: auto;
+  color: #568738;
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+}
+
+.settlementOk {
+  border-color: rgba(86, 135, 56, 0.34);
+}
+
+.settlementFailed {
+  border-color: rgba(176, 74, 58, 0.26);
+  background: rgba(250, 238, 235, 0.55);
+  color: rgba(64, 42, 38, 0.72);
+}
+
+.settlementFailed > span {
+  background: rgba(176, 74, 58, 0.1);
+  color: #b04a3a;
+}
+
+.settlementFailed strong {
+  color: rgba(70, 40, 35, 0.88);
+}
+
+.settlementFailed > b {
+  color: #b04a3a;
+}

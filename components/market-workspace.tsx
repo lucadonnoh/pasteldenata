@@ -51,7 +51,16 @@ export function MarketWorkspace() {
       </div>
 
       {settlement !== "idle" && (
-        <div className={styles.verification} aria-live="polite">
+        <div
+          className={`${styles.settlementStrip} ${
+            settlement === "settled"
+              ? styles.settlementOk
+              : settlement === "failed"
+                ? styles.settlementFailed
+                : ""
+          }`}
+          aria-live="polite"
+        >
           <span>
             <Landmark size={16} />
           </span>
@@ -59,7 +68,7 @@ export function MarketWorkspace() {
             <strong>
               {settlement === "pending" && "Hedera settlement in progress"}
               {settlement === "settled" && "Settled on Hedera testnet"}
-              {settlement === "failed" && "Hedera settlement unavailable"}
+              {settlement === "failed" && "Hedera settlement unavailable — showing the simulation"}
             </strong>
             <p>
               {settlement === "pending" &&
@@ -69,7 +78,8 @@ export function MarketWorkspace() {
                   ? `NATA ${result.hedera.paymentTokenId} · buyer wallet ${result.hedera.buyerAccountId} · receipts link to HashScan below`
                   : "Receipts link to HashScan below.")}
               {settlement === "failed" &&
-                (settlementError || "Showing simulated receipts instead.")}
+                (settlementError ||
+                  "The local coordinator could not settle on testnet; the mock trace below is unaffected.")}
             </p>
           </div>
           <b>
