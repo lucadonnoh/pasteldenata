@@ -10,8 +10,6 @@ import {
 } from "lucide-react";
 import { FormEvent, useState } from "react";
 
-import { CITY_LABELS } from "@/src/catalog";
-
 const categories = ["Dining", "Experience", "Cinema", "Flowers", "Transport"];
 
 export function SellerStudio() {
@@ -136,17 +134,11 @@ export function SellerStudio() {
                 <MapPin size={14} />
                 <input
                   required
-                  list="seller-city-options"
                   value={location}
-                  placeholder="City — pick or type a new one"
+                  placeholder="City"
                   onChange={(event) => setLocation(event.target.value)}
                   aria-label="Listing city"
                 />
-                <datalist id="seller-city-options">
-                  {Object.values(CITY_LABELS).map((city) => (
-                    <option key={city} value={city} />
-                  ))}
-                </datalist>
               </div>
             </label>
           </div>
