@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clapperboard,
   Clock3,
+  ExternalLink,
   Flower2,
   Gavel,
   Palette,
@@ -71,7 +72,13 @@ function statusLabel(replay: MockAuctionReplay): string {
 }
 
 export function AgentSearchExperience({ result }: { result: DemoResult }) {
-  const searches = useMemo(() => createMockAgentSearches(result), [result]);
+  // Settlement replaces the session result with on-chain receipts. Keep the
+  // already-recorded mock trace stable while those receipts arrive.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const searches = useMemo(
+    () => createMockAgentSearches(result),
+    [result.plan.planId],
+  );
   const replays = useMemo(
     () => createMockAuctionReplays(searches),
     [searches],
@@ -170,7 +177,7 @@ function AgentSearchRun({
         />
       ) : (
         <>
-          <BundleGrid searches={searches} />
+          <BundleGrid searches={searches} result={result} />
           <button
             className={styles.replayButton}
             type="button"
@@ -546,10 +553,21 @@ function PriceStepFeed({
   );
 }
 
-function BundleGrid({ searches }: { searches: MockAgentSearch[] }) {
+function BundleGrid({
+  searches,
+  result,
+}: {
+  searches: MockAgentSearch[];
+  result: DemoResult;
+}) {
   return (
     <div className={styles.bundleGrid}>
       {searches.map((search, index) => {
+        const receipt = result.receipts.find(
+          (candidate) =>
+            candidate.category === search.allocation.category,
+        );
+        const onChain = receipt?.status === "hedera-settled";
         const CategoryIcon = categoryIcons[search.allocation.category];
         const visibleTags =
           search.matchedTags.length > 0
@@ -571,7 +589,7 @@ function BundleGrid({ searches }: { searches: MockAgentSearch[] }) {
                 <span>{search.allocation.category}</span>
                 <b>
                   <Check size={9} />
-                  mock win
+                  {onChain ? "on-chain" : "mock win"}
                 </b>
               </header>
               <h3>{search.auction.winner.sellerName}</h3>
@@ -583,13 +601,49 @@ function BundleGrid({ searches }: { searches: MockAgentSearch[] }) {
               </div>
               <div className={styles.resultFooter}>
                 <div>
-                  <span>Buyer subagent ID</span>
-                  <code>{search.agentId}</code>
+                  <span>{onChain ? "Agent wallet" : "Buyer subagent ID"}</span>
+                  {onChain && receipt?.escrowAccountId ? (
+                    <a
+                      href={`https://hashscan.io/testnet/account/${receipt.escrowAccountId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <code>{receipt.escrowAccountId}</code>
+                    </a>
+                  ) : (
+                    <code>{search.agentId}</code>
+                  )}
                 </div>
                 <strong>
-                  {formatUsd(search.auction.winner.amountCents)}
+                  {formatUsd(
+                    receipt?.amountCents ??
+                      search.auction.winner.amountCents,
+                  )}
                 </strong>
               </div>
+              {onChain && receipt?.hashscanUrl && (
+                <div className={styles.onchainLinks}>
+                  <a
+                    href={receipt.hashscanUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Atomic swap
+                    <ExternalLink size={9} aria-hidden="true" />
+                  </a>
+                  {receipt.claimNftSerial !== undefined &&
+                    receipt.escrowAccountId && (
+                      <a
+                        href={`https://hashscan.io/testnet/account/${receipt.escrowAccountId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Claim NFT #{receipt.claimNftSerial}
+                        <ExternalLink size={9} aria-hidden="true" />
+                      </a>
+                    )}
+                </div>
+              )}
             </div>
           </article>
         );

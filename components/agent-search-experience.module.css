@@ -1280,3 +1280,37 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+.resultFooter a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.resultFooter a:hover code {
+  color: #568738;
+}
+
+.onchainLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.48);
+}
+
+.onchainLinks a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #568738;
+  font-size: 8px;
+  font-weight: 640;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.onchainLinks a:hover {
+  text-decoration: underline;
+}
