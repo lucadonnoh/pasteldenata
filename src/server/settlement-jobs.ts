@@ -88,6 +88,31 @@ export function startSettlementJob(
   return job;
 }
 
+const LEAF_FLOAT_HBAR = 2;
+const RUN_MARGIN_HBAR = 6;
+
+/**
+ * Refuse to start a run the operator cannot afford: a mid-run failure kills
+ * agents before they can return their fee float, stranding it in dead
+ * wallets forever. Failing here costs nothing.
+ */
+async function assertOperatorRunway(leafCount: number): Promise<void> {
+  const response = await fetch(
+    "https://testnet.mirrornode.hedera.com/api/v1/accounts/" +
+      process.env.HEDERA_OPERATOR_ID,
+  );
+  if (!response.ok) return; // Mirror down; let the run try.
+  const data = (await response.json()) as { balance?: { balance?: number } };
+  const hbar = (data.balance?.balance ?? 0) / 1e8;
+  const needed = leafCount * LEAF_FLOAT_HBAR + RUN_MARGIN_HBAR;
+  if (hbar < needed) {
+    throw new Error(
+      `Operator has ${hbar.toFixed(1)} HBAR but this run needs ~${needed}. ` +
+        "Refill at portal.hedera.com/faucet (100 HBAR daily) before running.",
+    );
+  }
+}
+
 async function execute(
   job: SettlementJob,
   plan: PrivatePlan,
@@ -98,6 +123,7 @@ async function execute(
     const infra = await ensureInfra(ctx, MOCK_SELLERS);
 
     if (job.mode === "live") {
+      await assertOperatorRunway(auctions.length);
       const result = await settleWithSwarm(plan, auctions, { ...ctx, infra }, {
         live: true,
         onEvent: (event) => {
@@ -140,6 +166,9 @@ async function execute(
       { name: USER_BUYER_NAME, plan },
       ...rivals,
     ];
+    await assertOperatorRunway(
+      buyers.reduce((sum, buyer) => sum + buyer.plan.allocations.length, 0),
+    );
 
     const market = await runMarket(buyers, { ...ctx, infra }, {
       onEvent: (event) => {

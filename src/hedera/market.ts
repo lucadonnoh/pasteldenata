@@ -1,6 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  AccountBalanceQuery,
   TokenMintTransaction,
   Transaction,
   TransferTransaction,
@@ -220,8 +221,32 @@ export async function runMarket(
       .execute(ctx.client)
   ).getReceipt(ctx.client);
 
-  const buyerWallets = await Promise.all(
-    buyers.map(() => createAccount(ctx)),
+  // Buyer funding wallets come from a persistent pool: they are the buyers'
+  // banks, not the anonymous bidding agents, so reuse is safe and saves
+  // account-creation fees. Sweep leftovers from earlier runs first so every
+  // buyer starts holding exactly its budget.
+  const pool = ctx.infra.marketBuyers ?? [];
+  const buyerWallets: StoredAccount[] = await Promise.all(
+    buyers.map(async (_, index) => pool[index] ?? (await createAccount(ctx))),
+  );
+  await Promise.all(
+    buyerWallets.map(async (wallet) => {
+      const balance = await new AccountBalanceQuery()
+        .setAccountId(wallet.accountId)
+        .execute(ctx.client);
+      const leftover = balance.tokens?.get(ctx.infra.paymentTokenId);
+      if (!leftover || leftover.isZero()) return;
+      const sweep = new TransferTransaction()
+        .addTokenTransfer(
+          ctx.infra.paymentTokenId,
+          wallet.accountId,
+          leftover.negate(),
+        )
+        .addTokenTransfer(ctx.infra.paymentTokenId, ctx.operatorId, leftover)
+        .freezeWith(ctx.client);
+      await sweep.sign(parsePrivateKey(wallet.privateKey));
+      await (await sweep.execute(ctx.client)).getReceipt(ctx.client);
+    }),
   );
   const distribute = new TransferTransaction();
   buyers.forEach((buyer, index) => {

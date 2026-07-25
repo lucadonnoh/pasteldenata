@@ -94,12 +94,12 @@ async function returnFeeFloat(
       .setAccountId(accountId)
       .execute(client);
     const tinybars = balance.hbars.toTinybars().toNumber();
-    const send = tinybars - 20_000_000;
+    const send = tinybars - 5_000_000; // keep 0.05 hbar for this transfer's fee
     if (send <= 0) return;
     const sweep = new TransferTransaction()
       .addHbarTransfer(accountId, Hbar.fromTinybars(-send))
       .addHbarTransfer(clearingAccountId, Hbar.fromTinybars(send))
-      .setMaxTransactionFee(Hbar.fromTinybars(15_000_000));
+      .setMaxTransactionFee(Hbar.fromTinybars(4_000_000));
     await (await sweep.execute(client)).getReceipt(client);
   } catch {
     // The root still retains the persisted testnet key for recovery.

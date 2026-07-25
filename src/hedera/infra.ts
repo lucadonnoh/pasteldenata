@@ -27,6 +27,29 @@ export interface HederaInfra {
   claimTokenId: string;
   buyer: StoredAccount;
   sellers: Record<string, StoredAccount>;
+  /**
+   * Persistent market-mode buyer wallets (index 0 = the user). These are
+   * the buyers' funding accounts, not the anonymous bidding agents, so
+   * reusing them saves account-creation fees without touching the privacy
+   * story: leaf agent wallets stay fresh every run.
+   */
+  marketBuyers?: StoredAccount[];
+}
+
+const MARKET_BUYER_POOL = 4;
+
+/** Lazily add newer infra pieces to an existing hedera-infra.json. */
+async function upgradeInfra(
+  ctx: HederaContext,
+  infra: HederaInfra,
+): Promise<boolean> {
+  let dirty = false;
+  const pool = (infra.marketBuyers ??= []);
+  while (pool.length < MARKET_BUYER_POOL) {
+    pool.push(await createAccount(ctx));
+    dirty = true;
+  }
+  return dirty;
 }
 
 /** Contains generated testnet private keys; kept out of git. */
@@ -99,6 +122,13 @@ export async function ensureInfra(
           .join(", ")}. Delete the file and rerun to bootstrap again.`,
       );
     }
+    if (await upgradeInfra(ctx, infra)) {
+      writeFileSync(INFRA_PATH, `${JSON.stringify(infra, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      chmodSync(INFRA_PATH, 0o600);
+    }
     return infra;
   }
 
@@ -118,6 +148,7 @@ export async function ensureInfra(
     buyer,
     sellers: Object.fromEntries(sellerAccounts),
   };
+  await upgradeInfra(ctx, infra);
   writeFileSync(INFRA_PATH, `${JSON.stringify(infra, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
