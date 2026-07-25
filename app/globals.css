@@ -3026,3 +3026,37 @@ a.readiness-item:hover {
   font-weight: 600;
   text-decoration: underline;
 }
+
+/* Collapsed-by-default 0G receipt bar */
+details.zerog-receipt > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+details.zerog-receipt > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.zerog-receipt:not([open]) > summary h2,
+details.zerog-receipt:not([open]) > summary p {
+  display: none;
+}
+
+details.zerog-receipt:not([open]) > summary {
+  align-items: center;
+  margin: 0;
+}
+
+.zerog-receipt-caret {
+  width: 8px;
+  height: 8px;
+  margin-left: 10px;
+  border-right: 2px solid rgba(36, 39, 44, 0.4);
+  border-bottom: 2px solid rgba(36, 39, 44, 0.4);
+  transform: rotate(-45deg);
+  transition: transform 0.18s ease;
+}
+
+details.zerog-receipt[open] .zerog-receipt-caret {
+  transform: rotate(45deg);
+}

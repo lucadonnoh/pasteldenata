@@ -111,11 +111,11 @@ export function ZeroGVerificationReceipt(
     `${CHAINSCAN_ADDRESS}${proof.serviceContract}`;
 
   return (
-    <section
+    <details
       className="zerog-receipt"
       aria-label="Live 0G TEE verification receipt"
     >
-      <header className="zerog-receipt-header">
+      <summary className="zerog-receipt-header">
         <span className="zerog-seal">
           <ShieldCheck size={15} aria-hidden="true" />
         </span>
@@ -127,8 +127,9 @@ export function ZeroGVerificationReceipt(
             independently checked the signed proof against the on-chain signer.
           </p>
         </div>
-        <span className="verification-pill">PRIVATE · TEEML</span>
-      </header>
+        <span className="verification-pill">VERIFIED · TEEML</span>
+        <i className="zerog-receipt-caret" aria-hidden="true" />
+      </summary>
 
       <div className="zerog-proof-grid">
         <div className="trace-json">
