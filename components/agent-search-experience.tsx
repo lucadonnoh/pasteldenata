@@ -14,6 +14,7 @@ import {
   Store,
   Users,
   UtensilsCrossed,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -126,33 +127,58 @@ function LiveAgentSearchRun({
   searches: MockAgentSearch[];
   live: LiveAuctionView;
 }) {
-  const totalBids = Object.values(live.bidsByCategory).reduce(
-    (sum, bids) => sum + bids.length,
-    0,
+  const market = live.mode === "market";
+  const totalBids = market
+    ? Object.values(live.bidsByItem).reduce(
+        (sum, bids) => sum + bids.length,
+        0,
+      )
+    : Object.values(live.bidsByCategory).reduce(
+        (sum, bids) => sum + bids.length,
+        0,
+      );
+  const yourAgents = live.agents.filter(
+    (agent) => agent.buyerName === "You",
   );
+  const opened = market
+    ? live.listings.length > 0
+    : live.auctions.length > 0;
   const phase: "searching" | "bidding" | "complete" = live.done
     ? "complete"
-    : live.auctions.length > 0
+    : opened
       ? "bidding"
       : "searching";
+  const wonCount = result.receipts.filter(
+    (receipt) => receipt.status === "hedera-settled",
+  ).length;
 
   const phaseCopy = {
     searching: {
-      eyebrow: `${searches.length} AGENT WALLETS FUNDING ON HEDERA`,
+      eyebrow: market
+        ? `OPEN MARKET · ${live.rivals.length} RIVAL BUYERS ACTIVE`
+        : `${searches.length} AGENT WALLETS FUNDING ON HEDERA`,
       title: "Agents are entering the market.",
-      description:
-        "Each agent gets a fresh on-chain wallet holding exactly its mandate cap — it cannot overspend.",
-      status: `${live.agents.length}/${searches.length} wallets live`,
+      description: market
+        ? "Sellers list scarce items at a floor price. Your scoped agents compete against mocked rival buyers using ledger-capped wallets."
+        : "Each agent gets a fresh on-chain wallet holding exactly its mandate cap — it cannot overspend.",
+      status: `${yourAgents.length}/${searches.length} wallets live`,
     },
     bidding: {
-      eyebrow: "LIVE REVERSE AUCTIONS · ON-CHAIN",
-      title: "Sellers are undercutting each other.",
-      description:
-        "Every bid is a real HCS message signed by the seller's own account. Each agent closes its auction when bidding goes quiet.",
+      eyebrow: market
+        ? "ASCENDING AUCTIONS · ON-CHAIN"
+        : "LIVE REVERSE AUCTIONS · ON-CHAIN",
+      title: market
+        ? "Buyers are competing for scarce items."
+        : "Sellers are undercutting each other.",
+      description: market
+        ? "The seller price is the floor; authenticated buyer-agent bids are the only thing that raises it."
+        : "Every accepted bid is bound to the registered seller payer. Each agent closes its auction when bidding goes quiet.",
       status: `${totalBids} bids on-chain`,
     },
     complete: {
-      eyebrow: "BUNDLE SETTLED ON HEDERA",
+      eyebrow: market
+        ? `MARKET CLOSED · WON ${wonCount}/${searches.length} ON HEDERA`
+        : "BUNDLE SETTLED ON HEDERA",
       title: result.plan.occasionTitle,
       description: `${result.plan.location} · ${result.plan.scheduledFor}`,
       status: "On-chain",
@@ -184,25 +210,135 @@ function LiveAgentSearchRun({
       {phase === "searching" ? (
         <ActivityDiscovery
           searches={searches}
-          resolvedCount={live.agents.length}
+          resolvedCount={yourAgents.length}
         />
       ) : phase === "bidding" ? (
-        <LiveBidStage searches={searches} live={live} />
+        market ? (
+          <MarketBidStage searches={searches} live={live} />
+        ) : (
+          <LiveBidStage searches={searches} live={live} />
+        )
       ) : (
-        <div className={styles.bundleGrid}>
-          {searches.map((search, index) => (
-            <ResultCard
-              key={search.id}
-              search={search}
-              index={index}
-              receipt={result.receipts.find(
-                (receipt) => receipt.category === search.allocation.category,
-              )}
-            />
-          ))}
-        </div>
+        <BundleGrid
+          searches={searches}
+          result={result}
+          lostCategories={live.lostCategories}
+          agentAccounts={yourAgents}
+        />
       )}
     </section>
+  );
+}
+
+function shortAccount(accountId: string): string {
+  return accountId.length > 12
+    ? `…${accountId.slice(-7)}`
+    : accountId;
+}
+
+function MarketBidStage({
+  searches,
+  live,
+}: {
+  searches: MockAgentSearch[];
+  live: LiveAuctionView;
+}) {
+  const categories = new Set(
+    searches.map((search) => search.allocation.category),
+  );
+  const visible = live.listings.filter((listing) =>
+    categories.has(listing.category as Category),
+  );
+
+  return (
+    <div className={styles.liveGrid}>
+      {visible.map((listing) => {
+        const bids = live.bidsByItem[listing.itemId] ?? [];
+        const high = bids.reduce<(typeof bids)[number] | undefined>(
+          (best, bid) =>
+            !best ||
+            bid.amountCents > best.amountCents ||
+            (bid.amountCents === best.amountCents &&
+              bid.sequenceNumber < best.sequenceNumber)
+              ? bid
+              : best,
+          undefined,
+        );
+        const recent = [...bids]
+          .sort(
+            (left, right) =>
+              right.sequenceNumber - left.sequenceNumber,
+          )
+          .slice(0, 5);
+        const CategoryIcon =
+          categoryIcons[listing.category as Category];
+        const badge = listing.sold
+          ? high?.yours
+            ? "Sold to you"
+            : "Sold"
+          : high?.yours
+            ? "You lead"
+            : high
+              ? "Rival leads"
+              : "At floor";
+
+        return (
+          <article
+            key={listing.itemId}
+            className={styles.livePanel}
+            data-settled={listing.sold || undefined}
+          >
+            <header>
+              <span>
+                <CategoryIcon size={13} aria-hidden="true" />
+                {listing.sellerName}
+              </span>
+              <b>{badge}</b>
+            </header>
+            <div className={styles.liveBest}>
+              <span>Floor {formatUsd(listing.floorCents)}</span>
+              <strong>
+                {formatUsd(high?.amountCents ?? listing.floorCents)}
+              </strong>
+              <small>{listing.offering}</small>
+            </div>
+            <ul className={styles.liveFeed}>
+              {recent.map((bid, index) => (
+                <li
+                  key={bid.sequenceNumber}
+                  className={
+                    index === 0 ? styles.liveNewest : undefined
+                  }
+                >
+                  <span>
+                    {bid.yours
+                      ? "your agent"
+                      : `rival ${shortAccount(bid.bidder)}`}
+                  </span>
+                  <b>{formatUsd(bid.amountCents)}</b>
+                </li>
+              ))}
+              {recent.length === 0 && (
+                <li>
+                  <span>No bids yet — the floor stands</span>
+                </li>
+              )}
+            </ul>
+            <footer>
+              <span>{listing.category}</span>
+              <a
+                href={`https://hashscan.io/testnet/topic/${listing.topicId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                HCS topic
+                <ExternalLink size={9} aria-hidden="true" />
+              </a>
+            </footer>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -767,9 +903,17 @@ function PriceStepFeed({
 function BundleGrid({
   searches,
   result,
+  lostCategories = [],
+  agentAccounts = [],
 }: {
   searches: MockAgentSearch[];
   result: DemoResult;
+  lostCategories?: string[];
+  agentAccounts?: Array<{
+    category: string;
+    accountId: string;
+    buyerName: string;
+  }>;
 }) {
   return (
     <div className={styles.bundleGrid}>
@@ -779,6 +923,13 @@ function BundleGrid({
             candidate.category === search.allocation.category,
         );
         const onChain = receipt?.status === "hedera-settled";
+        const lost =
+          !onChain &&
+          lostCategories.includes(search.allocation.category);
+        const agentAccountId = agentAccounts.find(
+          (agent) =>
+            agent.category === search.allocation.category,
+        )?.accountId;
         const CategoryIcon = categoryIcons[search.allocation.category];
         const visibleTags =
           search.matchedTags.length > 0
@@ -799,27 +950,43 @@ function BundleGrid({
               <header>
                 <span>{search.allocation.category}</span>
                 <b>
-                  <Check size={9} />
-                  {onChain ? "on-chain" : "mock win"}
+                  {lost ? <X size={9} /> : <Check size={9} />}
+                  {lost ? "outbid" : onChain ? "on-chain" : "mock win"}
                 </b>
               </header>
-              <h3>{search.auction.winner.sellerName}</h3>
-              <p>{search.auction.winner.offering}</p>
-              <div className={styles.tags}>
-                {visibleTags.slice(0, 3).map((tag) => (
-                  <span key={tag}>{tag}</span>
-                ))}
-              </div>
+              <h3>
+                {lost ? "No purchase" : search.auction.winner.sellerName}
+              </h3>
+              <p>
+                {lost
+                  ? "Rivals pushed every listing beyond this mandate. The agent walked away instead of overspending."
+                  : search.auction.winner.offering}
+              </p>
+              {!lost && (
+                <div className={styles.tags}>
+                  {visibleTags.slice(0, 3).map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              )}
               <div className={styles.resultFooter}>
                 <div>
-                  <span>{onChain ? "Agent wallet" : "Buyer subagent ID"}</span>
-                  {onChain && receipt?.escrowAccountId ? (
+                  <span>
+                    {onChain || lost
+                      ? "Agent wallet"
+                      : "Buyer subagent ID"}
+                  </span>
+                  {(receipt?.escrowAccountId || agentAccountId) ? (
                     <a
-                      href={`https://hashscan.io/testnet/account/${receipt.escrowAccountId}`}
+                      href={`https://hashscan.io/testnet/account/${
+                        receipt?.escrowAccountId ?? agentAccountId
+                      }`}
                       target="_blank"
                       rel="noreferrer"
                     >
-                      <code>{receipt.escrowAccountId}</code>
+                      <code>
+                        {receipt?.escrowAccountId ?? agentAccountId}
+                      </code>
                     </a>
                   ) : (
                     <code>{search.agentId}</code>
@@ -827,8 +994,10 @@ function BundleGrid({
                 </div>
                 <strong>
                   {formatUsd(
-                    receipt?.amountCents ??
-                      search.auction.winner.amountCents,
+                    lost
+                      ? 0
+                      : receipt?.amountCents ??
+                          search.auction.winner.amountCents,
                   )}
                 </strong>
               </div>

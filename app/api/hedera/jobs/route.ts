@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       plan?: PrivatePlan;
       auctions?: AuctionResult[];
-      live?: boolean;
+      mode?: string;
     };
     if (!body.plan?.planId || !Array.isArray(body.auctions)) {
       throw new Error("Expected { plan, auctions }.");
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const job = startSettlementJob(
       body.plan,
       body.auctions,
-      body.live !== false,
+      body.mode === "live" ? "live" : "market",
     );
     return NextResponse.json({ jobId: job.id });
   } catch (error) {

@@ -1,5 +1,5 @@
 import { fork, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   TokenMintTransaction,
   Transaction,
@@ -44,6 +44,30 @@ export interface MarketBuyer {
   plan: PrivatePlan;
 }
 
+export type MarketEvent =
+  | {
+      type: "LISTING_OPEN";
+      itemId: string;
+      topicId: string;
+      category: string;
+      sellerId: string;
+      sellerName: string;
+      offering: string;
+      floorCents: number;
+    }
+  | {
+      type: "AGENT_FUNDED";
+      buyerName: string;
+      category: string;
+      accountId: string;
+    }
+  | { type: "ITEM_SOLD"; itemId: string; category: string }
+  | { type: "BUYER_DONE"; buyerName: string; category: string; lost: boolean };
+
+export interface MarketOptions {
+  onEvent?: (event: MarketEvent) => void;
+}
+
 export interface MarketOutcome {
   category: Category;
   capCents: number;
@@ -65,7 +89,12 @@ export interface MarketContention {
 }
 
 export interface MarketResult {
-  buyers: Array<{ name: string; plan: PrivatePlan; outcomes: MarketOutcome[] }>;
+  buyers: Array<{
+    name: string;
+    plan: PrivatePlan;
+    walletAccountId: string;
+    outcomes: MarketOutcome[];
+  }>;
   contention: MarketContention[];
 }
 
@@ -95,6 +124,7 @@ interface SharedMarketState {
   sold: Set<string>;
   contingency: number[];
   runtimes: MarketRuntime[];
+  onEvent: (event: MarketEvent) => void;
 }
 
 function hash(value: string): string {
@@ -108,10 +138,13 @@ function hash(value: string): string {
 export async function runMarket(
   buyers: MarketBuyer[],
   ctx: HederaSettlementContext,
+  options: MarketOptions = {},
 ): Promise<MarketResult> {
-  const runSalt = hash(
-    buyers.map((buyer) => buyer.plan.planId).join("|"),
-  ).slice(0, 12);
+  const onEvent = options.onEvent ?? (() => {});
+  // Topics are public and retain their full history. A fresh nonce ensures a
+  // retry of the same deterministic plan cannot inherit an earlier SETTLED
+  // message under the same item ID.
+  const runSalt = randomUUID();
   const categories = new Set<Category>();
   for (const buyer of buyers) {
     for (const allocation of buyer.plan.allocations) {
@@ -142,6 +175,16 @@ export async function runMarket(
               category: seller.category,
               floorCents: item.floorPriceCents,
               quantity: 1,
+            });
+            onEvent({
+              type: "LISTING_OPEN",
+              itemId,
+              topicId: log.topicId,
+              category: seller.category,
+              sellerId: seller.id,
+              sellerName: seller.name,
+              offering: item.offering,
+              floorCents: item.floorPriceCents,
             });
             return {
               itemId,
@@ -228,6 +271,7 @@ export async function runMarket(
     sold: new Set(),
     contingency: buyers.map((buyer) => buyer.plan.unallocatedBudgetCents),
     runtimes: [],
+    onEvent,
   };
   const tasks = buyers.flatMap((buyer, buyerIndex) =>
     buyer.plan.allocations.map((allocation) => ({
@@ -423,6 +467,7 @@ export async function runMarket(
     buyers: buyers.map((buyer, index) => ({
       name: buyer.name,
       plan: buyer.plan,
+      walletAccountId: buyerWallets[index]?.accountId ?? "",
       outcomes: runs
         .filter((run) => run.runtime.buyerIndex === index)
         .map((run) => run.outcome),
@@ -504,6 +549,12 @@ async function runMarketLeaf(
     runtime.fundedCents = await tokenBalanceCents(ctx, wallet.accountId);
     throw error;
   }
+  shared.onEvent({
+    type: "AGENT_FUNDED",
+    buyerName: buyer.name,
+    category: allocation.category,
+    accountId: wallet.accountId,
+  });
 
   return new Promise<MarketLeafRun>((resolve, reject) => {
     const child: ChildProcess = fork(LEAF_AGENT_PATH, [], {
@@ -688,6 +739,11 @@ async function runMarketLeaf(
             claimNftSerial: message.result.claimNftSerial,
             transactionId: message.result.transactionId,
           });
+          shared.onEvent({
+            type: "ITEM_SOLD",
+            itemId: reserved.itemId,
+            category: allocation.category,
+          });
           sendToLeaf({ type: "SETTLEMENT_RECORDED" });
           break;
 
@@ -701,6 +757,12 @@ async function runMarketLeaf(
             throw new Error("Leaf returned an invalid loss result.");
           }
           done = message.result;
+          shared.onEvent({
+            type: "BUYER_DONE",
+            buyerName: buyer.name,
+            category: allocation.category,
+            lost: message.result.lost === true,
+          });
           break;
 
         case "ERROR":

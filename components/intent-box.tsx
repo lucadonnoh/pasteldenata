@@ -103,7 +103,7 @@ export function IntentBox() {
       body: JSON.stringify({
         plan: purchase.plan,
         auctions: purchase.auctions,
-        live: true,
+        mode: "market",
       }),
     })
       .then(async (response) => {

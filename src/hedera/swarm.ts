@@ -42,7 +42,7 @@ const LEAF_AGENT_PATH = leafAgentPath();
 const LEAF_TIMEOUT_MS = 240_000;
 // Must cover the settlement's maximum fee ceiling, which includes the claim
 // NFT auto-association charged to the leaf as payer.
-const LEAF_FEE_HBAR = 5;
+const LEAF_FEE_HBAR = 2;
 
 export type SwarmEvent =
   | { type: "WALLET_CREATED"; category: string; accountId: string }

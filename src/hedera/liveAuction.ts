@@ -7,6 +7,7 @@ import { publishToTopic } from "./log";
 import {
   fetchTopicBids,
   standingOffers,
+  TESTNET_MIRROR_BASE,
   type AuthorizedSeller,
 } from "./mirror";
 
@@ -167,14 +168,36 @@ export function nextBid(
   return target;
 }
 
-/** Sellers pay for their own bid messages; top them up with fee HBAR. */
+async function mirrorHbarBalance(accountId: string): Promise<number> {
+  try {
+    const response = await fetch(
+      `${TESTNET_MIRROR_BASE}/api/v1/accounts/${accountId}`,
+    );
+    if (!response.ok) return 0;
+    const data = (await response.json()) as {
+      balance?: { balance?: number };
+    };
+    return (data.balance?.balance ?? 0) / 1e8;
+  } catch {
+    return 0;
+  }
+}
+
+/** Sellers pay their own bid fees; only low-balance accounts are topped up. */
 export async function fundSellerFees(
   ctx: HederaContext,
   accounts: StoredAccount[],
 ): Promise<void> {
-  const unique = [
+  const deduped = [
     ...new Map(accounts.map((account) => [account.accountId, account])).values(),
   ];
+  const balances = await Promise.all(
+    deduped.map((account) => mirrorHbarBalance(account.accountId)),
+  );
+  const unique = deduped.filter(
+    (_, index) => (balances[index] ?? 0) < 0.5,
+  );
+  if (unique.length === 0) return;
   // Hedera caps a transfer at 10 account entries (sellers plus the
   // operator), so plans with 4+ categories must fund in batches.
   const BATCH = 8;

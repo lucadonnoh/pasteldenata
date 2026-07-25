@@ -1,5 +1,7 @@
 import {
+  AccountBalanceQuery,
   Client,
+  Hbar,
   Transaction,
   TransferTransaction,
 } from "@hashgraph/sdk";
@@ -80,6 +82,28 @@ function send(message: LeafToParent): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function returnFeeFloat(
+  client: Client,
+  accountId: string,
+  clearingAccountId: string,
+): Promise<void> {
+  try {
+    const balance = await new AccountBalanceQuery()
+      .setAccountId(accountId)
+      .execute(client);
+    const tinybars = balance.hbars.toTinybars().toNumber();
+    const send = tinybars - 20_000_000;
+    if (send <= 0) return;
+    const sweep = new TransferTransaction()
+      .addHbarTransfer(accountId, Hbar.fromTinybars(-send))
+      .addHbarTransfer(clearingAccountId, Hbar.fromTinybars(send))
+      .setMaxTransactionFee(Hbar.fromTinybars(15_000_000));
+    await (await sweep.execute(client)).getReceipt(client);
+  } catch {
+    // The root still retains the persisted testnet key for recovery.
+  }
 }
 
 function asOffer(live: LiveBid): HederaOffer {
@@ -288,13 +312,14 @@ async function contestedRun(
   const increment = (floorCents: number) =>
     Math.max(25, Math.round(floorCents * 0.02));
 
-  const report = (outcome: {
+  const report = async (outcome: {
     listing?: ContestedListing;
     amountCents?: number;
     transactionId?: string;
     claimNftSerial?: number;
-  }): void => {
+  }): Promise<void> => {
     const spent = outcome.amountCents ?? 0;
+    await returnFeeFloat(client, me, init.clearingAccountId);
     send({
       type: "DONE",
       result: {
@@ -367,7 +392,7 @@ async function contestedRun(
     };
     send({ type: "SETTLEMENT_CONFIRMED", result });
     await expectMessage("SETTLEMENT_RECORDED");
-    report({
+    await report({
       listing,
       amountCents,
       transactionId,
@@ -620,6 +645,11 @@ async function run(init: LeafInit): Promise<void> {
     };
     send({ type: "SETTLEMENT_CONFIRMED", result });
     await expectMessage("SETTLEMENT_RECORDED");
+    await returnFeeFloat(
+      client,
+      wallet.accountId,
+      init.clearingAccountId,
+    );
     send({ type: "DONE", result });
   } finally {
     client.close();

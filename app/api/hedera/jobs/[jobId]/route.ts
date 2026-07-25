@@ -14,10 +14,13 @@ export async function GET(
   }
   return NextResponse.json({
     status: job.status,
-    live: job.live,
+    mode: job.mode,
     agents: job.agents,
     auctions: job.auctions,
+    listings: job.listings,
+    rivals: job.rivals,
     settledCategories: job.settledCategories,
+    lostCategories: job.lostCategories,
     ...(job.result ? { result: job.result } : {}),
     ...(job.error ? { error: job.error } : {}),
   });
