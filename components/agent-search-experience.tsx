@@ -48,6 +48,8 @@ const categoryIcons: Record<Category, LucideIcon> = {
   experience: Palette,
 };
 
+const WON_AUCTION_HOLD_MS = 2_500;
+
 interface ReplayFrame {
   replayIndex: number;
   stepIndex: number | null;
@@ -369,6 +371,7 @@ function MarketBidStage({
             key={listing.itemId}
             className={styles.livePanel}
             data-settled={listing.sold || undefined}
+            data-won={(listing.sold && high?.yours) || undefined}
           >
             <header>
               <span>
@@ -384,6 +387,18 @@ function MarketBidStage({
               </strong>
               <small>{listing.offering}</small>
             </div>
+            {listing.sold && high?.yours && (
+              <div className={styles.liveWinReceipt} role="status">
+                <span className={styles.winCheck}>
+                  <Check size={12} aria-hidden="true" />
+                </span>
+                <div>
+                  <small>AUCTION WON</small>
+                  <strong>Secured by your agent</strong>
+                </div>
+                <b>{formatUsd(high.amountCents)}</b>
+              </div>
+            )}
             <ul className={styles.liveFeed}>
               {recent.map((bid, index) => (
                 <li
@@ -574,22 +589,33 @@ function AgentSearchRun({
       Math.min(180, Math.floor(5_200 / Math.max(1, frames.length))),
     );
     const startDelay = 360;
-    const timers = frames.map((_, index) =>
-      window.setTimeout(
+    let elapsed = startDelay;
+    const timers = frames.map((frame, index) => {
+      const timer = window.setTimeout(
         () => setCurrentFrameIndex(index),
-        startDelay + index * frameDuration,
-      ),
-    );
+        elapsed,
+      );
+      const closesReplay =
+        frames[index + 1]?.replayIndex !== frame.replayIndex;
+      elapsed += frameDuration;
+      if (
+        closesReplay &&
+        replays[frame.replayIndex]?.listingAuction.status === "won"
+      ) {
+        elapsed += WON_AUCTION_HOLD_MS;
+      }
+      return timer;
+    });
     const completionTimer = window.setTimeout(
       () => setPhase("complete"),
-      startDelay + frames.length * frameDuration + 650,
+      elapsed + 650,
     );
 
     return () => {
       timers.forEach(window.clearTimeout);
       window.clearTimeout(completionTimer);
     };
-  }, [frames]);
+  }, [frames, replays]);
 
   return (
     <section className={styles.experience} aria-live="polite">
@@ -671,6 +697,8 @@ function ReplayWorkspace({
   const replayDone =
     currentFrameIndex >=
     lastFrameForReplay(frames, activeFrame.replayIndex);
+  const wonAuctionResolved =
+    replayDone && activeReplay.listingAuction.status === "won";
   const progress =
     frames.length === 0
       ? 100
@@ -688,7 +716,11 @@ function ReplayWorkspace({
         currentFrameIndex={currentFrameIndex}
       />
 
-      <div className={styles.auctionStage}>
+      <div
+        className={`${styles.auctionStage} ${
+          wonAuctionResolved ? styles.auctionStageWon : ""
+        }`}
+      >
         <div className={styles.stageHeader}>
           <div>
             <span>
@@ -713,6 +745,29 @@ function ReplayWorkspace({
           step={step}
           replayDone={replayDone}
         />
+
+        {wonAuctionResolved && (
+          <div className={styles.replayWinReceipt} role="status">
+            <span className={styles.winCheck}>
+              <Check size={15} aria-hidden="true" />
+            </span>
+            <div>
+              <small>AUCTION WON · ACTIVITY SECURED</small>
+              <strong>
+                {activeReplay.listingAuction.listing.offering}
+              </strong>
+              <code>
+                {activeReplay.listingAuction.listing.sellerName} ·{" "}
+                {activeReplay.search.agentId}
+              </code>
+            </div>
+            <b>
+              {formatUsd(
+                activeReplay.listingAuction.clearingPriceCents ?? 0,
+              )}
+            </b>
+          </div>
+        )}
 
         <div className={styles.stageGrid}>
           <ParticipantList replay={activeReplay} step={step} />
