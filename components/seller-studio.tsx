@@ -22,7 +22,6 @@ export function SellerStudio() {
   const [humanPolicy, setHumanPolicy] = useState<"open" | "one-per-human">(
     "one-per-human",
   );
-  const [customCity, setCustomCity] = useState(false);
   const [availability, setAvailability] = useState("4");
   const [description, setDescription] = useState(
     "A seasonal tasting menu served by the window, with a welcome drink included.",
@@ -135,36 +134,19 @@ export function SellerStudio() {
               <span className="field-caption">LOCATION</span>
               <div className="input-with-icon">
                 <MapPin size={14} />
-                <select
+                <input
                   required
-                  value={customCity ? "__new" : location}
-                  onChange={(event) => {
-                    if (event.target.value === "__new") {
-                      setCustomCity(true);
-                      setLocation("");
-                    } else {
-                      setCustomCity(false);
-                      setLocation(event.target.value);
-                    }
-                  }}
+                  list="seller-city-options"
+                  value={location}
+                  placeholder="City — pick or type a new one"
+                  onChange={(event) => setLocation(event.target.value)}
                   aria-label="Listing city"
-                >
+                />
+                <datalist id="seller-city-options">
                   {Object.values(CITY_LABELS).map((city) => (
-                    <option key={city} value={city}>
-                      {city}
-                    </option>
+                    <option key={city} value={city} />
                   ))}
-                  <option value="__new">+ Add a new city…</option>
-                </select>
-                {customCity && (
-                  <input
-                    required
-                    value={location}
-                    placeholder="City name"
-                    onChange={(event) => setLocation(event.target.value)}
-                    aria-label="New city name"
-                  />
-                )}
+                </datalist>
               </div>
             </label>
           </div>
