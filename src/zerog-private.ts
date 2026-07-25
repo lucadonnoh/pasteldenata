@@ -35,14 +35,20 @@ function resolveProofChatId(
   response: Response,
   responseId: unknown,
 ): string | undefined {
+  // Production TeeML providers key `/v1/proxy/signature/:chatId` by the
+  // OpenAI-compatible response ID without `chatcmpl-`. The Router may also
+  // emit a different ZG-Res-Key that is valid for Router bookkeeping but is
+  // not known by the provider signature endpoint, so prefer the response ID.
+  if (typeof responseId === "string") {
+    return responseId.startsWith("chatcmpl-")
+      ? responseId.slice("chatcmpl-".length)
+      : responseId;
+  }
   const responseKey =
     response.headers.get("ZG-Res-Key") ??
     response.headers.get("zg-res-key");
   if (responseKey) return responseKey;
-  if (typeof responseId !== "string") return undefined;
-  return responseId.startsWith("chatcmpl-")
-    ? responseId.slice("chatcmpl-".length)
-    : responseId;
+  return undefined;
 }
 
 export class ZeroGPrivateRouterClient

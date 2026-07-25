@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { validateSettlement } from "@/src/payments";
 import {
   LocalDemoRequestError,
   assertLocalDemoRequest,
@@ -15,22 +14,19 @@ export const runtime = "nodejs";
 
 /**
  * Start a local Hedera testnet job. The original prompt and 0G key stay in
- * the browser, while the derived plan and mock auction trace are deliberately
- * sent to this trusted local coordinator. It owns the operator key and funds
- * the trusted child agents.
+ * the browser, while only the verified derived plan is sent to this trusted
+ * local coordinator. It owns the operator key, creates the real HCS auctions,
+ * and funds the trusted child agents.
  */
 export async function POST(request: Request) {
   try {
     assertLocalDemoRequest(request, { mutating: true });
     const body = parseSettlementRequest(await request.json());
-    validateSettlement(body.plan, body.auctions);
     const identityAgent = body.identityProof
       ? await consumeWorldIdentityProof(body.identityProof, body.plan.planId)
       : undefined;
-    const job = startSettlementJob(
+    const job = await startSettlementJob(
       body.plan,
-      body.auctions,
-      body.mode,
       {
         scalperMode: body.worldDemo === "scalper",
         ...(identityAgent ? { identityAgent } : {}),

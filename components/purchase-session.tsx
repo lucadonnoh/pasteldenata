@@ -8,13 +8,13 @@ import {
   useState,
 } from "react";
 
-import type { DemoResult } from "@/src/domain";
+import type { PurchaseSessionResult } from "@/src/domain";
 
 export type HederaSettlementStatus = "idle" | "pending" | "settled" | "failed";
 
 interface PurchaseSessionValue {
-  result: DemoResult | null;
-  setResult: (result: DemoResult | null) => void;
+  result: PurchaseSessionResult | null;
+  setResult: (result: PurchaseSessionResult | null) => void;
   settlement: HederaSettlementStatus;
   setSettlement: (status: HederaSettlementStatus) => void;
   settlementError: string;
@@ -31,7 +31,7 @@ export function PurchaseSessionProvider({
 }: {
   children: ReactNode;
 }) {
-  const [result, setResult] = useState<DemoResult | null>(null);
+  const [result, setResult] = useState<PurchaseSessionResult | null>(null);
   const [settlement, setSettlement] =
     useState<HederaSettlementStatus>("idle");
   const [settlementError, setSettlementError] = useState("");

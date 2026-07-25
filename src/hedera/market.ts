@@ -10,6 +10,7 @@ import { sellersForLocation } from "../catalog";
 import type {
   HumanPolicy,
   Category,
+  MarketProgressPhase,
   PaymentReceipt,
   PlanAllocation,
   PrivatePlan,
@@ -45,7 +46,7 @@ import {
   type HederaSettlementContext,
   type SettlementFailure,
 } from "./settle";
-import { mintClaimTo } from "./swarm";
+import { mintClaimTo } from "./claim";
 import { persistLeafWallet } from "./walletVault";
 
 const LEAF_AGENT_PATH = leafAgentPath();
@@ -63,6 +64,16 @@ export interface MarketBuyer {
 }
 
 export type MarketEvent =
+  | {
+      type: "MARKET_PHASE";
+      phase: Exclude<
+        MarketProgressPhase,
+        "preparing-market" | "complete"
+      >;
+    }
+  | { type: "WALLET_RECONCILED" }
+  | { type: "BUYER_REFUNDED" }
+  | { type: "HCS_TOPIC_VERIFIED" }
   | {
       type: "LISTING_OPEN";
       itemId: string;
@@ -225,6 +236,13 @@ async function withItemAction<T>(
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function marketMandateId(
+  planId: string,
+  category: Category,
+): string {
+  return `mandate_${hash(`${planId}|${category}`).slice(0, 16)}`;
 }
 
 export function marketItemId(
@@ -452,6 +470,7 @@ export async function runMarket(
       allocation,
     })),
   );
+  onEvent({ type: "MARKET_PHASE", phase: "running-auctions" });
   const settled = await Promise.allSettled(
     tasks.map(({ buyer, buyerIndex, allocation }) =>
       runMarketLeaf(
@@ -498,6 +517,7 @@ export async function runMarket(
     }
   });
 
+  onEvent({ type: "MARKET_PHASE", phase: "reconciling-wallets" });
   const observedSpent = buyers.map(() => 0);
   const sweptRemainders = buyers.map(() => 0);
   for (const runtime of shared.runtimes) {
@@ -530,6 +550,7 @@ export async function runMarket(
         leafAccountId: runtime.wallet.accountId,
       });
     }
+    onEvent({ type: "WALLET_RECONCILED" });
   }
   buyers.forEach((buyer, index) => {
     const spent = observedSpent[index] ?? 0;
@@ -546,18 +567,19 @@ export async function runMarket(
     }
   });
 
+  onEvent({ type: "MARKET_PHASE", phase: "refunding-buyers" });
   await Promise.all(
     buyers.map(async (_buyer, index) => {
-      const wallet = buyerWallets[index];
-      const amount = spendable[index];
-      if (!wallet || amount === undefined) return;
-      const funded = shared.runtimes
-        .filter((runtime) => runtime.buyerIndex === index)
-        .reduce((sum, runtime) => sum + runtime.fundedCents, 0);
-      const refund =
-        amount - funded + (sweptRemainders[index] ?? 0);
-      if (refund <= 0) return;
+      let refund = 0;
       try {
+        const wallet = buyerWallets[index];
+        const amount = spendable[index];
+        if (!wallet || amount === undefined) return;
+        const funded = shared.runtimes
+          .filter((runtime) => runtime.buyerIndex === index)
+          .reduce((sum, runtime) => sum + runtime.fundedCents, 0);
+        refund = amount - funded + (sweptRemainders[index] ?? 0);
+        if (refund <= 0) return;
         await (
           await new TransferTransaction()
             .addTokenTransfer(
@@ -579,30 +601,37 @@ export async function runMarket(
             error instanceof Error ? error.message : String(error)
           }`,
         });
+      } finally {
+        onEvent({ type: "BUYER_REFUNDED" });
       }
     }),
   );
 
+  onEvent({ type: "MARKET_PHASE", phase: "verifying-hcs" });
   const contentionResults = await Promise.allSettled(
     listings.map(async (listing): Promise<MarketContention> => {
-      const state = await fetchItemState(
-        TESTNET_MIRROR_BASE,
-        listing.topicId,
-        listing.itemId,
-        ctx.operatorId.toString(),
-      );
-      return {
-        sellerName: listing.sellerName,
-        offering: listing.offering,
-        category: listing.category,
-        floorCents: listing.floorCents,
-        bids: state.bids.length,
-        bidders: new Set(state.bids.map((bid) => bid.bidder)).size,
-        ...(state.settlement
-          ? { soldForCents: state.settlement.amountCents }
-          : {}),
-        topicUrl: hashscanTopicUrl(listing.topicId),
-      };
+      try {
+        const state = await fetchItemState(
+          TESTNET_MIRROR_BASE,
+          listing.topicId,
+          listing.itemId,
+          ctx.operatorId.toString(),
+        );
+        return {
+          sellerName: listing.sellerName,
+          offering: listing.offering,
+          category: listing.category,
+          floorCents: listing.floorCents,
+          bids: state.bids.length,
+          bidders: new Set(state.bids.map((bid) => bid.bidder)).size,
+          ...(state.settlement
+            ? { soldForCents: state.settlement.amountCents }
+            : {}),
+          topicUrl: hashscanTopicUrl(listing.topicId),
+        };
+      } finally {
+        onEvent({ type: "HCS_TOPIC_VERIFIED" });
+      }
     }),
   );
   const contention: MarketContention[] = [];
@@ -683,9 +712,10 @@ async function runMarketLeaf(
   ctx: HederaSettlementContext,
   shared: SharedMarketState,
 ): Promise<MarketLeafRun> {
-  const mandateId = `mandate_${hash(
-    `${buyer.plan.planId}|${allocation.category}`,
-  ).slice(0, 16)}`;
+  const mandateId = marketMandateId(
+    buyer.plan.planId,
+    allocation.category,
+  );
   const wallet = await createAccount(ctx, LEAF_FEE_HBAR);
   const recoveryPath = persistLeafWallet(wallet, {
     planId: buyer.plan.planId,

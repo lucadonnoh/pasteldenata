@@ -1,13 +1,10 @@
 "use client";
 
-import { ArrowLeft, FlaskConical, Landmark } from "lucide-react";
+import { ArrowLeft, Landmark } from "lucide-react";
 import Link from "next/link";
 
 import { AgentSearchExperience } from "@/components/agent-search-experience";
-import {
-  MockExecutionDetails,
-  ZeroGVerificationReceipt,
-} from "@/components/execution-details";
+import { ZeroGVerificationReceipt } from "@/components/execution-details";
 import { usePurchaseSession } from "@/components/purchase-session";
 import { useSettlementJob } from "@/components/use-settlement-job";
 
@@ -15,6 +12,11 @@ import styles from "@/app/market/market.module.css";
 
 export function MarketWorkspace() {
   const { result, settlement, settlementError } = usePurchaseSession();
+  const onChainReceipts =
+    result?.receipts.filter(
+      (receipt) => receipt.status === "hedera-settled",
+    ).length ?? 0;
+  const partial = settlement === "failed" && onChainReceipts > 0;
   const live = useSettlementJob();
 
   if (!result) {
@@ -35,56 +37,53 @@ export function MarketWorkspace() {
 
   return (
     <section className={styles.marketWorkspace}>
-      <div className={styles.boundary}>
-        <span>
-          <FlaskConical size={15} aria-hidden="true" />
-        </span>
-        <div>
-          <strong>Trust boundary: private plan, mock market, live ledger</strong>
-          <p>
-            The prompt and 0G key stay in this tab. The derived plan drives
-            mocked sellers and rivals; the active bids and payments are read
-            from Hedera testnet when settlement is live.
-          </p>
-        </div>
-        <b>{settlement === "idle" ? "MOCK EXECUTION" : "HEDERA TESTNET"}</b>
-      </div>
-
-      {settlement !== "idle" && (
-        <div className={styles.verification} aria-live="polite">
+      {(settlement === "settled" || settlement === "failed") && (
+        <div
+          className={`${styles.settlementStrip} ${
+            settlement === "settled" || partial
+              ? partial
+                ? styles.settlementFailed
+                : styles.settlementOk
+              : settlement === "failed"
+                ? styles.settlementFailed
+                : ""
+          }`}
+          aria-live="polite"
+        >
           <span>
             <Landmark size={16} />
           </span>
           <div>
             <strong>
-              {settlement === "pending" && "Hedera settlement in progress"}
               {settlement === "settled" && "Settled on Hedera testnet"}
-              {settlement === "failed" && "Hedera settlement unavailable"}
+              {settlement === "failed" &&
+                (partial
+                  ? `Partially settled on Hedera — ${onChainReceipts} purchase${onChainReceipts === 1 ? "" : "s"} confirmed`
+                  : "Hedera market failed closed — no purchase completed")}
             </strong>
             <p>
-              {settlement === "pending" &&
-                "Isolated agents are paying sellers with real atomic HTS transfers…"}
               {settlement === "settled" &&
                 (result.hedera
                   ? `NATA ${result.hedera.paymentTokenId} · buyer wallet ${result.hedera.buyerAccountId} · receipts link to HashScan below`
                   : "Receipts link to HashScan below.")}
               {settlement === "failed" &&
-                (settlementError || "Showing simulated receipts instead.")}
+                (partial
+                  ? `${settlementError || "The remaining mandates did not settle."} No simulated purchases were substituted.`
+                  : `${settlementError || "The local coordinator could not settle on testnet."} No simulated result was created.`)}
             </p>
           </div>
           <b>
-            {settlement === "pending"
-              ? "LIVE"
-              : settlement === "settled"
-                ? "ON-CHAIN"
-                : "SIMULATED"}
+            {settlement === "settled"
+              ? "ON-CHAIN"
+              : partial
+                ? "PARTIAL"
+                : "FAILED CLOSED"}
           </b>
         </div>
       )}
 
       <AgentSearchExperience result={result} {...(live ? { live } : {})} />
       <ZeroGVerificationReceipt result={result} />
-      <MockExecutionDetails result={result} />
     </section>
   );
 }

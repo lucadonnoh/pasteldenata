@@ -11,10 +11,10 @@ export const runtime = "nodejs";
  * Let the local UI render an honest preflight without exposing either Hedera
  * credential. Live signature validity is still checked by Hedera on use.
  */
-export function GET(request: Request) {
+export async function GET(request: Request) {
   try {
     assertLocalDemoRequest(request);
-    return NextResponse.json(getDemoReadiness(), {
+    return NextResponse.json(await getDemoReadiness(), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {

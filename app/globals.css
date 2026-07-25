@@ -337,10 +337,12 @@ main {
 .credential-sidebar.credential-sidebar-closing > header,
 .credential-sidebar.credential-sidebar-closing > .sidebar-key-field,
 .credential-sidebar.credential-sidebar-closing > .credential-status,
+.credential-sidebar.credential-sidebar-closing > .zerog-verify-button,
 .credential-sidebar.credential-sidebar-closing > footer,
 .credential-sidebar.credential-sidebar-collapsed > header,
 .credential-sidebar.credential-sidebar-collapsed > .sidebar-key-field,
 .credential-sidebar.credential-sidebar-collapsed > .credential-status,
+.credential-sidebar.credential-sidebar-collapsed > .zerog-verify-button,
 .credential-sidebar.credential-sidebar-collapsed > footer {
   pointer-events: none;
   opacity: 0;
@@ -368,6 +370,7 @@ main {
 .credential-sidebar > header,
 .credential-sidebar > .sidebar-key-field,
 .credential-sidebar > .credential-status,
+.credential-sidebar > .zerog-verify-button,
 .credential-sidebar > footer {
   opacity: 1;
   transform: translateX(0) scale(1);
@@ -531,6 +534,24 @@ main {
 .credential-status.credential-ready > i {
   background: #78b94f;
   box-shadow: 0 0 9px rgba(88, 153, 49, 0.5);
+}
+
+.zerog-verify-button {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 9px;
+  border: 1px solid rgba(85, 134, 56, 0.24);
+  border-radius: 11px;
+  background: rgba(227, 247, 214, 0.24);
+  color: #4f782f;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.zerog-verify-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 .credential-sidebar > footer {
@@ -3025,4 +3046,38 @@ a.readiness-item:hover {
   font-size: 11px;
   font-weight: 600;
   text-decoration: underline;
+}
+
+/* Collapsed-by-default 0G receipt bar */
+details.zerog-receipt > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+details.zerog-receipt > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.zerog-receipt:not([open]) > summary h2,
+details.zerog-receipt:not([open]) > summary p {
+  display: none;
+}
+
+details.zerog-receipt:not([open]) > summary {
+  align-items: center;
+  margin: 0;
+}
+
+.zerog-receipt-caret {
+  width: 8px;
+  height: 8px;
+  margin-left: 10px;
+  border-right: 2px solid rgba(36, 39, 44, 0.4);
+  border-bottom: 2px solid rgba(36, 39, 44, 0.4);
+  transform: rotate(-45deg);
+  transition: transform 0.18s ease;
+}
+
+details.zerog-receipt[open] .zerog-receipt-caret {
+  transform: rotate(45deg);
 }

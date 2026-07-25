@@ -130,99 +130,6 @@ export interface PublicListing {
   attributes: InventoryAttributes;
 }
 
-/**
- * This is the entire request exposed to a mocked seller. It deliberately
- * excludes the original intent, global budget, category cap, and private
- * buyer valuation.
- */
-export interface SellerAuctionView {
-  auctionId: string;
-  listingId: string;
-  category: Category;
-  location: string;
-  scheduledFor: string;
-  requirements: string[];
-}
-
-export interface SpendMandate {
-  id: string;
-  planId: string;
-  category: Category;
-  maxAmountCents: number;
-  currency: "USD";
-  expiresAt: string;
-}
-
-export interface BuyerSubagentTrace {
-  id: string;
-  category: Category;
-  mandateId: string;
-  requirements: string[];
-  priority: number;
-  strategy: "fit-adjusted-private-valuation";
-}
-
-export type AuctionParticipantKind =
-  | "allocation-buyer-subagent"
-  | "mock-rival";
-
-/**
- * Debug valuations are included only to make the local hackathon simulation
- * auditable. A real English auction exposes bids and dropout points, not caps.
- */
-export interface EnglishAuctionParticipantTrace {
-  bidderId: string;
-  bidderKind: AuctionParticipantKind;
-  debugMaxBidCents: number;
-}
-
-export interface EnglishAuctionStep {
-  sequence: number;
-  askingPriceCents: number;
-  activeBidderIds: string[];
-  droppedBidderIds: string[];
-  leadingBidderId: string | null;
-}
-
-export type ListingAuctionStatus = "won" | "lost" | "floor-not-met";
-
-export interface ListingEnglishAuction {
-  auctionId: string;
-  listing: PublicListing;
-  listingScore: number;
-  status: ListingAuctionStatus;
-  buyerSubagentId: string;
-  buyerMaxBidCents: number;
-  debugSellerFloorPriceCents: number;
-  minimumIncrementCents: number;
-  participants: EnglishAuctionParticipantTrace[];
-  steps: EnglishAuctionStep[];
-  winningBidderId: string | null;
-  clearingPriceCents: number | null;
-}
-
-export interface AuctionWin {
-  auctionId: string;
-  listingId: string;
-  sellerId: string;
-  sellerName: string;
-  offering: string;
-  amountCents: number;
-  quality: number;
-  tags: string[];
-  attributes: InventoryAttributes;
-}
-
-export interface AuctionResult {
-  auctionId: string;
-  category: Category;
-  buyerSubagent: BuyerSubagentTrace;
-  mandate: SpendMandate;
-  listingAuctions: ListingEnglishAuction[];
-  winner: AuctionWin;
-  score: number;
-}
-
 export interface PaymentReceipt {
   id: string;
   planId: string;
@@ -234,14 +141,13 @@ export interface PaymentReceipt {
   category: Category;
   amountCents: number;
   currency: "USD";
-  status: "simulated-settled" | "hedera-settled";
+  status: "hedera-settled";
   /** Hedera transaction id of the atomic settlement transfer. */
   transactionId?: string;
   hashscanUrl?: string;
   /**
-   * Ledger account that held exactly this mandate's cap and nothing more: an
-   * escrow account in simple mode, the isolated leaf agent wallet in swarm
-   * mode.
+   * Isolated leaf-agent account that held exactly this mandate's cap and
+   * nothing more.
    */
   escrowAccountId?: string;
   /** Serial of the HTS claim NFT delivered in the same atomic transaction. */
@@ -251,7 +157,7 @@ export interface PaymentReceipt {
    * is intentionally local-only and never belongs in the public UI.
    */
   leafWalletRecoveryPath?: string;
-  /** Per-auction HCS topic (swarm mode: one topic per auction, unlinkable). */
+  /** Per-listing HCS auction topic. */
   auctionTopicUrl?: string;
   /** Live auction stats: total on-chain bids and the price discovery range. */
   liveBids?: number;
@@ -265,17 +171,46 @@ export interface HederaSummary {
   paymentTokenId: string;
   claimTokenId: string;
   buyerAccountId: string;
-  /** Marketplace clearing account that funds leaf wallets (swarm mode). */
+  /** Marketplace clearing account that funds leaf wallets. */
   clearingAccountId?: string;
-  /** Single plan-level topic (simple mode only; swarm uses one per auction). */
-  topicId?: string;
-  topicUrl?: string;
 }
 
-export interface DemoResult {
+export interface SettlementResult {
+  receipts: PaymentReceipt[];
+  hedera?: HederaSummary;
+}
+
+export type MarketProgressPhase =
+  | "preparing-market"
+  | "running-auctions"
+  | "reconciling-wallets"
+  | "refunding-buyers"
+  | "verifying-hcs"
+  | "complete";
+
+/**
+ * Coordinator progress exposed to the browser so a confirmed user purchase is
+ * not confused with completion of the shared-market audit.
+ */
+export interface MarketProgress {
+  phase: MarketProgressPhase;
+  resolvedAgents: number;
+  totalAgents: number;
+  reconciledWallets: number;
+  totalWallets: number;
+  refundedBuyers: number;
+  totalBuyers: number;
+  verifiedTopics: number;
+  totalTopics: number;
+}
+
+/**
+ * Browser product state. The verified plan goes directly to the Hedera market
+ * and only ledger-confirmed receipts are ever added.
+ */
+export interface PurchaseSessionResult {
   plan: PrivatePlan;
   attestation: PlannerAttestation;
-  auctions: AuctionResult[];
   receipts: PaymentReceipt[];
   totalSpentCents: number;
   hedera?: HederaSummary;
