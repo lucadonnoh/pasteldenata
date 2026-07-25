@@ -66,11 +66,10 @@ and reusable for the prize submission.
    `verifyEVMSignature` from `@worldcoin/agentkit`, before `lookupHuman` is
    consulted.
 
-3. **UI surface.** The data is on the job API (per-listing `humanPolicy`,
-   pass/rejection/block counters), but nothing renders it yet: a
-   "human-backed · one per human" badge on protected listings, a "sybils
-   blocked" counter during the scalper demo, and an explainer line in the
-   proof drawer. Needs coordination with the UI owner.
+3. **Remaining UI details.** Badges and the front-page status shipped;
+   still unrendered: a live "sybils blocked" counter during the scalper
+   demo (the data is on `job.world`) and an explainer line in the proof
+   drawer. Cosmetic; coordinate with the UI owner.
 
 4. **Bid-level enforcement (optional hardening).** Precisely: unverified
    buyers cannot SETTLE protected items, but pass-less bids can still land
