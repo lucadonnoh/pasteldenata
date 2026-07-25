@@ -54,6 +54,35 @@ to protocols, not to any specific account.
   auction (enrollment rejections plus settlement-time blocks, all logged
   by the job API).
 
+## Network impact (measured, not estimated)
+
+Agentic commerce is transaction-dense by construction: every plan mints
+budget, creates agent accounts, opens per-listing HCS topics, streams
+authenticated bids, and settles with atomic swaps. Measured from real
+testnet runs (all replayable via the operator's history on HashScan,
+account `0.0.9695863`):
+
+**One $200 date plan (4 categories, 3 rival buyers) produces roughly:**
+
+- **13 new Hedera accounts** — one fresh, unlinkable wallet per buyer agent
+- **16 HCS topics** — one per scarce listing (seat/table level), each with
+  its own submit key
+- **~100+ consensus messages** — payer-authenticated listings, bids,
+  closes, forfeitures, settlements (a contested item alone can carry a
+  20-bid war)
+- **10 atomic swaps** — NATA-for-claim-NFT settlements, each co-signed by
+  buyer agent and seller
+- **~40 token transfers** — budget funding, escrowed caps, contingency
+  grants, refunds, fee-float returns
+- **10+ NFT mints** — one claim NFT per purchased item
+
+A 300-transaction sample of recent operator history shows the standing
+mix: 44% crypto transfers, 29% consensus messages, 10% account creations,
+10% topic creations, 8% token mints. One user sentence — "organize me a
+date" — reliably becomes **on the order of 150 Hedera transactions**, all
+of them meaningful protocol usage (HTS, HCS, scheduled atomic settlement,
+Mirror Node reads on both server and browser), none of them padding.
+
 ## Demo day
 
 We will provide, ready to use:
