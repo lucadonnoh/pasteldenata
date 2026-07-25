@@ -8,7 +8,7 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
-export type City = "lisbon" | "milan";
+export type City = "lisbon" | "milan" | "tokyo" | "mumbai" | "newyork";
 
 export interface PlanAllocation {
   category: Category;

@@ -509,6 +509,350 @@ export const MOCK_SELLERS: Seller[] = [
       },
     ],
   },
+  {
+    id: "ginza-kappo",
+    name: "Ginza Kappo Hana",
+    category: "dinner",
+    humanPolicy: "one-per-human",
+    city: "tokyo",
+    privateSalt: "ginza-kappo-v1",
+    inventory: [
+      {
+        id: "kappo-counter-1930",
+        offering: "Kaiseki counter for two · 19:30",
+        estimatedMarketPriceCents: 13800,
+        floorPriceCents: 11400,
+        quality: 96,
+        marketHeat: 0.85,
+        tags: ["kaiseki", "omakase", "quiet", "counter"],
+        attributes: { partySize: 2, time: "19:30" },
+      },
+      {
+        id: "kappo-tatami-2100",
+        offering: "Tatami room for two · 21:00",
+        estimatedMarketPriceCents: 11800,
+        floorPriceCents: 9600,
+        quality: 90,
+        marketHeat: 0.55,
+        tags: ["kaiseki", "private", "late"],
+        attributes: { partySize: 2, time: "21:00" },
+      },
+    ],
+  },
+  {
+    id: "toho-shinjuku",
+    name: "Toho Cinema Shinjuku",
+    category: "cinema",
+    humanPolicy: "one-per-human",
+    city: "tokyo",
+    privateSalt: "toho-shinjuku-v1",
+    inventory: [
+      {
+        id: "toho-imax-e",
+        offering: "IMAX · Row E · Seats 10–11",
+        estimatedMarketPriceCents: 3200,
+        floorPriceCents: 2500,
+        quality: 91,
+        marketHeat: 0.75,
+        tags: ["imax", "central", "evening", "two-seats"],
+        attributes: { row: "E", seats: "10-11" },
+      },
+      {
+        id: "toho-std-j",
+        offering: "Screen 3 · Row J · Seats 4–5",
+        estimatedMarketPriceCents: 2000,
+        floorPriceCents: 1500,
+        quality: 82,
+        marketHeat: 0.4,
+        tags: ["evening", "two-seats"],
+        attributes: { row: "J", seats: "4-5" },
+      },
+    ],
+  },
+  {
+    id: "tokyo-dome",
+    name: "Tokyo Dome Baseball",
+    category: "experience",
+    humanPolicy: "one-per-human",
+    city: "tokyo",
+    privateSalt: "tokyo-dome-v1",
+    inventory: [
+      {
+        id: "dome-infield-a",
+        offering: "Giants game · Infield A · Pair",
+        estimatedMarketPriceCents: 9800,
+        floorPriceCents: 7800,
+        quality: 95,
+        marketHeat: 0.9,
+        tags: ["baseball", "game", "two-seats", "infield"],
+        attributes: { section: "Infield A", pair: true },
+      },
+      {
+        id: "dome-outfield",
+        offering: "Giants game · Outfield · Pair",
+        estimatedMarketPriceCents: 5400,
+        floorPriceCents: 4200,
+        quality: 84,
+        marketHeat: 0.6,
+        tags: ["baseball", "game", "two-seats", "outfield"],
+        attributes: { section: "Outfield", pair: true },
+      },
+    ],
+  },
+  {
+    id: "tokyo-metro",
+    name: "Tokyo Metro Passes",
+    category: "transport",
+    city: "tokyo",
+    privateSalt: "tokyo-metro-v1",
+    inventory: [
+      {
+        id: "metro-day-pair",
+        offering: "Two 24h metro passes",
+        estimatedMarketPriceCents: 1600,
+        floorPriceCents: 1200,
+        quality: 80,
+        marketHeat: 0.3,
+        tags: ["public", "flexible", "cheap"],
+        attributes: { passes: 2 },
+      },
+    ],
+  },
+  {
+    id: "hanayoshi",
+    name: "Hanayoshi Ginza",
+    category: "flowers",
+    city: "tokyo",
+    privateSalt: "hanayoshi-v1",
+    inventory: [
+      {
+        id: "hana-seasonal",
+        offering: "Seasonal ikebana bouquet",
+        estimatedMarketPriceCents: 3400,
+        floorPriceCents: 2700,
+        quality: 89,
+        marketHeat: 0.45,
+        tags: ["seasonal", "elegant", "delivery"],
+        attributes: { style: "ikebana" },
+      },
+    ],
+  },
+  {
+    id: "bandra-masala",
+    name: "Bandra Masala House",
+    category: "dinner",
+    humanPolicy: "one-per-human",
+    city: "mumbai",
+    privateSalt: "bandra-masala-v1",
+    inventory: [
+      {
+        id: "masala-terrace-2030",
+        offering: "Terrace table for two · 20:30",
+        estimatedMarketPriceCents: 6800,
+        floorPriceCents: 5400,
+        quality: 92,
+        marketHeat: 0.8,
+        tags: ["terrace", "lively", "local", "spice"],
+        attributes: { partySize: 2, time: "20:30" },
+      },
+      {
+        id: "masala-indoor-1900",
+        offering: "Indoor table for two · 19:00",
+        estimatedMarketPriceCents: 5200,
+        floorPriceCents: 4100,
+        quality: 85,
+        marketHeat: 0.5,
+        tags: ["local", "early", "family"],
+        attributes: { partySize: 2, time: "19:00" },
+      },
+    ],
+  },
+  {
+    id: "regal-colaba",
+    name: "Regal Cinema Colaba",
+    category: "cinema",
+    humanPolicy: "one-per-human",
+    city: "mumbai",
+    privateSalt: "regal-colaba-v1",
+    inventory: [
+      {
+        id: "regal-balcony-c",
+        offering: "Balcony · Row C · Seats 7–8",
+        estimatedMarketPriceCents: 1800,
+        floorPriceCents: 1300,
+        quality: 87,
+        marketHeat: 0.65,
+        tags: ["heritage", "balcony", "evening", "two-seats"],
+        attributes: { row: "C", seats: "7-8" },
+      },
+    ],
+  },
+  {
+    id: "wankhede",
+    name: "Wankhede Cricket Stands",
+    category: "experience",
+    humanPolicy: "one-per-human",
+    city: "mumbai",
+    privateSalt: "wankhede-v1",
+    inventory: [
+      {
+        id: "wankhede-north",
+        offering: "T20 match · North Stand · Pair",
+        estimatedMarketPriceCents: 8800,
+        floorPriceCents: 7000,
+        quality: 94,
+        marketHeat: 0.9,
+        tags: ["cricket", "match", "two-seats", "stand"],
+        attributes: { stand: "North", pair: true },
+      },
+    ],
+  },
+  {
+    id: "kaali-peeli",
+    name: "Kaali-Peeli Cabs",
+    category: "transport",
+    city: "mumbai",
+    privateSalt: "kaali-peeli-v1",
+    inventory: [
+      {
+        id: "kp-evening",
+        offering: "Two classic taxi transfers",
+        estimatedMarketPriceCents: 1400,
+        floorPriceCents: 1000,
+        quality: 79,
+        marketHeat: 0.35,
+        tags: ["classic", "door-to-door", "evening"],
+        attributes: { rides: 2 },
+      },
+    ],
+  },
+  {
+    id: "dadar-flowers",
+    name: "Dadar Flower Market",
+    category: "flowers",
+    city: "mumbai",
+    privateSalt: "dadar-flowers-v1",
+    inventory: [
+      {
+        id: "dadar-marigold",
+        offering: "Marigold and jasmine garland set",
+        estimatedMarketPriceCents: 1600,
+        floorPriceCents: 1100,
+        quality: 83,
+        marketHeat: 0.4,
+        tags: ["traditional", "fragrant", "local"],
+        attributes: { style: "garland" },
+      },
+    ],
+  },
+  {
+    id: "greenwich-trattoria",
+    name: "Greenwich Trattoria",
+    category: "dinner",
+    humanPolicy: "one-per-human",
+    city: "newyork",
+    privateSalt: "greenwich-trattoria-v1",
+    inventory: [
+      {
+        id: "gt-garden-2000",
+        offering: "Garden table for two · 20:00",
+        estimatedMarketPriceCents: 14800,
+        floorPriceCents: 12200,
+        quality: 93,
+        marketHeat: 0.85,
+        tags: ["romantic", "garden", "village"],
+        attributes: { partySize: 2, time: "20:00" },
+      },
+      {
+        id: "gt-bar-1830",
+        offering: "Bar seats for two · 18:30",
+        estimatedMarketPriceCents: 9800,
+        floorPriceCents: 7900,
+        quality: 84,
+        marketHeat: 0.5,
+        tags: ["casual", "early", "bar"],
+        attributes: { partySize: 2, time: "18:30" },
+      },
+    ],
+  },
+  {
+    id: "angelika",
+    name: "Angelika Film Center",
+    category: "cinema",
+    humanPolicy: "one-per-human",
+    city: "newyork",
+    privateSalt: "angelika-v1",
+    inventory: [
+      {
+        id: "angelika-d",
+        offering: "Screen 1 · Row D · Seats 5–6",
+        estimatedMarketPriceCents: 3600,
+        floorPriceCents: 2800,
+        quality: 90,
+        marketHeat: 0.7,
+        tags: ["arthouse", "central", "evening", "two-seats"],
+        attributes: { row: "D", seats: "5-6" },
+      },
+    ],
+  },
+  {
+    id: "yankee-bleachers",
+    name: "Yankee Stadium Bleachers",
+    category: "experience",
+    humanPolicy: "one-per-human",
+    city: "newyork",
+    privateSalt: "yankee-bleachers-v1",
+    inventory: [
+      {
+        id: "yankees-203",
+        offering: "Yankees game · Section 203 · Pair",
+        estimatedMarketPriceCents: 10800,
+        floorPriceCents: 8600,
+        quality: 95,
+        marketHeat: 0.9,
+        tags: ["baseball", "game", "two-seats", "bleachers"],
+        attributes: { section: "203", pair: true },
+      },
+    ],
+  },
+  {
+    id: "nyc-cab",
+    name: "NYC Yellow Cab",
+    category: "transport",
+    city: "newyork",
+    privateSalt: "nyc-cab-v1",
+    inventory: [
+      {
+        id: "nyc-rides",
+        offering: "Two yellow cab transfers",
+        estimatedMarketPriceCents: 2600,
+        floorPriceCents: 2000,
+        quality: 81,
+        marketHeat: 0.4,
+        tags: ["classic", "door-to-door", "evening"],
+        attributes: { rides: 2 },
+      },
+    ],
+  },
+  {
+    id: "chelsea-flowers",
+    name: "Chelsea Flower Studio",
+    category: "flowers",
+    city: "newyork",
+    privateSalt: "chelsea-flowers-v1",
+    inventory: [
+      {
+        id: "chelsea-peony",
+        offering: "Peony hand-tied bouquet",
+        estimatedMarketPriceCents: 4200,
+        floorPriceCents: 3300,
+        quality: 88,
+        marketHeat: 0.5,
+        tags: ["romantic", "seasonal", "delivery"],
+        attributes: { style: "hand-tied" },
+      },
+    ],
+  },
 ];
 
 export function toPublicListing(
@@ -535,11 +879,43 @@ export function publicCatalogForPlanner(): PublicListing[] {
   );
 }
 
-export function cityForLocation(location: string): City {
-  return /\bmilan(?:o)?\b/i.test(location) ? "milan" : "lisbon";
+const CITY_MATCHERS: Array<[City, RegExp]> = [
+  ["lisbon", /\blisbo[an]\b/i],
+  ["milan", /\bmilan(?:o)?\b/i],
+  ["tokyo", /\btokyo\b/i],
+  ["mumbai", /\bmumbai\b|\bbombay\b/i],
+  ["newyork", /\bnew\s*york\b|\bnyc\b|\bmanhattan\b/i],
+];
+
+export const CITY_LABELS: Record<City, string> = {
+  lisbon: "Lisbon",
+  milan: "Milan",
+  tokyo: "Tokyo",
+  mumbai: "Mumbai",
+  newyork: "New York",
+};
+
+export class UnknownCityError extends Error {
+  readonly available: string[];
+  constructor(location: string) {
+    const available = Object.values(CITY_LABELS);
+    super(
+      `No sellers found in "${location}" yet. Cities with sellers: ${available.join(", ")}. Please retry your intent with one of these.`,
+    );
+    this.name = "UnknownCityError";
+    this.available = available;
+  }
+}
+
+export function cityForLocation(location: string): City | null {
+  for (const [city, matcher] of CITY_MATCHERS) {
+    if (matcher.test(location)) return city;
+  }
+  return null;
 }
 
 export function sellersForLocation(location: string): Seller[] {
   const city = cityForLocation(location);
+  if (!city) throw new UnknownCityError(location);
   return MOCK_SELLERS.filter((seller) => seller.city === city);
 }
