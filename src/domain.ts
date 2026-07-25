@@ -37,9 +37,31 @@ export interface ZeroGRouterTrace {
   tee_verified: true;
 }
 
+export interface ZeroGE2eeReceipt {
+  protocol: "0g-pc-e2ee-v1";
+  cipherSuite:
+    "DHKEM(X25519,HKDF-SHA256)/HKDF-SHA256/ChaCha20Poly1305";
+  providerPublicKeyEndpoint: string;
+  providerEncryptionKey: string;
+  encryptionKeyId: string;
+  encryptionKeySignerMatchesOnchain: true;
+  /**
+   * The deployed quote currently binds the TEE signer but does not yet expose
+   * the E2EE enc_pub in report_data. Keep this explicit instead of upgrading
+   * an HTTPS key fetch into an attestation claim.
+   */
+  encryptionKeyAttestationVerified: false;
+  requestSealedFields: string[];
+  responseSealedFields: string[];
+  responseUnboundFields: string[];
+  requestEncrypted: true;
+  responseEncrypted: true;
+  responseDecryptedLocally: true;
+}
+
 export interface IndependentTeeVerification {
   verified: true;
-  method: "onchain-signer-eip191-response-bound";
+  method: "onchain-signer-eip191-e2ee-content-bound";
   chainId: 16661;
   rpcUrl: string;
   serviceContract: string;
@@ -55,19 +77,17 @@ export interface IndependentTeeVerification {
   signature: string;
   messageHash: string;
   signatureVerified: true;
+  requestHashVerified: true;
+  requestHashMethod: "jcs-decrypted-e2ee-request";
+  computedRequestHash: string;
   responseHashVerified: true;
-  responseHashMethod:
-    | "raw-router-response"
-    | "raw-without-router-trace"
-    | "json-without-router-trace"
-    | "jcs-without-router-trace"
-    | "json-without-router-trace-provider-model"
-    | "jcs-without-router-trace-provider-model";
+  responseHashMethod: "jcs-decrypted-e2ee-response";
   computedResponseHash: string;
-  excludedResponseFields: [] | ["x_0g_trace"];
-  normalizedResponseFields: [] | ["model"];
-  signedRequestHash?: string;
+  excludedResponseFields: string[];
+  normalizedResponseFields: [];
+  signedRequestHash: string;
   signedResponseHash: string;
+  e2ee: ZeroGE2eeReceipt;
   providerType?: string;
   providerIdentity?: string;
   tlsCertFingerprint?: string;

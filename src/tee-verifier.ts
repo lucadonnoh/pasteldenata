@@ -6,8 +6,12 @@ import {
   recoverAddress,
 } from "ethers";
 import { z } from "zod";
-import type { IndependentTeeVerification } from "./domain";
+import type {
+  IndependentTeeVerification,
+  ZeroGE2eeReceipt,
+} from "./domain";
 import { sha256Hex } from "./hash";
+import { canonicalJson } from "./jcs";
 
 export const ZEROG_MAINNET_CHAIN_ID = 16661;
 export const ZEROG_MAINNET_RPC = "https://evmrpc.0g.ai";
@@ -49,10 +53,20 @@ interface OnchainServiceRecord {
   teeSignerAcknowledged: boolean;
 }
 
+export interface VerifiedTeeService {
+  provider: string;
+  url: string;
+  model: string;
+  verifiability: "TeeML";
+  signingAddress: string;
+}
+
 export interface IndependentTeeVerificationInput {
   provider: string;
   chatId: string;
-  routerResponseText: string;
+  requestContent: Record<string, unknown>;
+  responseContent: Record<string, unknown>;
+  e2ee: ZeroGE2eeReceipt;
 }
 
 export interface IndependentTeeVerifier {
@@ -102,234 +116,35 @@ function extractSignedHashes(signedPayload: string): {
   };
 }
 
-type ResponseHashMethod =
-  IndependentTeeVerification["responseHashMethod"];
-
-interface ResponseHashCandidate {
-  method: ResponseHashMethod;
-  content: string;
-  excludedResponseFields: [] | ["x_0g_trace"];
-  normalizedResponseFields: [] | ["model"];
-}
-
-function canonicalJson(value: unknown): string {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    typeof value === "string"
-  ) {
-    const encoded = JSON.stringify(value);
-    if (encoded === undefined) {
-      throw new Error("Cannot canonicalize an unsupported JSON value.");
-    }
-    return encoded;
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map(
-        (key) =>
-          `${JSON.stringify(key)}:${canonicalJson(record[key])}`,
-      )
-      .join(",")}}`;
-  }
-
-  throw new Error("Cannot canonicalize an unsupported JSON value.");
-}
-
-function stripTopLevelJsonField(
-  json: string,
-  fieldName: string,
-): string | undefined {
-  const objectStart = json.indexOf("{");
-  const objectEnd = json.lastIndexOf("}");
-  if (objectStart < 0 || objectEnd <= objectStart) return undefined;
-
-  const commas: number[] = [];
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = objectStart; index <= objectEnd; index += 1) {
-    const character = json[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (character === '"') {
-      inString = true;
-    } else if (character === "{" || character === "[") {
-      depth += 1;
-    } else if (character === "}" || character === "]") {
-      depth -= 1;
-    } else if (character === "," && depth === 1) {
-      commas.push(index);
-    }
-  }
-
-  const boundaries = [objectStart, ...commas, objectEnd];
-  for (let index = 0; index < boundaries.length - 1; index += 1) {
-    const startBoundary = boundaries[index];
-    const endBoundary = boundaries[index + 1];
-    if (startBoundary === undefined || endBoundary === undefined) {
-      return undefined;
-    }
-    const start = startBoundary + 1;
-    const end = endBoundary;
-    const member = json.slice(start, end);
-    try {
-      const parsed = JSON.parse(`{${member}}`) as Record<
-        string,
-        unknown
-      >;
-      if (
-        Object.keys(parsed).length === 1 &&
-        Object.hasOwn(parsed, fieldName)
-      ) {
-        const removeStart =
-          index === 0 ? start : startBoundary;
-        const removeEnd =
-          index === 0 && commas.length > 0
-            ? endBoundary + 1
-            : end;
-        return json.slice(0, removeStart) + json.slice(removeEnd);
-      }
-    } catch {
-      return undefined;
-    }
-  }
-
-  return undefined;
-}
-
-export function verifyResponseContentHash({
-  routerResponseText,
+export function verifyE2eeContentHashes({
+  requestContent,
+  responseContent,
+  signedRequestHash,
   signedResponseHash,
-  providerModel,
 }: {
-  routerResponseText: string;
+  requestContent: Record<string, unknown>;
+  responseContent: Record<string, unknown>;
+  signedRequestHash: string;
   signedResponseHash: string;
-  providerModel?: string;
 }): {
-  method: ResponseHashMethod;
+  computedRequestHash: string;
   computedResponseHash: string;
-  excludedResponseFields: [] | ["x_0g_trace"];
-  normalizedResponseFields: [] | ["model"];
 } {
-  const expectedHash = signedResponseHash.toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
+  const computedRequestHash = sha256Hex(canonicalJson(requestContent));
+  const computedResponseHash = sha256Hex(canonicalJson(responseContent));
+
+  if (computedRequestHash !== signedRequestHash.toLowerCase()) {
     throw new Error(
-      "Independent TEE verification failed: the signed proof has no valid response hash.",
+      `Independent TEE verification failed: signed request hash ${signedRequestHash} does not match the locally reconstructed E2EE request ${computedRequestHash}.`,
     );
   }
-
-  const candidates: ResponseHashCandidate[] = [
-    {
-      method: "raw-router-response",
-      content: routerResponseText,
-      excludedResponseFields: [],
-      normalizedResponseFields: [],
-    },
-  ];
-  const rawWithoutTrace = stripTopLevelJsonField(
-    routerResponseText,
-    "x_0g_trace",
-  );
-  if (rawWithoutTrace !== undefined) {
-    candidates.push({
-      method: "raw-without-router-trace",
-      content: rawWithoutTrace,
-      excludedResponseFields: ["x_0g_trace"],
-      normalizedResponseFields: [],
-    });
-  }
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(routerResponseText) as Record<
-      string,
-      unknown
-    >;
-  } catch {
+  if (computedResponseHash !== signedResponseHash.toLowerCase()) {
     throw new Error(
-      "Independent TEE verification failed: the Router response is not valid JSON.",
-    );
-  }
-  const providerResponse = { ...parsed };
-  delete providerResponse.x_0g_trace;
-  candidates.push(
-    {
-      method: "json-without-router-trace",
-      content: JSON.stringify(providerResponse),
-      excludedResponseFields: ["x_0g_trace"],
-      normalizedResponseFields: [],
-    },
-    {
-      method: "jcs-without-router-trace",
-      content: canonicalJson(providerResponse),
-      excludedResponseFields: ["x_0g_trace"],
-      normalizedResponseFields: [],
-    },
-  );
-  if (
-    providerModel &&
-    typeof providerResponse.model === "string" &&
-    providerResponse.model !== providerModel
-  ) {
-    const providerModelResponse = {
-      ...providerResponse,
-      model: providerModel,
-    };
-    candidates.push(
-      {
-        method: "json-without-router-trace-provider-model",
-        content: JSON.stringify(providerModelResponse),
-        excludedResponseFields: ["x_0g_trace"],
-        normalizedResponseFields: ["model"],
-      },
-      {
-        method: "jcs-without-router-trace-provider-model",
-        content: canonicalJson(providerModelResponse),
-        excludedResponseFields: ["x_0g_trace"],
-        normalizedResponseFields: ["model"],
-      },
+      `Independent TEE verification failed: signed response hash ${signedResponseHash} does not match the locally decrypted E2EE plan response ${computedResponseHash}.`,
     );
   }
 
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (seen.has(candidate.content)) continue;
-    seen.add(candidate.content);
-    const candidateHash = sha256Hex(candidate.content);
-    if (candidateHash === expectedHash) {
-      return {
-        method: candidate.method,
-        computedResponseHash: candidateHash,
-        excludedResponseFields: candidate.excludedResponseFields,
-        normalizedResponseFields: candidate.normalizedResponseFields,
-      };
-    }
-  }
-
-  const candidateHashes = candidates
-    .map(
-      (candidate) =>
-        `${candidate.method}=${sha256Hex(candidate.content)}`,
-    )
-    .join(", ");
-  throw new Error(
-    `Independent TEE verification failed: signed response hash ${expectedHash} does not match the plan response received from the Router (${candidateHashes}).`,
-  );
+  return { computedRequestHash, computedResponseHash };
 }
 
 function resolveSigningAddress(service: OnchainServiceRecord): string {
@@ -356,49 +171,63 @@ function resolveSigningAddress(service: OnchainServiceRecord): string {
   return getAddress(service.teeSignerAddress);
 }
 
+export async function readVerifiedTeeService(
+  provider: string,
+): Promise<VerifiedTeeService> {
+  const providerAddress = getAddress(provider);
+  const rpc = new JsonRpcProvider(ZEROG_MAINNET_RPC);
+  const network = await rpc.getNetwork();
+  if (network.chainId !== BigInt(ZEROG_MAINNET_CHAIN_ID)) {
+    throw new Error(
+      `Independent TEE verification failed: expected 0G chain ${ZEROG_MAINNET_CHAIN_ID}, received ${network.chainId}.`,
+    );
+  }
+
+  const serviceContract = new Contract(
+    ZEROG_INFERENCE_SERVICE_CONTRACT,
+    SERVICE_ABI,
+    rpc,
+  );
+  const service = (await serviceContract.getFunction("getService")(
+    providerAddress,
+  )) as unknown as OnchainServiceRecord;
+
+  if (getAddress(service.provider) !== providerAddress) {
+    throw new Error(
+      "Independent TEE verification failed: the on-chain service record does not match the selected provider.",
+    );
+  }
+  if (service.verifiability !== "TeeML") {
+    throw new Error(
+      `Independent TEE verification failed: provider is ${service.verifiability || "not verifiable"}, not TeeML.`,
+    );
+  }
+  if (service.teeSignerAcknowledged !== true) {
+    throw new Error(
+      "Independent TEE verification failed: the provider's TEE signer is not acknowledged on-chain.",
+    );
+  }
+
+  return {
+    provider: providerAddress,
+    url: service.url,
+    model: service.model,
+    verifiability: "TeeML",
+    signingAddress: resolveSigningAddress(service),
+  };
+}
+
 export class ZeroGIndependentTeeVerifier
   implements IndependentTeeVerifier
 {
   async verify({
     provider,
     chatId,
-    routerResponseText,
+    requestContent,
+    responseContent,
+    e2ee,
   }: IndependentTeeVerificationInput): Promise<IndependentTeeVerification> {
-    const providerAddress = getAddress(provider);
-    const rpc = new JsonRpcProvider(ZEROG_MAINNET_RPC);
-    const network = await rpc.getNetwork();
-    if (network.chainId !== BigInt(ZEROG_MAINNET_CHAIN_ID)) {
-      throw new Error(
-        `Independent TEE verification failed: expected 0G chain ${ZEROG_MAINNET_CHAIN_ID}, received ${network.chainId}.`,
-      );
-    }
-
-    const serviceContract = new Contract(
-      ZEROG_INFERENCE_SERVICE_CONTRACT,
-      SERVICE_ABI,
-      rpc,
-    );
-    const service = (await serviceContract.getFunction("getService")(
-      providerAddress,
-    )) as unknown as OnchainServiceRecord;
-
-    if (getAddress(service.provider) !== providerAddress) {
-      throw new Error(
-        "Independent TEE verification failed: the on-chain service record does not match the Router provider.",
-      );
-    }
-    if (service.verifiability !== "TeeML") {
-      throw new Error(
-        `Independent TEE verification failed: provider is ${service.verifiability || "not verifiable"}, not TeeML.`,
-      );
-    }
-    if (service.teeSignerAcknowledged !== true) {
-      throw new Error(
-        "Independent TEE verification failed: the provider's TEE signer is not acknowledged on-chain.",
-      );
-    }
-
-    const signingAddress = resolveSigningAddress(service);
+    const service = await readVerifiedTeeService(provider);
     const serviceUrl = service.url.replace(/\/+$/, "");
     const signatureEndpoint =
       `${serviceUrl}/v1/proxy/signature/${encodeURIComponent(chatId)}` +
@@ -420,47 +249,53 @@ export class ZeroGIndependentTeeVerifier
     const { messageHash, recoveredAddress } = verifyEip191Signature({
       signedText: signed.text,
       signature: signed.signature,
-      signingAddress,
+      signingAddress: service.signingAddress,
     });
     const signedHashes = extractSignedHashes(signed.text);
-    if (!signedHashes.signedResponseHash) {
+    if (
+      !signedHashes.signedRequestHash ||
+      !signedHashes.signedResponseHash
+    ) {
       throw new Error(
-        "Independent TEE verification failed: the signed payload contains no response hash.",
+        "Independent TEE verification failed: the signed payload does not contain valid request and response hashes.",
       );
     }
-    const responseBinding = verifyResponseContentHash({
-      routerResponseText,
+    const contentBinding = verifyE2eeContentHashes({
+      requestContent,
+      responseContent,
+      signedRequestHash: signedHashes.signedRequestHash,
       signedResponseHash: signedHashes.signedResponseHash,
-      providerModel: service.model,
     });
 
     return {
       verified: true,
-      method: "onchain-signer-eip191-response-bound",
+      method: "onchain-signer-eip191-e2ee-content-bound",
       chainId: ZEROG_MAINNET_CHAIN_ID,
       rpcUrl: ZEROG_MAINNET_RPC,
       serviceContract: ZEROG_INFERENCE_SERVICE_CONTRACT,
-      provider: providerAddress,
+      provider: service.provider,
       chatId,
       serviceUrl,
       serviceModel: service.model,
       verifiability: "TeeML",
-      signingAddress,
+      signingAddress: service.signingAddress,
       recoveredAddress,
       signatureEndpoint,
       signedPayload: signed.text,
       signature: signed.signature,
       messageHash,
       signatureVerified: true,
+      requestHashVerified: true,
+      requestHashMethod: "jcs-decrypted-e2ee-request",
+      computedRequestHash: contentBinding.computedRequestHash,
       responseHashVerified: true,
-      responseHashMethod: responseBinding.method,
-      computedResponseHash: responseBinding.computedResponseHash,
-      excludedResponseFields: responseBinding.excludedResponseFields,
-      normalizedResponseFields: responseBinding.normalizedResponseFields,
-      ...(signedHashes.signedRequestHash
-        ? { signedRequestHash: signedHashes.signedRequestHash }
-        : {}),
+      responseHashMethod: "jcs-decrypted-e2ee-response",
+      computedResponseHash: contentBinding.computedResponseHash,
+      excludedResponseFields: e2ee.responseUnboundFields,
+      normalizedResponseFields: [],
+      signedRequestHash: signedHashes.signedRequestHash,
       signedResponseHash: signedHashes.signedResponseHash,
+      e2ee,
       ...(signed.provider_type
         ? { providerType: signed.provider_type }
         : {}),

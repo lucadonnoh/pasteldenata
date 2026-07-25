@@ -15,9 +15,9 @@ hold.
 
 ## What is real
 
-- 0G Router private-tier inference
-- Independent browser-side TEE signature and response-content verification are
-  required before a plan is accepted
+- 0G Private Computer E2EE inference with the prompt HPKE-sealed before routing
+- Independent browser-side TEE signature plus decrypted request/response hash
+  verification are required before a plan is accepted
 - The model chooses categories, requirements, priorities, and allocations
 - Budget, category, replay, and atomic settlement checks are enforced in code
 - One scoped buyer subagent is created for every model allocation
@@ -34,7 +34,8 @@ No real payment is sent.
 
 ## Privacy boundaries
 
-- The original intent and global budget go only to the 0G private planner.
+- The original intent and global budget are encrypted in the browser and
+  decrypted by the selected 0G private planner.
 - Sellers receive an RFQ containing category, date, location, and requirements.
 - Sellers never receive the original prompt, global budget, or category cap.
 - A buyer subagent derives a listing-specific private valuation below its
@@ -119,8 +120,9 @@ keeps the primary interaction focused on one Liquid Glass intent box. After a
 successful request, an always-visible 0G verification receipt shows the exact
 cryptographic proof checked by the browser: 0G chain ID, provider service
 contract, on-chain TEE signer, recovered EIP-191 signer, raw signature, signed
-proof payload, and the independently matched response hash. Provider, signer,
-and service contract addresses link to 0G ChainScan. The Router's
+proof payload, HPKE metadata, and the independently matched request and response
+hashes. Provider, signer, and service contract addresses link to 0G ChainScan.
+The Router's
 `x_0g_trace` remains visible as explicitly separate, untrusted routing and
 billing metadata.
 
@@ -132,49 +134,69 @@ mistaken for 0G execution.
 Each user enters their own 0G Router key. The key is held only in React memory
 for the current browser tab: it is not persisted in local storage, cookies, or
 an application database. The browser calls the 0G Router directly, so neither
-the key nor the private prompt passes through an application server.
+the key nor the private prompt passes through an application server. Before
+that call, the browser:
+
+1. Selects a healthy private `TeeML` provider and pins its on-chain address.
+2. Reads that provider's service URL and acknowledged TEE signer from the 0G
+   Compute `InferenceServing` contract.
+3. Fetches the provider's X25519 key, requires its advertised signer to match
+   the on-chain signer, and validates its key ID.
+4. HPKE-seals the OpenAI `messages` field with
+   `DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305`.
+5. Sends only the sealed envelope through the Router with provider fallback
+   disabled.
+6. Authenticates and decrypts the provider-sealed `choices` field locally.
 
 The response must contain `x_0g_trace.tee_verified: true`, a request ID,
 provider address, and a proof lookup key. The browser uses `ZG-Res-Key` when
 the Router exposes it; otherwise it derives the same key from the documented
 `chatcmpl-<ZG-Res-Key>` response ID. It then independently:
 
-1. Reads the provider's service record and acknowledged TEE signer from the
+1. Re-reads the provider's service record and acknowledged TEE signer from the
    official 0G Compute `InferenceServing` contract on 0G Mainnet.
-2. Fetches the signed proof payload and raw signature from the provider's
+2. Fetches the signed proof payload and EIP-191 signature from the provider's
    public signature endpoint using the chat ID.
 3. Recovers the EIP-191 signer and requires it to equal the on-chain TEE signer.
-4. Excludes at most the Router-injected `x_0g_trace`, hashes the remaining
-   response, and restores the canonical provider model name from the same
-   on-chain record if the Router returned an alias.
-5. Requires the reconstructed hash to equal the response hash inside the signed
-   proof.
-6. Exposes both hashes, the raw signature, and complete signed payload.
+4. JCS-canonicalizes the locally reconstructed plaintext request and the
+   locally decrypted response. Only fields explicitly declared unbound by the
+   authenticated E2EE envelope, currently `x_0g_trace`, are excluded.
+5. Requires both SHA-256 values to equal the request and response hashes inside
+   the signed proof.
+6. Exposes the encryption receipt, all four hashes, the raw signature, and the
+   complete signed payload.
 
-Only the successful signer and response-content checks allow the plan to be
-parsed and the local auctions to start. A generic top-level verification claim,
-mock response, incomplete trace, missing proof key, wrong signer, invalid
-signature, changed plan, mismatched response hash, or unacknowledged signer
-fails closed. `x_0g_trace.tee_verified` is retained as corroborating Router
-metadata, but it is not the source of the content guarantee.
+Only successful E2EE opening, signer recovery, request-hash matching, and
+response-hash matching allow the plan to be parsed and the local auctions to
+start. A generic top-level claim, mock response, incomplete trace, missing proof
+key, wrong signer, invalid signature, changed request, changed plan, or
+unacknowledged signer fails closed. `x_0g_trace.tee_verified` is retained as
+corroborating Router metadata, but it is not the source of the content
+guarantee.
+
+Current limitation: the deployed provider's TDX quote binds its signer address,
+but its `report_data` does not yet bind the newly advertised HPKE `enc_pub`.
+Consequently, response origin and exact plan content are independently proven
+against the on-chain TEE signer, while delivery of the encryption key still
+trusts the provider's on-chain HTTPS service endpoint. The receipt exposes
+`encryptionKeyAttestationVerified: false` rather than hiding that boundary.
 
 ```text
 user key + private intent
           |
-          v
- browser -> 0G private Router
+          v  HPKE seal messages
+ browser -> 0G private Router -> pinned TeeML provider
           |
-  Router returns provider + proof key
+  locally open sealed choices + proof key
                         |
-               read 0G service contract
+             read 0G service contract
+             fetch provider signature
                         |
-                 fetch raw signature
-                        |
-             recover and match TEE signer
+       match signer + request hash + response hash
                    no /       \ yes
-                  fail     match response hash
-                              no /     \ yes
-                             fail   local mock auctions
+                  fail     parse verified plan
+                               |
+                        local mock auctions
                                   |
                                   v
                           local payment checks

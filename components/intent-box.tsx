@@ -138,7 +138,7 @@ export function IntentBox() {
         <div className="composer-footer">
           <div className="privacy-note">
             <ShieldCheck size={13} />
-            Direct to 0G · verified TEE required
+            E2EE to 0G · verified TEE response required
           </div>
           <div className="character-count">
             <span>⌘ ENTER</span>
@@ -174,8 +174,8 @@ export function IntentBox() {
             <span>REQUESTING + VERIFYING 0G PRIVATE COMPUTE</span>
             <strong>Turning your intent into market mandates</strong>
             <p>
-              Auctions wait for the on-chain signer, EIP-191 signature, and
-              exact response-hash match
+              Auctions wait for local decryption, the on-chain signer, and
+              exact request + response hash matches
             </p>
           </div>
         </div>
