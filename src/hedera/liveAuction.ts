@@ -172,11 +172,19 @@ export async function fundSellerFees(
   ctx: HederaContext,
   accounts: StoredAccount[],
 ): Promise<void> {
-  const unique = new Map(accounts.map((account) => [account.accountId, account]));
-  const transfer = new TransferTransaction();
-  for (const account of unique.values()) {
-    transfer.addHbarTransfer(account.accountId, new Hbar(1));
-    transfer.addHbarTransfer(ctx.operatorId, new Hbar(-1));
+  const unique = [
+    ...new Map(accounts.map((account) => [account.accountId, account])).values(),
+  ];
+  // Hedera caps a transfer at 10 account entries (sellers plus the
+  // operator), so plans with 4+ categories must fund in batches.
+  const BATCH = 8;
+  for (let start = 0; start < unique.length; start += BATCH) {
+    const batch = unique.slice(start, start + BATCH);
+    const transfer = new TransferTransaction();
+    for (const account of batch) {
+      transfer.addHbarTransfer(account.accountId, new Hbar(1));
+      transfer.addHbarTransfer(ctx.operatorId, new Hbar(-1));
+    }
+    await (await transfer.execute(ctx.client)).getReceipt(ctx.client);
   }
-  await (await transfer.execute(ctx.client)).getReceipt(ctx.client);
 }
