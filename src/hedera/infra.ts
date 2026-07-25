@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import {
@@ -37,30 +38,52 @@ export interface HederaInfra {
 }
 
 const MARKET_BUYER_POOL = 4;
+/** Contains generated testnet private keys; kept out of git. */
+const INFRA_PATH = "hedera-infra.json";
 
-/** Lazily add newer infra pieces to an existing hedera-infra.json. */
-async function upgradeInfra(
+function persistInfra(infra: HederaInfra): void {
+  const temporaryPath = `${INFRA_PATH}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(infra, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  chmodSync(temporaryPath, 0o600);
+  renameSync(temporaryPath, INFRA_PATH);
+  chmodSync(INFRA_PATH, 0o600);
+}
+
+export interface InfraProvisioningHooks {
+  createStoredAccount: (ctx: HederaContext) => Promise<StoredAccount>;
+  persist: (infra: HederaInfra) => void;
+}
+
+/**
+ * Lazily add only the requested sellers. Every successful account creation is
+ * checkpointed before the next network mutation, so a faucet or node failure
+ * can be resumed without losing funded testnet accounts.
+ */
+export async function upgradeInfra(
   ctx: HederaContext,
   infra: HederaInfra,
   sellers: Seller[],
-): Promise<boolean> {
-  let dirty = false;
+  hooks: InfraProvisioningHooks = {
+    createStoredAccount: createAccount,
+    persist: persistInfra,
+  },
+): Promise<void> {
   for (const seller of sellers) {
     if (!infra.sellers[seller.id]) {
-      infra.sellers[seller.id] = await createAccount(ctx);
-      dirty = true;
+      infra.sellers[seller.id] =
+        await hooks.createStoredAccount(ctx);
+      hooks.persist(infra);
     }
   }
   const pool = (infra.marketBuyers ??= []);
   while (pool.length < MARKET_BUYER_POOL) {
-    pool.push(await createAccount(ctx));
-    dirty = true;
+    pool.push(await hooks.createStoredAccount(ctx));
+    hooks.persist(infra);
   }
-  return dirty;
 }
-
-/** Contains generated testnet private keys; kept out of git. */
-const INFRA_PATH = "hedera-infra.json";
 
 export async function createAccount(
   ctx: HederaContext,
@@ -121,13 +144,7 @@ export async function ensureInfra(
   if (existsSync(INFRA_PATH)) {
     chmodSync(INFRA_PATH, 0o600);
     const infra = JSON.parse(readFileSync(INFRA_PATH, "utf8")) as HederaInfra;
-    if (await upgradeInfra(ctx, infra, sellers)) {
-      writeFileSync(INFRA_PATH, `${JSON.stringify(infra, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
-      chmodSync(INFRA_PATH, 0o600);
-    }
+    await upgradeInfra(ctx, infra, sellers);
     return infra;
   }
 
@@ -136,22 +153,15 @@ export async function ensureInfra(
     createClaimToken(ctx),
     createAccount(ctx),
   ]);
-  const sellerAccounts = await Promise.all(
-    sellers.map(async (seller) => [seller.id, await createAccount(ctx)] as const),
-  );
-
   const infra: HederaInfra = {
     network: "testnet",
     paymentTokenId,
     claimTokenId,
     buyer,
-    sellers: Object.fromEntries(sellerAccounts),
+    sellers: {},
   };
+  // Checkpoint core token/account identifiers before provisioning any seller.
+  persistInfra(infra);
   await upgradeInfra(ctx, infra, sellers);
-  writeFileSync(INFRA_PATH, `${JSON.stringify(infra, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  chmodSync(INFRA_PATH, 0o600);
   return infra;
 }

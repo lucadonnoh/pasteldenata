@@ -23,6 +23,7 @@ import {
   MockPrivatePlanner,
   requireVerifiedPrivateTee,
   resolveProofChatId,
+  VerifiedUnknownCityError,
   ZeroGPrivatePlanner,
 } from "../src/planner";
 import { createMockSellerAuctionHouses } from "../src/sellers";
@@ -106,6 +107,33 @@ function modelPlanResponse(
     ],
     ...overrides,
   };
+}
+
+function modelPlanResponseForLocation(
+  location: string,
+  scheduledFor: string,
+): Record<string, unknown> {
+  return modelPlanResponse({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            occasionTitle: `Private date in ${location}`,
+            location,
+            scheduledFor,
+            allocations: [
+              {
+                category: "dinner",
+                maxBudgetCents: 10_000,
+                requirements: ["table for two"],
+                priority: 5,
+              },
+            ],
+          }),
+        },
+      },
+    ],
+  });
 }
 
 function mockPrivateClient(
@@ -602,6 +630,57 @@ test("the 0G planner retains the exact verified Router trace", async () => {
   assert.equal(
     result.attestation.independentVerification?.verified,
     true,
+  );
+});
+
+test("the 0G planner enforces tomorrow in the selected market", async () => {
+  const result = await new ZeroGPrivatePlanner(
+    "sk-test-key",
+    "https://router-api.0g.ai/v1",
+    "0gm-1.0-35b-a3b",
+    {
+      verify: async () => independentVerification(),
+    },
+    mockPrivateClient(
+      modelPlanResponseForLocation("Tokyo", "2026-07-27"),
+    ),
+  ).plan(
+    "Organize me a date tomorrow in Tokyo. My budget is $200.",
+    new Date("2026-07-25T22:30:00Z"),
+  );
+
+  assert.equal(result.plan.location, "Tokyo");
+  assert.equal(result.plan.scheduledFor, "2026-07-27");
+});
+
+test("an unsupported market retains its verified 0G receipt", async () => {
+  await assert.rejects(
+    new ZeroGPrivatePlanner(
+      "sk-test-key",
+      "https://router-api.0g.ai/v1",
+      "0gm-1.0-35b-a3b",
+      {
+        verify: async () => independentVerification(),
+      },
+      mockPrivateClient(
+        modelPlanResponseForLocation("Barcelona", "2026-07-25"),
+      ),
+    ).plan(
+      "Organize me a date tomorrow in Barcelona. My budget is $200.",
+      NOW,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof VerifiedUnknownCityError);
+      assert.equal(error.location, "Barcelona");
+      assert.equal(error.attestation.teeVerified, true);
+      assert.equal(
+        error.attestation.independentVerification?.signatureVerified,
+        true,
+      );
+      assert.equal(error.attestation.routerTrace?.request_id, "request-1");
+      assert.equal(error.attestation.costNeuron, "30");
+      return true;
+    },
   );
 });
 
