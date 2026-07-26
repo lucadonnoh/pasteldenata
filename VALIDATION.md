@@ -101,9 +101,24 @@ reactions worth recording:
   ledger-settled, human-gated marketplace across three sponsor stacks in
   one weekend.
 
-Qualitative, sample size of one — but it was our first cold exposure to
-someone who hadn't watched it being built, and nothing in the flow needed
-explaining twice.
+Qualitative and small-sample, but consistent across three separate
+cold exposures:
+
+- **A hackathon volunteer** watched the live website end to end. He was
+  impressed by the project overall — and specifically that it was finished
+  and working by around midnight. He also engaged with it as a product,
+  not a demo: he suggested possible extensions for the future and pointed
+  us toward continuing the project at another ETHGlobal event via the
+  continuity track, matching it with sponsors whose stacks fit the
+  roadmap. Feedback that comes with a "here is how you keep going" is the
+  strongest kind.
+- **Two hackers from different teams** tried the flow themselves. Both
+  liked the core idea, were surprised by the polish of the UI, and dug
+  into the auction mechanism on Hedera — the per-listing HCS topics and
+  authenticated bid replay drew specific interest. Both enjoyed the
+  overall concept.
+- Across all three, nothing in the flow needed explaining twice — our
+  first cold exposures to people who hadn't watched it being built.
 
 ## Demo day
 
